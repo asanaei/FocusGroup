@@ -1,0 +1,177 @@
+---
+title: "Analyzing Focus Group Conversations with the FocusGroup Package"
+author: "Ali Sanaei"
+date: "`r Sys.Date()`"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{Focus Group Analysis}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>"
+)
+library(FocusGroup)
+```
+
+# Introduction
+
+The FocusGroup package provides tools for simulating and analyzing focus group conversations. This vignette demonstrates how to use the package to create, run, and analyze focus group simulations. The package uses `FGAgent`s as the agents who participate in a focus group study; these agents can be based on various LLM models potentially from different providers; see `LLMR` documentation for which providers have built-in support and how to add new ones. One `FGAgent` is always the moderator. 
+
+## Installation
+
+```{r install, eval = FALSE}
+# Install from GitHub
+remotes::install_github("yourusername/FocusGroup")
+```
+
+# Running a Simple Focus Group
+
+Let's start by running a focus group with 5 participants using the high-level wrapper. Note that you need to set your OpenAI API key in the environment variable `OPENAI_API_KEY`:
+
+```{r create_fg, eval = FALSE}
+# Set your OpenAI API key (or set it in your environment)
+Sys.setenv(OPENAI_API_KEY = "your-api-key-here")
+
+# Run a focus group with 5 participants
+result <- run_focus_group(
+  topic = "Impact of Social Media on Mental Health",
+  participants = 5
+)
+
+# View the focus group configuration
+print(result$focus_group)
+```
+
+# Viewing the Conversation
+
+```{r view_conversation, eval = FALSE}
+# View the conversation
+head(result$conversation)
+```
+
+# Analyzing the Results
+
+The package provides several analysis functions to help understand the conversation:
+
+## Basic Analysis
+
+```{r basic_analysis, eval = FALSE}
+# Get basic statistics
+stats <- analyze_focus_group(result)
+print(stats$summary)
+```
+
+## Text Analysis
+
+```{r text_analysis, eval = FALSE}
+# Analyze text complexity
+complexity <- analyze_text_complexity(result)
+print(complexity$readability)
+
+# Analyze response patterns
+patterns <- analyze_response_patterns(result)
+print(patterns$turn_patterns)
+```
+
+## Question Analysis
+
+```{r questions, eval = FALSE}
+# Analyze question patterns
+questions <- analyze_question_patterns(result)
+print(questions$question_patterns)
+```
+
+## Visualization
+
+The package includes several plotting functions:
+
+```{r plots, eval = FALSE}
+# Create participation timeline
+participation_plot <- create_participation_timeline(result)
+print(participation_plot)
+
+# Create sentiment timeline
+sentiment_plot <- create_sentiment_timeline(result)
+print(sentiment_plot)
+
+# Create readability by phase
+readability_plot <- create_readability_by_phase(result)
+print(readability_plot)
+```
+
+# Advanced Usage
+
+## Custom Agent Profiles and Manual Construction
+
+You can create custom agent profiles and manually construct a FocusGroup object:
+
+```{r custom_agents, eval = FALSE}
+# Set your OpenAI API key (or set it in your environment)
+Sys.setenv(OPENAI_API_KEY = "your-api-key-here")
+
+# Create diverse agents
+agents <- create_diverse_agents(
+  n_participants = 3,
+  demographics = list(
+    age = c(25, 35, 45),
+    gender = c("male", "female", "non-binary"),
+    education = c("high school", "bachelor's", "master's")
+  )
+)
+
+# Name the agents by their IDs
+agents_named <- setNames(agents, sapply(agents, function(a) a$id))
+
+# Find moderator ID
+moderator_id <- agents_named[[1]]$id
+
+# Create a conversation flow object
+flow_obj <- DesireBasedFlow$new(agents_named, moderator_id)
+
+# Create the FocusGroup object
+fg <- FocusGroup$new(
+  topic = "Impact of Social Media on Mental Health",
+  purpose = "To explore perspectives and experiences related to social media.",
+  agents = agents_named,
+  moderator_id = moderator_id,
+  turn_taking_flow = flow_obj
+)
+```
+
+## Custom Analysis
+
+You can perform custom analysis using the conversation data:
+
+```{r custom_analysis, eval = FALSE}
+# Extract conversation data
+conv_data <- result$conversation
+
+# Custom analysis example
+word_counts <- sapply(conv_data$message, function(x) length(strsplit(x, "\\s+")[[1]]))
+summary(word_counts)
+```
+
+# Best Practices
+
+1. Always start with a clear research question
+2. Use appropriate number of participants (typically 5-8)
+3. Set realistic duration for the simulation
+4. Review and adjust agent profiles based on your research needs
+5. Use multiple analysis methods to get a comprehensive understanding
+6. Remember to set your API key in the environment variable like `OPENAI_API_KEY`
+
+# Conclusion
+
+The FocusGroup package provides a powerful toolkit for simulating and analyzing focus group conversations. By following this vignette, you should be able to:
+
+- Create and configure focus groups
+- Run simulations with different parameters
+- Analyze conversations using various methods
+- Visualize results effectively
+- Customize the analysis to your specific needs
+
+For more information, please refer to the package documentation and examples. 

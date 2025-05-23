@@ -1,0 +1,17 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# Output files from R CMD build
+/*.tar.gz
+
+# Output files from R CMD check
+/*.Rcheck/
+..Rcheck/
+*.Rcheck/
+
+# Mac files
+.DS_Store
+/doc/
+/Meta/

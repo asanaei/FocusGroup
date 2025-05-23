@@ -1,0 +1,521 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<meta name="author" content="Ali Sanaei" />
+
+<meta name="date" content="2025-05-23" />
+
+<title>Analyzing Focus Group Conversations with the FocusGroup Package</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+<style type="text/css">
+code {
+white-space: pre;
+}
+.sourceCode {
+overflow: visible;
+}
+</style>
+<style type="text/css" data-origin="pandoc">
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { display: inline-block; text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+{ counter-reset: source-line 0; }
+pre.numberSource code > span
+{ position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+{ content: counter(source-line);
+position: relative; left: -1em; text-align: right; vertical-align: baseline;
+border: none; display: inline-block;
+-webkit-touch-callout: none; -webkit-user-select: none;
+-khtml-user-select: none; -moz-user-select: none;
+-ms-user-select: none; user-select: none;
+padding: 0 4px; width: 4em;
+color: #aaaaaa;
+}
+pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa; padding-left: 4px; }
+div.sourceCode
+{ }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+code span.al { color: #ff0000; font-weight: bold; } 
+code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.at { color: #7d9029; } 
+code span.bn { color: #40a070; } 
+code span.bu { color: #008000; } 
+code span.cf { color: #007020; font-weight: bold; } 
+code span.ch { color: #4070a0; } 
+code span.cn { color: #880000; } 
+code span.co { color: #60a0b0; font-style: italic; } 
+code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.do { color: #ba2121; font-style: italic; } 
+code span.dt { color: #902000; } 
+code span.dv { color: #40a070; } 
+code span.er { color: #ff0000; font-weight: bold; } 
+code span.ex { } 
+code span.fl { color: #40a070; } 
+code span.fu { color: #06287e; } 
+code span.im { color: #008000; font-weight: bold; } 
+code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } 
+code span.kw { color: #007020; font-weight: bold; } 
+code span.op { color: #666666; } 
+code span.ot { color: #007020; } 
+code span.pp { color: #bc7a00; } 
+code span.sc { color: #4070a0; } 
+code span.ss { color: #bb6688; } 
+code span.st { color: #4070a0; } 
+code span.va { color: #19177c; } 
+code span.vs { color: #4070a0; } 
+code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } 
+</style>
+<script>
+// apply pandoc div.sourceCode style to pre.sourceCode instead
+(function() {
+  var sheets = document.styleSheets;
+  for (var i = 0; i < sheets.length; i++) {
+    if (sheets[i].ownerNode.dataset["origin"] !== "pandoc") continue;
+    try { var rules = sheets[i].cssRules; } catch (e) { continue; }
+    var j = 0;
+    while (j < rules.length) {
+      var rule = rules[j];
+      // check if there is a div.sourceCode rule
+      if (rule.type !== rule.STYLE_RULE || rule.selectorText !== "div.sourceCode") {
+        j++;
+        continue;
+      }
+      var style = rule.style.cssText;
+      // check if color or background-color is set
+      if (rule.style.color === '' && rule.style.backgroundColor === '') {
+        j++;
+        continue;
+      }
+      // replace div.sourceCode by a pre.sourceCode rule
+      sheets[i].deleteRule(j);
+      sheets[i].insertRule('pre.sourceCode{' + style + '}', j);
+    }
+  }
+})();
+</script>
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">Analyzing Focus Group Conversations with
+the FocusGroup Package</h1>
+<h4 class="author">Ali Sanaei</h4>
+<h4 class="date">2025-05-23</h4>
+
+
+
+<div id="introduction" class="section level1">
+<h1>Introduction</h1>
+<p>The FocusGroup package provides tools for simulating and analyzing
+focus group conversations. This vignette demonstrates how to use the
+package to create, run, and analyze focus group simulations. The package
+uses <code>FGAgent</code>s as the agents who participate in a focus
+group study; these agents can be based on various LLM models potentially
+from different providers; see <code>LLMR</code> documentation for which
+providers have built-in support and how to add new ones. One
+<code>FGAgent</code> is always the moderator.</p>
+<div id="installation" class="section level2">
+<h2>Installation</h2>
+<div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="co"># Install from GitHub</span></span>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>remotes<span class="sc">::</span><span class="fu">install_github</span>(<span class="st">&quot;yourusername/FocusGroup&quot;</span>)</span></code></pre></div>
+</div>
+</div>
+<div id="running-a-simple-focus-group" class="section level1">
+<h1>Running a Simple Focus Group</h1>
+<p>Let’s start by running a focus group with 5 participants using the
+high-level wrapper. Note that you need to set your OpenAI API key in the
+environment variable <code>OPENAI_API_KEY</code>:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" tabindex="-1"></a><span class="co"># Set your OpenAI API key (or set it in your environment)</span></span>
+<span id="cb2-2"><a href="#cb2-2" tabindex="-1"></a><span class="fu">Sys.setenv</span>(<span class="at">OPENAI_API_KEY =</span> <span class="st">&quot;your-api-key-here&quot;</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" tabindex="-1"></a><span class="co"># Run a focus group with 5 participants</span></span>
+<span id="cb2-5"><a href="#cb2-5" tabindex="-1"></a>result <span class="ot">&lt;-</span> <span class="fu">run_focus_group</span>(</span>
+<span id="cb2-6"><a href="#cb2-6" tabindex="-1"></a>  <span class="at">topic =</span> <span class="st">&quot;Impact of Social Media on Mental Health&quot;</span>,</span>
+<span id="cb2-7"><a href="#cb2-7" tabindex="-1"></a>  <span class="at">participants =</span> <span class="dv">5</span></span>
+<span id="cb2-8"><a href="#cb2-8" tabindex="-1"></a>)</span>
+<span id="cb2-9"><a href="#cb2-9" tabindex="-1"></a></span>
+<span id="cb2-10"><a href="#cb2-10" tabindex="-1"></a><span class="co"># View the focus group configuration</span></span>
+<span id="cb2-11"><a href="#cb2-11" tabindex="-1"></a><span class="fu">print</span>(result<span class="sc">$</span>focus_group)</span></code></pre></div>
+</div>
+<div id="viewing-the-conversation" class="section level1">
+<h1>Viewing the Conversation</h1>
+<div class="sourceCode" id="cb3"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb3-1"><a href="#cb3-1" tabindex="-1"></a><span class="co"># View the conversation</span></span>
+<span id="cb3-2"><a href="#cb3-2" tabindex="-1"></a><span class="fu">head</span>(result<span class="sc">$</span>conversation)</span></code></pre></div>
+</div>
+<div id="analyzing-the-results" class="section level1">
+<h1>Analyzing the Results</h1>
+<p>The package provides several analysis functions to help understand
+the conversation:</p>
+<div id="basic-analysis" class="section level2">
+<h2>Basic Analysis</h2>
+<div class="sourceCode" id="cb4"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" tabindex="-1"></a><span class="co"># Get basic statistics</span></span>
+<span id="cb4-2"><a href="#cb4-2" tabindex="-1"></a>stats <span class="ot">&lt;-</span> <span class="fu">analyze_focus_group</span>(result)</span>
+<span id="cb4-3"><a href="#cb4-3" tabindex="-1"></a><span class="fu">print</span>(stats<span class="sc">$</span>summary)</span></code></pre></div>
+</div>
+<div id="text-analysis" class="section level2">
+<h2>Text Analysis</h2>
+<div class="sourceCode" id="cb5"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb5-1"><a href="#cb5-1" tabindex="-1"></a><span class="co"># Analyze text complexity</span></span>
+<span id="cb5-2"><a href="#cb5-2" tabindex="-1"></a>complexity <span class="ot">&lt;-</span> <span class="fu">analyze_text_complexity</span>(result)</span>
+<span id="cb5-3"><a href="#cb5-3" tabindex="-1"></a><span class="fu">print</span>(complexity<span class="sc">$</span>readability)</span>
+<span id="cb5-4"><a href="#cb5-4" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" tabindex="-1"></a><span class="co"># Analyze response patterns</span></span>
+<span id="cb5-6"><a href="#cb5-6" tabindex="-1"></a>patterns <span class="ot">&lt;-</span> <span class="fu">analyze_response_patterns</span>(result)</span>
+<span id="cb5-7"><a href="#cb5-7" tabindex="-1"></a><span class="fu">print</span>(patterns<span class="sc">$</span>turn_patterns)</span></code></pre></div>
+</div>
+<div id="question-analysis" class="section level2">
+<h2>Question Analysis</h2>
+<div class="sourceCode" id="cb6"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" tabindex="-1"></a><span class="co"># Analyze question patterns</span></span>
+<span id="cb6-2"><a href="#cb6-2" tabindex="-1"></a>questions <span class="ot">&lt;-</span> <span class="fu">analyze_question_patterns</span>(result)</span>
+<span id="cb6-3"><a href="#cb6-3" tabindex="-1"></a><span class="fu">print</span>(questions<span class="sc">$</span>question_patterns)</span></code></pre></div>
+</div>
+<div id="visualization" class="section level2">
+<h2>Visualization</h2>
+<p>The package includes several plotting functions:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb7-1"><a href="#cb7-1" tabindex="-1"></a><span class="co"># Create participation timeline</span></span>
+<span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>participation_plot <span class="ot">&lt;-</span> <span class="fu">create_participation_timeline</span>(result)</span>
+<span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a><span class="fu">print</span>(participation_plot)</span>
+<span id="cb7-4"><a href="#cb7-4" tabindex="-1"></a></span>
+<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a><span class="co"># Create sentiment timeline</span></span>
+<span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a>sentiment_plot <span class="ot">&lt;-</span> <span class="fu">create_sentiment_timeline</span>(result)</span>
+<span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a><span class="fu">print</span>(sentiment_plot)</span>
+<span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a></span>
+<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a><span class="co"># Create readability by phase</span></span>
+<span id="cb7-10"><a href="#cb7-10" tabindex="-1"></a>readability_plot <span class="ot">&lt;-</span> <span class="fu">create_readability_by_phase</span>(result)</span>
+<span id="cb7-11"><a href="#cb7-11" tabindex="-1"></a><span class="fu">print</span>(readability_plot)</span></code></pre></div>
+</div>
+</div>
+<div id="advanced-usage" class="section level1">
+<h1>Advanced Usage</h1>
+<div id="custom-agent-profiles-and-manual-construction" class="section level2">
+<h2>Custom Agent Profiles and Manual Construction</h2>
+<p>You can create custom agent profiles and manually construct a
+FocusGroup object:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" tabindex="-1"></a><span class="co"># Set your OpenAI API key (or set it in your environment)</span></span>
+<span id="cb8-2"><a href="#cb8-2" tabindex="-1"></a><span class="fu">Sys.setenv</span>(<span class="at">OPENAI_API_KEY =</span> <span class="st">&quot;your-api-key-here&quot;</span>)</span>
+<span id="cb8-3"><a href="#cb8-3" tabindex="-1"></a></span>
+<span id="cb8-4"><a href="#cb8-4" tabindex="-1"></a><span class="co"># Create diverse agents</span></span>
+<span id="cb8-5"><a href="#cb8-5" tabindex="-1"></a>agents <span class="ot">&lt;-</span> <span class="fu">create_diverse_agents</span>(</span>
+<span id="cb8-6"><a href="#cb8-6" tabindex="-1"></a>  <span class="at">n_participants =</span> <span class="dv">3</span>,</span>
+<span id="cb8-7"><a href="#cb8-7" tabindex="-1"></a>  <span class="at">demographics =</span> <span class="fu">list</span>(</span>
+<span id="cb8-8"><a href="#cb8-8" tabindex="-1"></a>    <span class="at">age =</span> <span class="fu">c</span>(<span class="dv">25</span>, <span class="dv">35</span>, <span class="dv">45</span>),</span>
+<span id="cb8-9"><a href="#cb8-9" tabindex="-1"></a>    <span class="at">gender =</span> <span class="fu">c</span>(<span class="st">&quot;male&quot;</span>, <span class="st">&quot;female&quot;</span>, <span class="st">&quot;non-binary&quot;</span>),</span>
+<span id="cb8-10"><a href="#cb8-10" tabindex="-1"></a>    <span class="at">education =</span> <span class="fu">c</span>(<span class="st">&quot;high school&quot;</span>, <span class="st">&quot;bachelor&#39;s&quot;</span>, <span class="st">&quot;master&#39;s&quot;</span>)</span>
+<span id="cb8-11"><a href="#cb8-11" tabindex="-1"></a>  )</span>
+<span id="cb8-12"><a href="#cb8-12" tabindex="-1"></a>)</span>
+<span id="cb8-13"><a href="#cb8-13" tabindex="-1"></a></span>
+<span id="cb8-14"><a href="#cb8-14" tabindex="-1"></a><span class="co"># Name the agents by their IDs</span></span>
+<span id="cb8-15"><a href="#cb8-15" tabindex="-1"></a>agents_named <span class="ot">&lt;-</span> <span class="fu">setNames</span>(agents, <span class="fu">sapply</span>(agents, <span class="cf">function</span>(a) a<span class="sc">$</span>id))</span>
+<span id="cb8-16"><a href="#cb8-16" tabindex="-1"></a></span>
+<span id="cb8-17"><a href="#cb8-17" tabindex="-1"></a><span class="co"># Find moderator ID</span></span>
+<span id="cb8-18"><a href="#cb8-18" tabindex="-1"></a>moderator_id <span class="ot">&lt;-</span> agents_named[[<span class="dv">1</span>]]<span class="sc">$</span>id</span>
+<span id="cb8-19"><a href="#cb8-19" tabindex="-1"></a></span>
+<span id="cb8-20"><a href="#cb8-20" tabindex="-1"></a><span class="co"># Create a conversation flow object</span></span>
+<span id="cb8-21"><a href="#cb8-21" tabindex="-1"></a>flow_obj <span class="ot">&lt;-</span> DesireBasedFlow<span class="sc">$</span><span class="fu">new</span>(agents_named, moderator_id)</span>
+<span id="cb8-22"><a href="#cb8-22" tabindex="-1"></a></span>
+<span id="cb8-23"><a href="#cb8-23" tabindex="-1"></a><span class="co"># Create the FocusGroup object</span></span>
+<span id="cb8-24"><a href="#cb8-24" tabindex="-1"></a>fg <span class="ot">&lt;-</span> FocusGroup<span class="sc">$</span><span class="fu">new</span>(</span>
+<span id="cb8-25"><a href="#cb8-25" tabindex="-1"></a>  <span class="at">topic =</span> <span class="st">&quot;Impact of Social Media on Mental Health&quot;</span>,</span>
+<span id="cb8-26"><a href="#cb8-26" tabindex="-1"></a>  <span class="at">purpose =</span> <span class="st">&quot;To explore perspectives and experiences related to social media.&quot;</span>,</span>
+<span id="cb8-27"><a href="#cb8-27" tabindex="-1"></a>  <span class="at">agents =</span> agents_named,</span>
+<span id="cb8-28"><a href="#cb8-28" tabindex="-1"></a>  <span class="at">moderator_id =</span> moderator_id,</span>
+<span id="cb8-29"><a href="#cb8-29" tabindex="-1"></a>  <span class="at">turn_taking_flow =</span> flow_obj</span>
+<span id="cb8-30"><a href="#cb8-30" tabindex="-1"></a>)</span></code></pre></div>
+</div>
+<div id="custom-analysis" class="section level2">
+<h2>Custom Analysis</h2>
+<p>You can perform custom analysis using the conversation data:</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb9-1"><a href="#cb9-1" tabindex="-1"></a><span class="co"># Extract conversation data</span></span>
+<span id="cb9-2"><a href="#cb9-2" tabindex="-1"></a>conv_data <span class="ot">&lt;-</span> result<span class="sc">$</span>conversation</span>
+<span id="cb9-3"><a href="#cb9-3" tabindex="-1"></a></span>
+<span id="cb9-4"><a href="#cb9-4" tabindex="-1"></a><span class="co"># Custom analysis example</span></span>
+<span id="cb9-5"><a href="#cb9-5" tabindex="-1"></a>word_counts <span class="ot">&lt;-</span> <span class="fu">sapply</span>(conv_data<span class="sc">$</span>message, <span class="cf">function</span>(x) <span class="fu">length</span>(<span class="fu">strsplit</span>(x, <span class="st">&quot;</span><span class="sc">\\</span><span class="st">s+&quot;</span>)[[<span class="dv">1</span>]]))</span>
+<span id="cb9-6"><a href="#cb9-6" tabindex="-1"></a><span class="fu">summary</span>(word_counts)</span></code></pre></div>
+</div>
+</div>
+<div id="best-practices" class="section level1">
+<h1>Best Practices</h1>
+<ol style="list-style-type: decimal">
+<li>Always start with a clear research question</li>
+<li>Use appropriate number of participants (typically 5-8)</li>
+<li>Set realistic duration for the simulation</li>
+<li>Review and adjust agent profiles based on your research needs</li>
+<li>Use multiple analysis methods to get a comprehensive
+understanding</li>
+<li>Remember to set your API key in the environment variable like
+<code>OPENAI_API_KEY</code></li>
+</ol>
+</div>
+<div id="conclusion" class="section level1">
+<h1>Conclusion</h1>
+<p>The FocusGroup package provides a powerful toolkit for simulating and
+analyzing focus group conversations. By following this vignette, you
+should be able to:</p>
+<ul>
+<li>Create and configure focus groups</li>
+<li>Run simulations with different parameters</li>
+<li>Analyze conversations using various methods</li>
+<li>Visualize results effectively</li>
+<li>Customize the analysis to your specific needs</li>
+</ul>
+<p>For more information, please refer to the package documentation and
+examples.</p>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

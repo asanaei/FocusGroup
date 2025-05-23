@@ -1,0 +1,12 @@
+^.*\.Rproj$
+^\.Rproj\.user$
+^\.git$
+^\.gitignore$
+^README\.md$
+^\.DS_Store$
+^\.\.\.Rcheck$
+^.*\.Rcheck$
+^FocusGroup\.Rcheck$
+^doc$
+^Meta$
+^LICENSE\.md$
