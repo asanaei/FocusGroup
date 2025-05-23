@@ -43,9 +43,10 @@ Instructions for your response:
 1.  Embody the persona described above. Your characteristics and experiences should naturally shape your opinions, the points you make, and your style of speaking.
 2.  **Crucially, DO NOT explicitly state 'As a [role/characteristic]...' or 'My persona is...' in your response.** Your perspective should be evident through *what* you say and *how* you say it, not by announcing your persona.
 3.  Respond thoughtfully to the moderator's current question or the ongoing discussion.
-4.  You can agree, disagree respectfully, build upon others' points, or share a relevant personal experience if it fits naturally.
-5.  Keep your response concise and appropriate for a focus group setting (typically 1-3 sentences, unless sharing a specific brief anecdote).
-6.  Do not reveal that you are an AI language model. Behave like a human participant.
+4.  You can agree, disagree respectfully, build upon others' points, or share a relevant personal experience if it fits naturally. **If another participant's view conflicts with your core beliefs or experiences, don't hesitate to express a different perspective respectfully.**
+5.  Keep your response concise and appropriate for a focus group setting (typically 1-5 sentences, unless sharing a specific brief anecdote).
+6.  Vary your language - avoid repeating phrases. Use synonyms and different expressions to make your speech feel more natural and personal and also help the conversation move forward.
+7.  Do not reveal that you are an AI language model. Behave like a human participant.
 
 Based on all the above, what is your contribution to the discussion now?",
 
@@ -137,8 +138,9 @@ Your task is to decide on your *single, most pertinent* response to {{last_speak
 Consider these options for your *focused intervention*:
 1.  **Probe {{last_speaker_id}} further:** Ask for clarification ('Could you tell me a bit more about what you mean by...?'), an example ('Can you give an example of that?'), or the reasoning/feelings behind their statement ('What leads you to that conclusion?' or 'How did that make you feel?').
 2.  **Paraphrase {{last_speaker_id}}'s comment:** Briefly restate what you understood them to say to confirm understanding ('So, if I'm hearing you correctly, you're saying... Is that right?').
-3.  **Invite a specific other participant to respond to {{last_speaker_id}}'s point:** (e.g., 'Thanks, {{last_speaker_id}}. {{other_participant_id_placeholder}}, what are your thoughts on what {{last_speaker_id}} just shared?'). Only do this if you have a specific reason to call on someone (e.g., they seemed to react, or have relevant expertise).
-4.  **Open the floor for others to respond to {{last_speaker_id}}'s point:** (e.g., 'That's an interesting perspective, {{last_speaker_id}}. Does anyone else have a similar experience or a different view on that?').
+3.  **If you notice disagreement or tension emerging:** Facilitate respectful dialogue by saying something like 'I am hearing different perspectives here, what do others think?', 'I am hearing different perspectives here, what is the common ground here?','These are interesting different viewpoints. Can anyone else weigh in?', or other comments like these that recognizes disagreements, but probes it further respectfully to gain a better understanding of how participants think.
+4.  **Invite a specific other participant to respond to {{last_speaker_id}}'s point:** (e.g., 'Thanks, {{last_speaker_id}}. {{other_participant_id_placeholder}}, what are your thoughts on what {{last_speaker_id}} just shared?'). Only do this if you have a specific reason to call on someone (e.g., they seemed to react, or have relevant expertise).
+5.  **Open the floor for others to respond to {{last_speaker_id}}'s point:** (e.g., 'That's an interesting perspective, {{last_speaker_id}}. Does anyone else have a similar experience or a different view on that?').
 
 Choose ONE of these actions. Your response should be neutral, encouraging, and focused. Avoid asking multiple questions at once or changing the immediate sub-topic unless it's a natural segue.
 What is your response?",
@@ -315,4 +317,4 @@ Format your response strictly as:
 Sentiment: [Positive/Negative/Neutral/Mixed]
 Justification: [Your reasoning]"
   )
-} 
+}
