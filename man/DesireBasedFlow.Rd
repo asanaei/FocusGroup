@@ -9,7 +9,7 @@ The moderator's turns are primarily handled by the `FocusGroup`'s phase/script l
 This flow is mainly for choosing which participant responds to the moderator.
 }
 \section{Super class}{
-\code{\link[FocusGroup:ConversationFlow]{FocusGroup::ConversationFlow}} -> \code{DesireBasedFlow}
+\code{FocusGroup::ConversationFlow} -> \code{DesireBasedFlow}
 }
 \section{Public fields}{
 \if{html}{\out{<div class="r6-fields">}}
