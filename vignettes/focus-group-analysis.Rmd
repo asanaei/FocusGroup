@@ -25,7 +25,7 @@ The FocusGroup package provides tools for simulating and analyzing focus group c
 
 ```{r install, eval = FALSE}
 # Install from GitHub
-remotes::install_github("yourusername/FocusGroup")
+remotes::install_github("asanaei/FocusGroup")
 ```
 
 # Running a Simple Focus Group
