@@ -1044,48 +1044,88 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
     #' @return A list with bigram and trigram analysis.
     analyze_key_phrases = function(min_freq = 2, turns = NULL, speaker_ids = NULL) {
-      if (!all(sapply(c("quanteda"), requireNamespace, quietly = TRUE))) {
-        stop("Package quanteda is required for key phrase analysis.")
+      # Ensure tidytext and dplyr are available
+      if (!all(sapply(c("tidytext", "dplyr", "tidyr"), requireNamespace, quietly = TRUE))) {
+        stop("Packages tidytext, dplyr, and tidyr are required for key phrase analysis.")
       }
 
       filtered_log <- private$get_filtered_log(turns, speaker_ids)
       if (length(filtered_log) == 0) {
         warning("Filtered log is empty for key phrase analysis.")
-        return(NULL)
+        return(list(bigrams = dplyr::tibble(), trigrams = dplyr::tibble(),
+                    total_unique_bigrams = 0, total_unique_trigrams = 0))
       }
 
       tryCatch({
-        # Extract messages
-        messages <- sapply(filtered_log, function(x) x$text)
+        # Create a tibble from the conversation log
+        conv_tibble <- dplyr::tibble(
+          doc_id = seq_along(filtered_log), # Each message as a document for n-gram extraction
+          text = sapply(filtered_log, function(x) x$text %||% "")
+        )
 
-        # Create n-grams
-        tokens_list <- quanteda::tokens(messages)
-        bigrams <- quanteda::tokens_ngrams(tokens_list, n = 2)
-        trigrams <- quanteda::tokens_ngrams(tokens_list, n = 3)
+        # --- Bigram Analysis ---
+        bigrams_tokenized <- conv_tibble %>%
+          tidytext::unnest_tokens(output = bigram, input = text, token = "ngrams", n = 2) %>%
+          dplyr::filter(!is.na(bigram)) # Remove NA bigrams that might result from very short texts
 
-        # Create document-feature matrices
-        bigram_dfm <- quanteda::dfm(bigrams)
-        trigram_dfm <- quanteda::dfm(trigrams)
+        # Optional: Remove bigrams containing stop words
+        # This is a common step to make n-grams more meaningful
+        # We separate the bigram, check each word, then filter
+        bigrams_separated <- bigrams_tokenized %>%
+          tidyr::separate(bigram, c("word1", "word2"), sep = " ", remove = FALSE, fill = "right")
 
-        # Get frequent phrases
-        frequent_bigrams <- quanteda::dfm_trim(bigram_dfm, min_termfreq = min_freq)
-        frequent_trigrams <- quanteda::dfm_trim(trigram_dfm, min_termfreq = min_freq)
+        # Anti-join against stop words for each part of the bigram
+        # A bigram is removed if EITHER word1 OR word2 is a stop word.
+        # You might adjust this logic (e.g., remove only if both are stop words, or if first/last are)
+        data("stop_words", package = "tidytext") # Ensure stop_words is loaded
 
-        # Convert to frequency tables
-        bigram_freq <- quanteda::textstat_frequency(frequent_bigrams)
-        trigram_freq <- quanteda::textstat_frequency(frequent_trigrams)
+        bigrams_cleaned <- bigrams_separated %>%
+          dplyr::anti_join(stop_words, by = c("word1" = "word")) %>%
+          dplyr::anti_join(stop_words, by = c("word2" = "word")) %>%
+          dplyr::select(doc_id, bigram) # Keep the original bigram column
+
+        total_unique_bigrams <- dplyr::n_distinct(bigrams_cleaned$bigram)
+
+        frequent_bigrams_df <- bigrams_cleaned %>%
+          dplyr::count(bigram, sort = TRUE, name = "frequency") %>%
+          dplyr::filter(frequency >= min_freq) %>%
+          dplyr::rename(feature = bigram) # Match quanteda's output column name
+
+        # --- Trigram Analysis ---
+        trigrams_tokenized <- conv_tibble %>%
+          tidytext::unnest_tokens(output = trigram, input = text, token = "ngrams", n = 3) %>%
+          dplyr::filter(!is.na(trigram))
+
+        trigrams_separated <- trigrams_tokenized %>%
+          tidyr::separate(trigram, c("word1", "word2", "word3"), sep = " ", remove = FALSE, fill = "right")
+
+        trigrams_cleaned <- trigrams_separated %>%
+          dplyr::anti_join(stop_words, by = c("word1" = "word")) %>%
+          dplyr::anti_join(stop_words, by = c("word2" = "word")) %>%
+          dplyr::anti_join(stop_words, by = c("word3" = "word")) %>% # Check all three words
+          dplyr::select(doc_id, trigram)
+
+        total_unique_trigrams <- dplyr::n_distinct(trigrams_cleaned$trigram)
+
+        frequent_trigrams_df <- trigrams_cleaned %>%
+          dplyr::count(trigram, sort = TRUE, name = "frequency") %>%
+          dplyr::filter(frequency >= min_freq) %>%
+          dplyr::rename(feature = trigram) # Match quanteda's output column name
 
         list(
-          bigrams = bigram_freq,
-          trigrams = trigram_freq,
-          total_bigrams = quanteda::nfeat(bigram_dfm),
-          total_trigrams = quanteda::nfeat(trigram_dfm)
+          bigrams = frequent_bigrams_df,
+          trigrams = frequent_trigrams_df,
+          total_unique_bigrams_after_stopwords = total_unique_bigrams,
+          total_unique_trigrams_after_stopwords = total_unique_trigrams
         )
       }, error = function(e) {
-        warning(paste("Key phrase analysis failed:", e$message))
-        return(NULL)
+        warning(paste("Key phrase analysis with tidytext failed:", e$message))
+        return(list(bigrams = dplyr::tibble(), trigrams = dplyr::tibble(),
+                    total_unique_bigrams_after_stopwords = 0, total_unique_trigrams_after_stopwords = 0))
       })
     },
+
+
 
     #' @description Create participation timeline plot showing cumulative turns by participant across phases.
     #' @return ggplot object
