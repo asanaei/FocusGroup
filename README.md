@@ -1,6 +1,6 @@
 # FocusGroup: LLM-Powered Focus Group Simulation and Analysis
 
-[![R-CMD-check](https://github.com/asanaei/FocusGroup/workflows/check/badge.svg)](https://github.com/asanaei/FocusGroup/actions)
+[![R-CMD-check](https://github.com/asanaei/FocusGroup/workflows/R-CMD-check/badge.svg)](https://github.com/asanaei/FocusGroup/actions)
 [![Experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental) 
 
 ## Overview
