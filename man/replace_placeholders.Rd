@@ -18,7 +18,7 @@ A character string with placeholders replaced by their values. If a
         it's replaced with an empty string.
 }
 \description{
-Replaces placeholders of the form `{{key}}` in a template string with
+Replaces placeholders of the form `\{\{key\}\}` in a template string with
 corresponding values from a named list.
 }
 \examples{

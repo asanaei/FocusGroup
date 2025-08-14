@@ -8,7 +8,7 @@ Selects the next speaker probabilistically based on propensities.
 Propensities decrease after speaking and recover over time.
 }
 \section{Super class}{
-\code{FocusGroup::ConversationFlow} -> \code{ProbabilisticFlow}
+\code{\link[FocusGroup:ConversationFlow]{FocusGroup::ConversationFlow}} -> \code{ProbabilisticFlow}
 }
 \section{Public fields}{
 \if{html}{\out{<div class="r6-fields">}}

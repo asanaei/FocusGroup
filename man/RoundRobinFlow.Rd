@@ -9,7 +9,7 @@ The moderator is typically handled by the `FocusGroup`'s phase logic,
 so this flow focuses on cycling through non-moderator agents.
 }
 \section{Super class}{
-\code{FocusGroup::ConversationFlow} -> \code{RoundRobinFlow}
+\code{\link[FocusGroup:ConversationFlow]{FocusGroup::ConversationFlow}} -> \code{RoundRobinFlow}
 }
 \section{Public fields}{
 \if{html}{\out{<div class="r6-fields">}}

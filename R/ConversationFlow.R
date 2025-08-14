@@ -256,42 +256,124 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 
       desire_scores <- stats::setNames(numeric(length(self$participant_ids)), self$participant_ids)
 
-      history_string <- format_conversation_history(
+      history_string <- make_prompt_history(
         focus_group$conversation_log,
-        n_recent = 7, # Configurable
+        n_recent = 7,
         include_summary = focus_group$current_conversation_summary %||% NULL
       )
-      
+
       last_utterance_info <- if (length(focus_group$conversation_log) > 0) {
-          focus_group$conversation_log[[length(focus_group$conversation_log)]]
+        focus_group$conversation_log[[length(focus_group$conversation_log)]]
       } else {
-          list(speaker_id = "N/A", text = "N/A")
+        list(speaker_id = "N/A", text = "N/A")
       }
 
-      for (agent_id in self$participant_ids) {
-        # Prevent immediate self-succession among participants
-        if (!is.null(self$last_speaker_id) && agent_id == self$last_speaker_id && length(self$participant_ids) > 1) {
-          desire_scores[agent_id] <- -1 # Effectively makes them ineligible if others want to speak
-          next
-        }
-        agent <- self$agents[[agent_id]]
-        desire_scores[agent_id] <- agent$get_need_to_talk(
-          topic = focus_group$topic,
-          conversation_history_string = history_string,
-          desire_prompt_template = focus_group$prompt_templates$participant_desire_to_talk_nuanced,
-          max_tokens_desire = focus_group$max_tokens_desire,
-          current_moderator_question = focus_group$current_question_text %||% "N/A",
-          last_speaker_id = last_utterance_info$speaker_id,
-          last_utterance_text = last_utterance_info$text
+      # Vectorized parallel desire scoring using LLMR broadcast when available
+      eligible_ids <- self$participant_ids
+      if (!is.null(self$last_speaker_id) && length(self$participant_ids) > 1) {
+        eligible_ids <- setdiff(eligible_ids, self$last_speaker_id)
+      }
+      if (length(eligible_ids) > 0 && requireNamespace("LLMR", quietly = TRUE)) {
+        # Skip broadcast if too many participants (provider QPS/rate limits)
+        use_broadcast <- length(eligible_ids) <= 8
+        if (!use_broadcast) {
+          # Fall back to per-agent scoring below
+        } else {
+        shared_cfg <- self$agents[[eligible_ids[1]]]$model_config
+        msgs <- lapply(eligible_ids, function(pid) {
+          prompt_values <- list(
+            persona_description = self$agents[[pid]]$persona_description,
+            topic = focus_group$topic,
+            conversation_history = history_string,
+            current_moderator_question = focus_group$current_question_text %||% "N/A",
+            last_speaker_id = last_utterance_info$speaker_id,
+            last_utterance_text = last_utterance_info$text
+          )
+          final_prompt <- replace_placeholders(
+            focus_group$prompt_templates$participant_desire_to_talk_nuanced,
+            prompt_values
+          )
+          list(list(role = "user", content = final_prompt))
+        })
+
+        # Per-call caps for desire scoring
+        shared_cfg$model_params$max_tokens <- 16
+        shared_cfg$model_params$temperature <- 0.1
+
+        # Optional: small parallel pool
+        out <- LLMR::call_llm_broadcast(
+          config = shared_cfg,
+          messages = msgs,
+          tries = 5,
+          wait_seconds = 2,
+          backoff_factor = 3,
+          progress = FALSE
         )
+        for (i in seq_along(eligible_ids)) {
+          pid <- eligible_ids[[i]]
+          sc <- if (isTRUE(out$success[i])) parse_score_0_10(out$response_text[i]) else 0L
+          desire_scores[pid] <- sc
+        }
+        # Fallback: if broadcast produced no positive scores, compute per-agent robustly
+        if (all(desire_scores[eligible_ids] <= 0, na.rm = TRUE)) {
+          for (pid in eligible_ids) {
+            agent <- self$agents[[pid]]
+            sc <- tryCatch({
+              agent$get_need_to_talk(
+                topic = focus_group$topic,
+                conversation_history_string = history_string,
+                desire_prompt_template = focus_group$prompt_templates$participant_desire_to_talk_nuanced,
+                max_tokens_desire = focus_group$max_tokens_desire,
+                current_moderator_question = focus_group$current_question_text %||% "N/A",
+                last_speaker_id = last_utterance_info$speaker_id,
+                last_utterance_text = last_utterance_info$text
+              )
+            }, error = function(...) 0)
+            desire_scores[pid] <- as.numeric(sc %||% 0)
+          }
+        }
+        # Mark last_speaker ineligible this round if applicable
+        if (!is.null(self$last_speaker_id) && self$last_speaker_id %in% names(desire_scores)) {
+          desire_scores[self$last_speaker_id] <- -1
+        }
+        }
+      } else {
+        for (agent_id in self$participant_ids) {
+          if (!is.null(self$last_speaker_id) && agent_id == self$last_speaker_id && length(self$participant_ids) > 1) {
+            desire_scores[agent_id] <- -1
+            next
+          }
+          agent <- self$agents[[agent_id]]
+          desire_scores[agent_id] <- agent$get_need_to_talk(
+            topic = focus_group$topic,
+            conversation_history_string = history_string,
+            desire_prompt_template = focus_group$prompt_templates$participant_desire_to_talk_nuanced,
+            max_tokens_desire = focus_group$max_tokens_desire,
+            current_moderator_question = focus_group$current_question_text %||% "N/A",
+            last_speaker_id = last_utterance_info$speaker_id,
+            last_utterance_text = last_utterance_info$text
+          )
+        }
       }
       self$last_desire_scores <- desire_scores
 
       eligible_participants <- desire_scores[desire_scores >= self$min_desire_threshold & desire_scores > -1]
 
+      # If no one meets the threshold but there's ongoing conversation, lower the bar
+      if (length(eligible_participants) == 0 && length(focus_group$conversation_log) > 2) {
+        # Allow lower threshold for ongoing conversations to maintain flow
+        eligible_participants <- desire_scores[desire_scores >= (self$min_desire_threshold - 1) & desire_scores > -1]
+      }
+
       if (length(eligible_participants) == 0) {
-        # warning("DesireBasedFlow: No participant meets the desire threshold. Moderator might need to re-engage.")
-        return(NULL) # No one wants to speak enough
+        # If still no one eligible, pick the highest scored participant even if 0 to keep conversation moving
+        if (length(desire_scores) > 0) {
+          max_score <- max(desire_scores, na.rm = TRUE)
+          candidates <- names(desire_scores[desire_scores == max_score])
+          next_speaker_id <- if (length(candidates) == 1) candidates[1] else sample(candidates, 1)
+          return(self$agents[[next_speaker_id]])
+        }
+        return(NULL)
       }
       
       max_score <- max(eligible_participants, na.rm = TRUE)

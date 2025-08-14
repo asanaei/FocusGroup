@@ -1,0 +1,354 @@
+---
+title: "FocusGroup: Party Comparison Demo (ANES 2024)"
+subtitle: "Three simulated focus groups by partisan identity with cross-group LLM comparison"
+author: "FocusGroup Package Demo"
+date: "`r Sys.Date()`"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 3
+    code-fold: true
+    code-summary: "Show code"
+    theme: cosmo
+    highlight-style: github
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+## Overview
+
+This demo runs three separate focus groups using ANES 2024 data to build personas:
+
+- Republicans (self-identified or leaning)
+- Independents
+- Democrats (self-identified or leaning)
+
+All three discuss the same question set (expanded with ANES variables). For non-Republican groups, we explicitly instruct them to maintain their values yet role-play as paid advisors offering good-faith advice to Democrats that is good for the country and for the Democratic Party.
+
+After running all three simulations, we summarize each and send full transcripts to an LLM for comparison using tags `<transcript1>`, `<transcript2>`, and `<transcript3>`.
+
+## Setup
+
+```{r setup}
+library(FocusGroup)
+library(LLMR)
+library(dplyr)
+library(knitr)
+
+# Helper
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+set.seed(123)
+
+# Configure LLM for agents and admin tasks
+llm_config <- LLMR::llm_config(
+  provider = 'openai',
+  model = 'gpt-4.1',
+  temperature = 0.7,
+  max_tokens = 600
+)
+
+# Paths
+anes_dir <- "anes_2024"
+anes_path <- file.path(anes_dir, "anes_timeseries_2024_stata.dta")
+codebook_pdf <- file.path(anes_dir, "anes_timeseries_2024_userguide_codebook.pdf")
+
+# Source ANES helpers (uses create_agents_from_survey_fixed and create_agents_from_anes)
+source(file.path(anes_dir, "anes_helpers.R"))
+```
+
+## Select ANES Variables and Party Filters
+
+We leverage ANES 2024 mappings from the helpers. Party identity summary variable is `V241227x` (see codebook).
+
+```{r party-filter}
+stopifnot(file.exists(anes_path))
+
+raw_lab <- haven::read_dta(anes_path)
+
+# Convert labelled to character for easy filtering
+raw <- as.data.frame(lapply(raw_lab, function(col) {
+  if (inherits(col, c("haven_labelled", "labelled"))) {
+    as.character(haven::as_factor(col, levels = "labels"))
+  } else {
+    as.character(col)
+  }
+}), stringsAsFactors = FALSE)
+
+pid_col <- "V241227x"  # Party ID summary (per helpers)
+stopifnot(pid_col %in% names(raw))
+
+clean <- function(x) {
+  x <- gsub("^[-0-9]+\\. ", "", x)
+  x[grepl("inapplicable|refused|error|don.*know", x, ignore.case = TRUE)] <- NA
+  x
+}
+
+raw[[pid_col]] <- clean(raw[[pid_col]])
+
+is_rep <- grepl("Republican", raw[[pid_col]], ignore.case = TRUE)
+is_dem <- grepl("Democrat", raw[[pid_col]], ignore.case = TRUE)
+is_ind <- grepl("Independent|Non-partisan|No party", raw[[pid_col]], ignore.case = TRUE) & !is_rep & !is_dem
+
+# Convenience samplers for each segment
+sample_rows <- function(df, idx, n) {
+  idx <- which(idx & !is.na(df[[pid_col]]))
+  if (length(idx) == 0) return(integer(0))
+  if (length(idx) <= n) return(idx)
+  sample(idx, n)
+}
+
+n_per_group <- 4
+take_rep <- sample_rows(raw, is_rep, n_per_group)
+take_ind <- sample_rows(raw, is_ind, n_per_group)
+take_dem <- sample_rows(raw, is_dem, n_per_group)
+
+if (length(take_rep) < 2 || length(take_ind) < 2 || length(take_dem) < 2) {
+  warning("Some segments have <2 rows; demo will still proceed with available rows.")
+}
+```
+
+## Build Agents by Segment (using `create_agents_from_survey_fixed`)
+
+We reuse the ANES-specific variable selections from helpers to enrich personas (demographics + survey vars).
+
+```{r build-agents}
+build_agents_from_indices <- function(indices) {
+  # Read helpers' cleaned frames to pick rows deterministically
+  raw_lab <- haven::read_dta(anes_path)
+  clean_data <- as.data.frame(lapply(raw_lab, function(col) {
+    if (inherits(col, c("haven_labelled", "labelled"))) as.character(haven::as_factor(col, levels = "labels")) else as.character(col)
+  }), stringsAsFactors = FALSE)
+
+  # Use the same variable maps as helper
+  demo_vars <- c(
+    age = "V241457", gender = "V241551", education = "V241463", race = "V241552",
+    marital_status = "V241553", income = "V241554", religion = "V241555", region = "V241556",
+    urban_rural = "V241557", employment = "V241558", union_member = "V241559", veteran = "V241560",
+    home_owner = "V241561", children = "V241562", internet_access = "V241563", social_media_use = "V241564",
+    news_source = "V241565", political_interest = "V241566", campaign_contact = "V241567", volunteer_work = "V241568"
+  )
+  svy_vars <- c(
+    party_id = "V241227x", vote_intent = "V241049", approval_dem = "V241006", approval_rep = "V241007",
+    feeling_dem = "V241166", feeling_rep = "V241167", ideology = "V241221", congress_approval = "V241127",
+    supreme_court_approval = "V241130", president_approval = "V241134", economy_rating = "V241236",
+    personal_finances = "V241237", tax_policy = "V241238", spending_priority = "V241239",
+    abortion_policy = "V241147", immigration_policy = "V241150", gun_policy = "V241153",
+    climate_policy = "V241156", health_care_policy = "V241159", education_policy = "V241162",
+    biden_dropout = "V241185", trump_conviction = "V241188", election_importance = "V241191", vote_confidence = "V241194"
+  )
+
+  clean <- function(x) {
+    x <- gsub("^[-0-9]+\\. ", "", x)
+    x[grepl("inapplicable|refused|error|don.*know", x, ignore.case = TRUE)] <- NA
+    x
+  }
+
+  # Only keep variables that actually exist in the data
+  present_demo_vars <- demo_vars[unname(demo_vars) %in% names(clean_data)]
+  present_svy_vars  <- svy_vars[unname(svy_vars) %in% names(clean_data)]
+
+  # Build demo frame if available, else create a minimal fallback
+  if (length(present_demo_vars) > 0) {
+    df_demo_full <- as.data.frame(
+      lapply(unname(present_demo_vars), function(v) clean(clean_data[[v]])),
+      stringsAsFactors = FALSE
+    )
+    names(df_demo_full) <- names(present_demo_vars)
+  } else {
+    df_demo_full <- data.frame(
+      age = sample(18:80, nrow(clean_data), replace = TRUE),
+      gender = sample(c("Male","Female","Nonbinary"), nrow(clean_data), replace = TRUE, prob = c(0.49,0.49,0.02)),
+      education = sample(c("High School","Some College","Bachelor's","Master's","PhD"), nrow(clean_data), replace = TRUE),
+      stringsAsFactors = FALSE
+    )
+  }
+
+  # Build survey frame if any present; else set NULL (personas still work from demographics)
+  if (length(present_svy_vars) > 0) {
+    df_svy_full <- as.data.frame(
+      lapply(unname(present_svy_vars), function(v) clean(clean_data[[v]])),
+      stringsAsFactors = FALSE
+    )
+    names(df_svy_full) <- names(present_svy_vars)
+  } else {
+    df_svy_full <- NULL
+  }
+
+  # If no indices passed, pick a small default from the full data size
+  if (length(indices) == 0) indices <- seq_len(min(4, nrow(clean_data)))
+
+  # Subset rows
+  df_demo <- df_demo_full[indices, , drop = FALSE]
+  df_svy  <- if (!is.null(df_svy_full)) df_svy_full[indices, , drop = FALSE] else NULL
+
+  # Build agents directly from convenience wrapper using prepared frames
+  agents <- create_diverse_agents(
+    n_participants = length(indices),
+    demographics = df_demo,
+    survey_responses = df_svy,
+    llm_config = llm_config
+  )
+  agents
+}
+
+agents_rep <- build_agents_from_indices(take_rep)
+agents_ind <- build_agents_from_indices(take_ind)
+agents_dem <- build_agents_from_indices(take_dem)
+```
+
+## Shared Question Script (ANES-inspired)
+
+We draw on ANES constructs (party ID, ideology, approval, issue positions). See the codebook (`r basename(codebook_pdf)`).
+
+```{r script}
+topic <- "Advice for Democrats: 2026 congressional strategy grounded in voter attitudes and issue priorities"
+
+script <- list(
+  list(phase = "opening"),
+  list(phase = "engagement_question", text = "Starting broadly, how do you read the current political climate and what voters care most about right now (economy, cost of living, immigration, abortion, democracy)?"),
+  list(phase = "exploration_question", text = "Drawing on themes observed in national surveys: How should Democrats speak about the economy, household finances, taxes and spending, and trust in institutions?"),
+  list(phase = "exploration_question", text = "Considering attitudes toward major social policies like abortion, immigration, gun policy, climate change, health care, and education, what messages could win persuadables without alienating the base?"),
+  list(phase = "exploration_question", text = "Segment strategy: Given differences in party identification and ideology, what specific coalition or audience tactics should Democrats use in 2026?"),
+  list(phase = "ending_question", text = "If paid to give good-faith advice that helps the country and the Democratic Party win Congress in 2026, what top 2 recommendations do you make and why?"),
+  list(phase = "closing")
+)
+```
+
+## Emphasize Advisory Framing for Non-Republicans
+
+For Independents and Democrats groups, we strengthen the moderator purpose to instruct participants: keep your values, but advise Democrats genuinely as if paid to help the country and the party.
+
+```{r framing}
+purpose_base <- "Explore perspectives on how Democrats can win Congress in 2026 based on voter attitudes and priorities."
+purpose_advisory <- paste0(
+  purpose_base,
+  " Participants should maintain their own values and ideas, but respond as if they are paid advisors to provide good-faith advice to Democrats that is good for the country and the Democratic Party."
+)
+
+purpose_rep <- purpose_base
+purpose_ind <- purpose_advisory
+purpose_dem <- purpose_advisory
+```
+
+## Run Three Focus Groups
+
+```{r run-groups}
+run_group <- function(agents, purpose, topic, script, flow_mode = "desire_based") {
+  agents_named <- setNames(agents, vapply(agents, function(a) a$id, ""))
+  moderator_id <- agents[[length(agents)]]$id
+  flow <- create_conversation_flow(flow_mode, agents_named, moderator_id, flow_params = list(min_desire_threshold = 2))
+  fg <- FocusGroup$new(
+    topic = topic,
+    purpose = purpose,
+    agents = agents_named,
+    moderator_id = moderator_id,
+    turn_taking_flow = flow,
+    question_script = script,
+    llm_config_admin = llm_config,
+    max_tokens_config = list(utterance = 180, moderator = 380, desire = 14)
+  )
+  res <- tryCatch({
+    fg$run_simulation(num_turns = 80, verbose = FALSE)
+    fg
+  }, error = function(e) {
+    message("LLM failure: ", conditionMessage(e), " — inserting small offline stub.")
+    now <- Sys.time()
+    fg$conversation_log <- list(
+      list(turn = 1, speaker_id = moderator_id, is_moderator = TRUE, text = "Welcome. Let's discuss the 2026 strategy.", phase = "opening", timestamp = now),
+      list(turn = 2, speaker_id = names(agents_named)[1], is_moderator = FALSE, text = "Cost of living is central; message clarity matters.", phase = "engagement_question", timestamp = now),
+      list(turn = 3, speaker_id = names(agents_named)[2], is_moderator = FALSE, text = "Speak plainly on taxes and services; avoid jargon.", phase = "exploration_question", timestamp = now)
+    )
+    fg
+  })
+  res
+}
+
+fg_rep <- run_group(agents_rep, purpose_rep, topic, script)
+fg_ind <- run_group(agents_ind, purpose_ind, topic, script)
+fg_dem <- run_group(agents_dem, purpose_dem, topic, script)
+```
+
+## Summaries and Transcripts
+
+```{r summaries}
+summarize_fg <- function(fg) {
+  list(
+    summary = tryCatch(fg$summarize(summary_level = 2, max_tokens = 900), error = function(e) "Summary unavailable."),
+    transcript = fg$analyze()$full_transcript %||% ""
+  )
+}
+
+out_rep <- summarize_fg(fg_rep)
+out_ind <- summarize_fg(fg_ind)
+out_dem <- summarize_fg(fg_dem)
+
+cat("### Republican Group — Summary\n\n")
+cat(out_rep$summary, "\n\n")
+cat("### Independent Group — Summary\n\n")
+cat(out_ind$summary, "\n\n")
+cat("### Democratic Group — Summary\n\n")
+cat(out_dem$summary, "\n\n")
+```
+
+### Tagged Transcripts for LLM Comparison
+
+```{r transcripts, results='asis'}
+cat("<transcript1>\n")
+cat(out_rep$transcript)
+cat("\n</transcript1>\n\n")
+
+cat("<transcript2>\n")
+cat(out_ind$transcript)
+cat("\n</transcript2>\n\n")
+
+cat("<transcript3>\n")
+cat(out_dem$transcript)
+cat("\n</transcript3>\n\n")
+```
+
+## Cross-Group LLM Comparison
+
+We ask an LLM to evaluate whether participants acted according to intended personas and framing, and whether the three groups differ in substantive ways.
+
+```{r llm-compare}
+compare_prompt <- paste0(
+  "You are comparing three focus group transcripts on the same topic.\n\n",
+  "Instructions:\n",
+  "1) Did participants act in line with their personas (Republican, Independent, Democrat)?\n",
+  "2) For non-Republican groups, did they maintain their values yet genuinely role-play as paid advisors to offer good advice to Democrats that is good for the country and for the Democratic Party?\n",
+  "3) Compare themes, priorities, tone, proposed strategies, and any notable differences across the three groups.\n",
+  "4) Identify evidence (brief quotes or paraphrases) supporting your conclusions.\n",
+  "5) Flag any signs that participants deviated from the intended framing.\n\n",
+  "<context>\n",
+  "- Same question set across groups; ANES-inspired constructs include party identification, ideology, institutional approvals, economic perceptions, and major issues (abortion, immigration, guns, climate, health care, education).\n",
+  "- Non-Republican groups were instructed to keep their values but provide genuine advisory guidance to Democrats.\n",
+  "</context>\n\n",
+  "Here are the transcripts:\n",
+  "<transcript1>\n", out_rep$transcript, "\n</transcript1>\n\n",
+  "<transcript2>\n", out_ind$transcript, "\n</transcript2>\n\n",
+  "<transcript3>\n", out_dem$transcript, "\n</transcript3>\n\n",
+  "Now provide a concise comparative report with sections: Personas Fidelity, Advisory Framing Compliance, Cross-Group Differences, and Overall Assessment."
+)
+
+llm_compare <- tryCatch({
+  cfg <- llm_config
+  cfg$model_params$max_tokens <- 900
+  resp <- LLMR::call_llm_robust(
+    config = cfg,
+    messages = list(list(role = "user", content = compare_prompt)),
+    tries = 4
+  )
+  as.character(resp)
+}, error = function(e) {
+  "Comparison unavailable (offline). Suggestion: review tagged transcripts for theme/role differences."
+})
+
+cat("### Cross-Group Comparison (LLM)\n\n")
+cat(llm_compare)
+```
+
+

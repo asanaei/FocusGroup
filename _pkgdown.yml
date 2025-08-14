@@ -1,0 +1,56 @@
+template:
+  bootstrap: 5
+
+url: https://asanaei.github.io/FocusGroup/
+
+home:
+  title: FocusGroup
+  description: LLM-Powered Focus Group Simulation and Analysis
+
+navbar:
+  structure:
+    left: [home, reference, articles, news]
+    right: [github]
+  components:
+    github:
+      icon: fa-github
+      href: https://github.com/asanaei/FocusGroup
+
+authors:
+  Ali Sanaei:
+    href: mailto:sanaei@uchicago.edu
+
+articles:
+  - title: Vignettes
+    contents:
+      - starts_with("architecture-and-api")
+
+reference:
+  - title: Core Classes
+    contents:
+      - FGAgent
+      - FocusGroup
+      - ConversationFlow
+      - RoundRobinFlow
+      - ProbabilisticFlow
+      - DesireBasedFlow
+  - title: High-level Wrappers
+    contents:
+      - run_focus_group
+      - fg_quick
+      - fg_analyze_quick
+      - analyze_focus_group
+  - title: Agent Creation & Survey
+    contents:
+      - create_diverse_agents
+      - create_agents_from_survey
+      - create_conversation_flow
+  - title: Prompts & Utilities
+    contents:
+      - get_default_prompt_templates
+      - format_demographics
+      - format_survey_responses
+      - format_conversation_history
+      - replace_placeholders
+
+

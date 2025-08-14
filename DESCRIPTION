@@ -1,7 +1,7 @@
 Package: FocusGroup
 Type: Package
 Title: Focus Group Simulation Using LLM Agents 
-Version: 0.2.0
+Version: 0.2.2
 Author: Ali Sanaei <sanaei@uchicago.edu>
 Maintainer: Ali Sanaei <sanaei@uchicago.edu>
 Description: Provides a comprehensive framework for simulating and analyzing 
@@ -16,20 +16,21 @@ RoxygenNote: 7.3.2
 Depends: R (>= 4.0.0)
 Imports: 
     R6,
-    LLMR,
     dplyr,
     tidyr,
+    rlang,
+    haven,
+    LLMR (>= 0.6.0)
+Suggests: 
+    testthat (>= 3.0.0),
     ggplot2,
     quanteda,
     quanteda.textstats,
     topicmodels,
-    tidytext,
-    stats,
-    utils,
-    rlang,
-    stringr
-Suggests: 
-    testthat (>= 3.0.0),
+    readr,
+    knitr,
     rmarkdown,
-    knitr
+    pkgdown
 VignetteBuilder: knitr
+URL: https://github.com/asanaei/FocusGroup, https://asanaei.github.io/FocusGroup/
+BugReports: https://github.com/asanaei/FocusGroup/issues

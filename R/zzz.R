@@ -60,7 +60,6 @@
 #' 
 #' # Perform analysis
 #' topics <- fg$analyze_topics(num_topics = 5)
-#' sentiment <- fg$analyze_sentiment()
 #' ```
 #'
 #' @section Dependencies:
@@ -85,3 +84,14 @@
 NULL
 
 NULL 
+
+# Set package options on load without overriding user choices
+.onLoad <- function(libname, pkgname) {
+  op <- options()
+  op.focusgroup <- list(
+    focusgroup.seed = getOption("focusgroup.seed", NA_integer_)
+  )
+  toset <- !(names(op.focusgroup) %in% names(op))
+  if (any(toset)) options(op.focusgroup[toset])
+  invisible()
+}

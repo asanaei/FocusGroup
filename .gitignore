@@ -2,6 +2,7 @@
 .Rhistory
 .RData
 .Ruserdata
+plan.md
 
 # Output files from R CMD build
 /*.tar.gz

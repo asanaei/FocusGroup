@@ -4,12 +4,7 @@
 #' @import R6
 #' @import dplyr
 #' @import tidyr
-#' @importFrom LLMR call_llm_robust llm_config
-#' @import quanteda
-#' @import quanteda.textstats
-#' @import topicmodels
-#' @import tidytext
-#' @import ggplot2
+#' @importFrom LLMR call_llm_robust llm_config tokens finish_reason
 NULL
 
 #' FocusGroup R6 Class
@@ -57,9 +52,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     current_question_text = NULL,
     current_conversation_summary = NULL,
     llm_config_admin = NULL, # For summarization, LLM-based analysis
-    max_tokens_utterance = 200,
-    max_tokens_moderator = 150,
-    max_tokens_desire = 20,
+    max_tokens_utterance = 160,
+    max_tokens_moderator = 400,
+    max_tokens_desire = 16,
     total_tokens_sent = 0,
     total_tokens_received = 0,
 
@@ -118,12 +113,6 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       self$total_tokens_sent <- 0
       self$total_tokens_received <- 0
-
-      # Initialize token tracking for all agents
-      private$last_agent_tokens <- stats::setNames(
-        lapply(names(self$agents), function(id) list(sent = 0, received = 0)),
-        names(self$agents)
-      )
     },
 
     #' @description Run the full focus group simulation.
@@ -145,6 +134,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
       turn_counter <- 0
       simulation_active <- TRUE
 
+      # Log a roster system message so all agents "see" who is present
+      participant_ids <- setdiff(names(self$agents), self$moderator_id)
+      roster_msg <- paste0(
+        "Participants: ", paste(participant_ids, collapse = ", "),
+        "; Moderator: ", self$moderator_id
+      )
+      private$log_message("System", roster_msg, turn_counter, is_moderator = FALSE, phase = "setup", meta = list())
+
+      # Working context ceilings and triggers (quick defaults)
+      working_context_ceiling <- 8000L
+      summarize_trigger_tokens <- 6000L
+      summarize_trigger_count  <- 30L
+      keep_recent_raw_tokens   <- 4000L
+      interim_summary_tokens   <- 250L
+
       while(simulation_active) {
         turn_counter <- turn_counter + 1
         if (!is.null(num_turns) && turn_counter > num_turns) {
@@ -155,16 +159,23 @@ FocusGroup <- R6::R6Class("FocusGroup",
         # advance_turn returns FALSE if script ends or moderator closes
         simulation_active <- self$advance_turn(current_turn_number = turn_counter, verbose = verbose)
 
-        # Interim summary logic (example: every 5 participant turns or N total words)
-        # This can be made more sophisticated
-        if (turn_counter %% 10 == 0 && length(self$conversation_log) > 5) { # Arbitrary condition
-            if (verbose) cat("\n--- Generating interim summary for context management ---\n")
-            current_transcript_for_summary <- private$get_recent_transcript_for_summary(20) # last 20 utterances
+        # Threshold-based interim summarization and prompt window trimming
+        recent_hist <- make_prompt_history(self$conversation_log, n_recent = 10, include_summary = NULL)
+        recent_tokens <- estimate_tokens(recent_hist)
+        if (recent_tokens > summarize_trigger_tokens || length(self$conversation_log) > summarize_trigger_count) {
+          if (verbose) cat("\n--- Generating interim summary for context management ---\n")
+          current_transcript_for_summary <- private$get_recent_transcript_for_summary(30)
+          interim_summary_text <- self$summarize(
+            llm_config = self$llm_config_admin,
+            summary_level = 3,
+            max_tokens = interim_summary_tokens,
+            internal_call = TRUE,
+            transcript_override = current_transcript_for_summary
+          )
+          self$current_conversation_summary <- interim_summary_text
 
-            # Use a less detailed summary for context window
-            interim_summary_text <- self$summarize(llm_config = self$llm_config_admin, summary_level = 3, max_tokens = 150, internal_call = TRUE, transcript_override = current_transcript_for_summary)
-            self$current_conversation_summary <- interim_summary_text
-            if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
+      # Prompt window trimming is effected by using small n_recent windows
+          if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
         }
       }
       if (verbose && simulation_active) cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
@@ -172,7 +183,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       # Final summary of the entire discussion
       if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
       final_summary <- self$summarize(llm_config = self$llm_config_admin, summary_level = 1, internal_call = FALSE) # Level 1 for overall summary
-      private$log_message("System", paste("Final Summary:\n", final_summary), turn_counter + 1, is_moderator = FALSE, phase = "final_summary")
+      private$log_message("System", paste("Final Summary:\n", final_summary), turn_counter + 1, is_moderator = FALSE, phase = "final_summary", meta = list())
       if (verbose) cat("Final Summary:\n", final_summary, "\n")
 
       invisible(self$conversation_log)
@@ -192,7 +203,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
         return(FALSE) # Script ended
       }
       current_phase_name <- current_phase_details$phase
-      self$current_question_text <- current_phase_details$text %||% self$topic # Fallback to topic if no specific question text
+      # Determine the current question text appropriately per phase
+      question_phases <- c("icebreaker_question", "engagement_question", "exploration_question", "probing_focused", "ending_question", "generic_discussion", "transition")
+      if (!is.null(current_phase_details$text) && nzchar(current_phase_details$text)) {
+        self$current_question_text <- current_phase_details$text
+      } else if (current_phase_name %in% question_phases) {
+        # Fallback to the overall topic only for phases that ask a question or discussion
+        self$current_question_text <- self$topic
+      } else {
+        self$current_question_text <- NULL
+      }
 
       if (verbose) {
         cat(paste0("\n--- Turn ", current_turn_number, " | Phase: ", current_phase_name))
@@ -211,6 +231,45 @@ FocusGroup <- R6::R6Class("FocusGroup",
       }
       moderator_template <- self$prompt_templates[[moderator_prompt_key]]
 
+      # Pre-fill moderator template placeholders to avoid unresolved tokens in outputs
+      last_msg <- if (length(self$conversation_log) > 0) {
+        self$conversation_log[[length(self$conversation_log)]]
+      } else {
+        list(speaker_id = "N/A", text = "N/A")
+      }
+      participant_ids <- setdiff(names(self$agents), self$moderator_id)
+      # Compute participation counts (exclude System and Moderator)
+      non_system <- Filter(function(m) !is.null(m$speaker_id) && m$speaker_id != "System", self$conversation_log)
+      non_mod <- Filter(function(m) m$speaker_id != self$moderator_id, non_system)
+      counts <- if (length(non_mod) > 0) table(vapply(non_mod, function(m) m$speaker_id, "")) else integer(0)
+      dominant_id <- if (length(counts) > 0) names(counts)[which.max(counts)] else (participant_ids %||% character(1))[1] %||% ""
+      quiet_id <- if (length(counts) > 0) names(counts)[which.min(counts)] else (participant_ids %||% character(1))[1] %||% ""
+      other_id <- {
+        cands <- setdiff(participant_ids, c(last_msg$speaker_id))
+        if (length(cands) == 0) (participant_ids %||% character(1))[1] else cands[1]
+      }
+      moderator_template_filled <- replace_placeholders_known(
+        moderator_template,
+        list(
+          topic = self$topic %||% "",
+          focus_group_purpose = self$purpose %||% "",
+          last_speaker_id = last_msg$speaker_id %||% "",
+          last_utterance_text = last_msg$text %||% "",
+          other_participant_id_placeholder = other_id %||% "",
+          dominant_speaker_id_placeholder = dominant_id %||% "",
+          quiet_speaker_id_placeholder = quiet_id %||% "",
+          next_focus_group_question = self$current_question_text %||% ""
+        )
+      )
+
+      # Force-inject the scripted question into moderator prompt only for question-type phases
+      if (current_phase_name %in% question_phases && !is.null(self$current_question_text) && nzchar(self$current_question_text)) {
+        moderator_template_filled <- paste(
+          moderator_template_filled,
+          "\n\nQuestion to pose to participants:\n", self$current_question_text
+        )
+      }
+
       # Determine max tokens for this specific moderator action
       mod_tokens <- self$max_tokens_moderator
       if (current_phase_name == "opening") mod_tokens <- 300
@@ -223,28 +282,29 @@ FocusGroup <- R6::R6Class("FocusGroup",
       # For now, `generate_utterance` will use what's available in its `prompt_values`.
 
       # Construct conversation history for the moderator
-      history_for_moderator <- format_conversation_history(
+      history_for_moderator <- make_prompt_history(
         self$conversation_log,
-        n_recent = 7, # Moderator might need slightly more context
+        n_recent = 7,
         include_summary = self$current_conversation_summary
       )
 
-      moderator_utterance <- moderator_agent$generate_utterance(
+      mod_res <- moderator_agent$generate_utterance(
         topic = self$topic,
         conversation_history_string = history_for_moderator,
-        utterance_prompt_template = moderator_template,
+        utterance_prompt_template = moderator_template_filled,
         max_tokens_utterance = mod_tokens,
         current_moderator_question = self$current_question_text, # This is the question *being asked* or *related to*
         conversation_summary_so_far = self$current_conversation_summary,
         current_phase = current_phase_name
       )
-      private$log_message(self$moderator_id, moderator_utterance, current_turn_number, is_moderator = TRUE, phase = current_phase_name)
-      if (verbose) cat(paste0(self$moderator_id, " (Moderator): ", moderator_utterance, "\n"))
+      mod_text <- if (is.list(mod_res)) mod_res$text else as.character(mod_res)
+      mod_meta <- if (is.list(mod_res) && !is.null(mod_res$meta)) mod_res$meta else list()
+      private$log_message(self$moderator_id, mod_text, current_turn_number, is_moderator = TRUE, phase = current_phase_name, meta = mod_meta)
+      if (verbose) cat(paste0(self$moderator_id, " (Moderator): ", mod_text, "\n"))
 
-      # Update total tokens
-      self$total_tokens_sent <- self$total_tokens_sent + moderator_agent$tokens_sent_agent - private$last_agent_tokens[[self$moderator_id]]$sent
-      self$total_tokens_received <- self$total_tokens_received + moderator_agent$tokens_received_agent - private$last_agent_tokens[[self$moderator_id]]$received
-      private$last_agent_tokens[[self$moderator_id]] <- list(sent = moderator_agent$tokens_sent_agent, received = moderator_agent$tokens_received_agent)
+      # Update total tokens (per-call accounting)
+      self$total_tokens_sent <- self$total_tokens_sent + (mod_meta$sent_tokens %||% 0L)
+      self$total_tokens_received <- self$total_tokens_received + (mod_meta$rec_tokens %||% 0L)
 
 
       # If moderator's action was closing, end simulation
@@ -253,51 +313,61 @@ FocusGroup <- R6::R6Class("FocusGroup",
         return(FALSE)
       }
 
-      # 3. Participant(s) Respond (if applicable for the phase)
+            # 3. Participant(s) Respond (if applicable for the phase)
       # Typically, after moderator asks a question or makes a point requiring response.
       # Phases like "opening", "summarizing", "transition", "closing" might not immediately solicit a participant response via flow.
       phases_expecting_participant_response <- c("icebreaker_question", "engagement_question", "exploration_question", "probing_focused", "ending_question", "generic_discussion")
 
       if (current_phase_name %in% phases_expecting_participant_response) {
-        # For now, let one participant respond per moderator turn that expects response.
-        # More complex logic could allow multiple participants or a "free discussion" period.
-        next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
+        # Allow multiple participants to respond organically before moderator intervenes again
+        # This creates more natural conversation flow
+        participants_responded_this_round <- 0
+        max_participant_responses <- 3  # Allow up to 3 participant exchanges before moderator can intervene
+        
+        repeat {
+          next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
 
-        if (!is.null(next_participant)) {
-          if (next_participant$id == self$moderator_id && length(self$agents) > 1) {
-             if (verbose) cat("Turn-taking flow selected moderator during participant response phase. Moderator may need to re-prompt or manage flow.\n")
+          if (!is.null(next_participant)) {
+            if (next_participant$id == self$moderator_id && length(self$agents) > 1) {
+              if (verbose) cat("Turn-taking flow selected moderator during participant response phase. Allowing moderator to manage flow.\n")
+              break # Let moderator intervene if selected by flow
+            } else {
+              if (verbose) cat(paste("Selected participant by flow:", next_participant$id, "\n"))
+
+              history_for_participant <- make_prompt_history(self$conversation_log, n_recent = 5, include_summary = self$current_conversation_summary)
+
+              part_res <- next_participant$generate_utterance(
+                topic = self$topic,
+                conversation_history_string = history_for_participant,
+                utterance_prompt_template = self$prompt_templates$participant_utterance_subtle_persona,
+                max_tokens_utterance = max(self$max_tokens_utterance, 220L),
+                current_moderator_question = self$current_question_text, # The question they are responding to
+                conversation_summary_so_far = self$current_conversation_summary,
+                current_phase = current_phase_name
+              )
+              part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
+              part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()
+              private$log_message(next_participant$id, part_text, turn_number = NULL, is_moderator = FALSE, phase = current_phase_name, meta = part_meta)
+              if (verbose) cat(paste0(next_participant$id, ": ", part_text, "\n"))
+
+              self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
+
+              # Update total tokens (per-call accounting)
+              self$total_tokens_sent <- self$total_tokens_sent + (part_meta$sent_tokens %||% 0L)
+              self$total_tokens_received <- self$total_tokens_received + (part_meta$rec_tokens %||% 0L)
+              
+              participants_responded_this_round <- participants_responded_this_round + 1
+
+              # Break if we've had enough participant exchanges or if no one else wants to talk
+              if (participants_responded_this_round >= max_participant_responses) {
+                if (verbose) cat("Maximum participant exchanges reached for this round.\n")
+                break
+              }
+            }
           } else {
-            if (verbose) cat(paste("Selected participant by flow:", next_participant$id, "\n"))
-
-            history_for_participant <- format_conversation_history(
-              self$conversation_log, # Now includes moderator's latest utterance
-              n_recent = 5,
-              include_summary = self$current_conversation_summary
-            )
-
-            participant_utterance <- next_participant$generate_utterance(
-              topic = self$topic,
-              conversation_history_string = history_for_participant,
-              utterance_prompt_template = self$prompt_templates$participant_utterance_subtle_persona,
-              max_tokens_utterance = self$max_tokens_utterance,
-              current_moderator_question = self$current_question_text, # The question they are responding to
-              conversation_summary_so_far = self$current_conversation_summary,
-              current_phase = current_phase_name
-            )
-            private$log_message(next_participant$id, participant_utterance, current_turn_number, is_moderator = FALSE, phase = current_phase_name)
-            if (verbose) cat(paste0(next_participant$id, ": ", participant_utterance, "\n"))
-
-            self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
-
-            # Update total tokens
-            self$total_tokens_sent <- self$total_tokens_sent + next_participant$tokens_sent_agent - private$last_agent_tokens[[next_participant$id]]$sent
-            self$total_tokens_received <- self$total_tokens_received + next_participant$tokens_received_agent - private$last_agent_tokens[[next_participant$id]]$received
-            private$last_agent_tokens[[next_participant$id]] <- list(sent = next_participant$tokens_sent_agent, received = next_participant$tokens_received_agent)
-
+            if (verbose) cat("No participant selected by flow (e.g., low desire). Ending participant response round.\n")
+            break
           }
-        } else {
-          if (verbose) cat("No participant selected by flow (e.g., low desire). Moderator might need to prompt again or manage participation.\n")
-          # Moderator could have a "manage_participation" phase/action here.
         }
       }
 
@@ -369,14 +439,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
       response_obj <- LLMR::call_llm_robust(
         config = current_call_config,
         messages = list(list(role = "user", content = full_prompt)),
-        tries = 5
+        tries = 5,
+        wait_seconds = 2,
+        backoff_factor = 3
       )
       summary_text <- as.character(response_obj)
 
       if (!internal_call) { # Only add to group totals if it's an "external" summarization request
-          usage <- .extract_llm_usage(response_obj)
-          self$total_tokens_sent <- self$total_tokens_sent + (usage$prompt_tokens %||% 0)
-          self$total_tokens_received <- self$total_tokens_received + (usage$completion_tokens %||% 0)
+          u <- LLMR::tokens(response_obj)
+          self$total_tokens_sent <- self$total_tokens_sent + (u$sent %||% 0L)
+          self$total_tokens_received <- self$total_tokens_received + (u$rec %||% 0L)
       }
       return(summary_text)
     },
@@ -706,111 +778,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       return(result)
     },
 
-    #' @description Perform sentiment analysis per utterance using tidytext.
-    #' @param sentiment_lexicon Character. Sentiment lexicon to use: "afinn", "bing", or "nrc".
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A tibble with `turn`, `speaker_id`, `text`, `sentiment`, `sentiment_score`.
-    analyze_sentiment = function(sentiment_lexicon = "afinn", turns = NULL, speaker_ids = NULL) {
-      if (!all(sapply(c("tidytext", "dplyr"), requireNamespace, quietly = TRUE))) {
-        stop("Packages tidytext and dplyr are required for sentiment analysis.")
-      }
-
-      valid_lexicons <- c("afinn", "bing", "nrc")
-      if (!sentiment_lexicon %in% valid_lexicons) {
-        stop("sentiment_lexicon must be one of: ", paste(valid_lexicons, collapse = ", "))
-      }
-
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-        warning("Filtered conversation log is empty for sentiment analysis.")
-        return(dplyr::tibble())
-      }
-
-      tryCatch({
-        # Extract data from filtered log
-        results <- list()
-
-        for (i in seq_along(filtered_log)) {
-          msg <- filtered_log[[i]]
-
-          # Tokenize the text
-          text_tokens <- dplyr::tibble(text = msg$text) %>%
-            tidytext::unnest_tokens(.data$word, .data$text) %>%
-            dplyr::anti_join(tidytext::stop_words, by = "word")
-
-          # Get sentiment scores based on lexicon
-          if (sentiment_lexicon == "afinn") {
-            sentiment_scores <- text_tokens %>%
-              dplyr::inner_join(tidytext::get_sentiments("afinn"), by = "word") %>%
-              dplyr::pull(.data$value)
-
-            if (length(sentiment_scores) > 0) {
-              avg_score <- mean(sentiment_scores)
-              sentiment_label <- dplyr::case_when(
-                avg_score > 0.5 ~ "Positive",
-                avg_score < -0.5 ~ "Negative",
-                TRUE ~ "Neutral"
-              )
-            } else {
-              avg_score <- 0
-              sentiment_label <- "Neutral"
-            }
-
-          } else if (sentiment_lexicon == "bing") {
-            sentiment_counts <- text_tokens %>%
-              dplyr::inner_join(tidytext::get_sentiments("bing"), by = "word") %>%
-              dplyr::count(.data$sentiment, sort = TRUE)
-
-            if (nrow(sentiment_counts) > 0) {
-              pos_count <- sentiment_counts$n[sentiment_counts$sentiment == "positive"] %||% 0
-              neg_count <- sentiment_counts$n[sentiment_counts$sentiment == "negative"] %||% 0
-              avg_score <- pos_count - neg_count
-
-              sentiment_label <- dplyr::case_when(
-                pos_count > neg_count ~ "Positive",
-                neg_count > pos_count ~ "Negative",
-                TRUE ~ "Neutral"
-              )
-            } else {
-              avg_score <- 0
-              sentiment_label <- "Neutral"
-            }
-
-          } else if (sentiment_lexicon == "nrc") {
-            emotions <- text_tokens %>%
-              dplyr::inner_join(tidytext::get_sentiments("nrc"), by = "word") %>%
-              dplyr::count(.data$sentiment, sort = TRUE)
-
-            if (nrow(emotions) > 0) {
-              top_emotion <- emotions$sentiment[1]
-              sentiment_label <- dplyr::case_when(
-                top_emotion %in% c("positive", "joy", "trust", "anticipation") ~ "Positive",
-                top_emotion %in% c("negative", "sadness", "anger", "fear", "disgust") ~ "Negative",
-                TRUE ~ "Neutral"
-              )
-              avg_score <- emotions$n[1]
-            } else {
-              sentiment_label <- "Neutral"
-              avg_score <- 0
-            }
-          }
-
-          results[[i]] <- list(
-            turn = msg$turn,
-            speaker_id = msg$speaker_id,
-            text = msg$text,
-            sentiment = sentiment_label,
-            sentiment_score = avg_score
-          )
-        }
-
-        dplyr::bind_rows(results)
-      }, error = function(e) {
-        warning(paste("Sentiment analysis failed:", e$message))
-        return(dplyr::tibble())
-      })
-    },
+    # analyze_sentiment removed
 
     #' @description Perform statistical analysis on conversation patterns.
     #' @param turns Integer vector. Optional. Specific turns to analyze.
@@ -1077,11 +1045,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
         # Anti-join against stop words for each part of the bigram
         # A bigram is removed if EITHER word1 OR word2 is a stop word.
         # You might adjust this logic (e.g., remove only if both are stop words, or if first/last are)
-        data("stop_words", package = "tidytext") # Ensure stop_words is loaded
+        # Use tidytext::stop_words directly to avoid loading into global env # Ensure stop_words is loaded
 
         bigrams_cleaned <- bigrams_separated %>%
-          dplyr::anti_join(stop_words, by = c("word1" = "word")) %>%
-          dplyr::anti_join(stop_words, by = c("word2" = "word")) %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word1" = "word")) %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word2" = "word")) %>%
           dplyr::select(doc_id, bigram) # Keep the original bigram column
 
         total_unique_bigrams <- dplyr::n_distinct(bigrams_cleaned$bigram)
@@ -1100,9 +1068,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
           tidyr::separate(trigram, c("word1", "word2", "word3"), sep = " ", remove = FALSE, fill = "right")
 
         trigrams_cleaned <- trigrams_separated %>%
-          dplyr::anti_join(stop_words, by = c("word1" = "word")) %>%
-          dplyr::anti_join(stop_words, by = c("word2" = "word")) %>%
-          dplyr::anti_join(stop_words, by = c("word3" = "word")) %>% # Check all three words
+          dplyr::anti_join(tidytext::stop_words, by = c("word1" = "word")) %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word2" = "word")) %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word3" = "word")) %>% # Check all three words
           dplyr::select(doc_id, trigram)
 
         total_unique_trigrams <- dplyr::n_distinct(trigrams_cleaned$trigram)
@@ -1317,7 +1285,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     },
 
     # Helper to log a message
-    log_message = function(speaker_id, text, turn_number, is_moderator = NULL, phase = "unknown") {
+    log_message = function(speaker_id, text, turn_number, is_moderator = NULL, phase = "unknown", meta = list()) {
       if (is.null(is_moderator)) {
         is_moderator <- (speaker_id == self$moderator_id)
       }
@@ -1327,7 +1295,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
         is_moderator = is_moderator,
         text = text,
         timestamp = Sys.time(),
-        phase = phase
+        phase = phase,
+        response_id = meta$response_id %||% NA_character_,
+        finish_reason = meta$finish_reason %||% NA_character_,
+        sent_tokens = meta$sent_tokens %||% NA_integer_,
+        rec_tokens = meta$rec_tokens %||% NA_integer_,
+        total_tokens = meta$total_tokens %||% NA_integer_,
+        duration_s = meta$duration_s %||% NA_real_,
+        provider = meta$provider %||% NA_character_,
+        model = meta$model %||% NA_character_
       )
       self$conversation_log <- c(self$conversation_log, list(msg))
     },
@@ -1349,7 +1325,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     },
 
     # Store last token counts per agent to calculate diff for group total
-    last_agent_tokens = list(), # Initialized in FocusGroup$initialize
+    last_agent_tokens = list(),
 
     # Helper to get recent transcript for interim summary
     get_recent_transcript_for_summary = function(n_recent_utterances = 10) {

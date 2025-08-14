@@ -1,7 +1,11 @@
 # FocusGroup: LLM-Powered Focus Group Simulation and Analysis
 
-[![R-CMD-check](https://github.com/asanaei/FocusGroup/workflows/R-CMD-check/badge.svg)](https://github.com/asanaei/FocusGroup/actions)
-[![Experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental) 
+<img src="assets/FocusGroup_icon_512x512.jpg" alt="FocusGroup icon" width="120" />
+
+[![R-CMD-check](https://github.com/asanaei/FocusGroup/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/asanaei/FocusGroup/actions/workflows/R-CMD-check.yaml)
+[![pkgdown](https://github.com/asanaei/FocusGroup/actions/workflows/pkgdown.yaml/badge.svg)](https://github.com/asanaei/FocusGroup/actions/workflows/pkgdown.yaml)
+[![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
+[![Website](https://img.shields.io/badge/docs-pkgdown-blue)](https://asanaei.github.io/FocusGroup/)
 
 ## Overview
 
@@ -67,8 +71,8 @@ if (Sys.getenv("OPENAI_API_KEY") == "") {
 llm_config_agents <- LLMR::llm_config(
   provider = "openai",
   model = "gpt-4o-mini", # Or your preferred model
-  api_key = Sys.getenv("OPENAI_API_KEY"),
-  model_params = list(temperature = 0.7, max_tokens = 200)
+  temperature = 0.7,
+  max_tokens = 200
 )
 
 # Run a basic focus group
@@ -108,8 +112,9 @@ library(LLMR)
 
 # a. Define LLM Configuration
 llm_conf <- LLMR::llm_config(
-  provider = "openai", model = "gpt-4o-mini", api_key = Sys.getenv("OPENAI_API_KEY"),
-  model_params = list(temperature = 0.7)
+  provider = "openai",
+  model = "gpt-4o-mini",
+  temperature = 0.7
 )
 
 # b. Create Agents (using create_diverse_agents or manually)
@@ -190,7 +195,7 @@ Manages the overall simulation, conversation flow, logging, and analysis.
     -   `advance_turn(current_turn_number, verbose)`: Core logic for a single moderator-participant exchange.
     -   `summarize(summary_level, ...)`: Generates an LLM-based summary of the conversation.
     -   `analyze()`: Provides basic conversation statistics.
-    -   `analyze_topics()`, `analyze_sentiment()`, `analyze_tfidf()`, `analyze_readability()`, `analyze_themes()`: Various detailed analysis methods.
+    -   `analyze_topics()`, `analyze_tfidf()`, `analyze_readability()`, `analyze_themes()`: Various detailed analysis methods.
     -   Plotting methods like `plot_participation_timeline()`, `plot_word_count_distribution()`, etc.
 
 ### `ConversationFlow` (and subclasses)
@@ -238,7 +243,6 @@ default_prompts$moderator_opening <- "Hello everyone, and a very warm welcome! T
 The `FocusGroup` class offers several built-in analysis methods:
 -   `analyze()`: Basic statistics (turn counts, word counts).
 -   `analyze_topics(num_topics = 5, ...)`: LDA topic modeling.
--   `analyze_sentiment(sentiment_lexicon = "afinn", ...)`: Sentiment per utterance.
 -   `analyze_tfidf(top_n_terms = 10, ...)`: Term Frequency-Inverse Document Frequency.
 -   `analyze_readability(measures = "Flesch", ...)`: Readability scores.
 -   `analyze_themes(...)`: LLM-assisted thematic analysis.

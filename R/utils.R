@@ -4,12 +4,11 @@
 #' @importFrom stats runif setNames
 #' @importFrom utils modifyList
 #' @importFrom rlang .data
-#' @importFrom stringr str_count str_split
 NULL
 
-# Null-coalescing operator
+# Null-coalescing operator (handles NULL and length-0)
 `%||%` <- function(x, y) {
-  if (is.null(x)) y else x
+  if (is.null(x) || length(x) == 0) y else x
 }
 
 # --- Formatting Helpers ---
@@ -115,9 +114,36 @@ format_conversation_history <- function(conversation_log, n_recent = 7, include_
 }
 
 
+# ---- Token & parsing utilities ---------------------------------------------
+
+#' Estimate tokens from text (rough)
+#' @keywords internal
+estimate_tokens <- function(text) {
+  if (is.null(text) || length(text) == 0) return(0L)
+  as.integer(nchar(as.character(text)[1]) / 4)
+}
+
+#' Parse a 0–10 integer score from free text
+#' @keywords internal
+parse_score_0_10 <- function(text) {
+  txt <- as.character(text)[1]
+  m <- regexpr("\\b(10|[0-9])\\b", txt, perl = TRUE)
+  if (m[1] == -1) return(0L)
+  val <- as.integer(regmatches(txt, m)[[1]])
+  if (is.na(val)) return(0L)
+  max(0L, min(10L, val))
+}
+
+#' Build prompt history string for role-specific windows
+#' @keywords internal
+make_prompt_history <- function(log, n_recent = 5, include_summary = NULL) {
+  format_conversation_history(log, n_recent = n_recent, include_summary = include_summary)
+}
+
+
 #' Replace Placeholders in a String
 #'
-#' Replaces placeholders of the form `{{key}}` in a template string with
+#' Replaces placeholders of the form `\{\{key\}\}` in a template string with
 #' corresponding values from a named list.
 #'
 #' @param template_string A character string containing placeholders.
@@ -162,6 +188,26 @@ replace_placeholders <- function(template_string, values_list) {
   return(processed_string)
 }
 
+#' Replace only KNOWN placeholders, preserving unknown tokens
+#' @keywords internal
+replace_placeholders_known <- function(template_string, values_list) {
+  if (is.null(template_string) || !is.character(template_string) || length(template_string) != 1) {
+    stop("template_string must be a single character string.")
+  }
+  if (is.null(values_list)) values_list <- list()
+  if (!is.list(values_list)) stop("values_list must be a list.")
+
+  processed_string <- template_string
+  if (length(values_list) > 0) {
+    for (key in names(values_list)) {
+      placeholder_regex <- paste0("\\{\\{", gsub("([.+?^${}()|\\[\\]\\\\])", "\\\\\\1", key, perl=TRUE), "\\}\\}")
+      replacement_value <- if (!is.null(values_list[[key]])) as.character(values_list[[key]]) else ""
+      processed_string <- gsub(placeholder_regex, replacement_value, processed_string, perl = TRUE)
+    }
+  }
+  return(processed_string)
+}
+
 # LLM Response Parsers (simplified, assuming LLMR provides structured output)
 # These might need adjustment based on how LLMR standardizes responses from different providers.
 # For now, we assume LLMR::call_llm_robust returns the main text directly
@@ -172,20 +218,12 @@ replace_placeholders <- function(template_string, values_list) {
 # where token info is in an attribute or a list element.
 # If not, we'd need to parse the raw JSON response if available.
 .extract_llm_usage <- function(llm_response_object) {
-  # Ideal scenario: LLMR standardizes this.
-  # Example: if (inherits(llm_response_object, "llmr_response_with_usage")) {
-  #   return(list(
-  #     prompt_tokens = llm_response_object$usage$prompt_tokens,
-  #     completion_tokens = llm_response_object$usage$completion_tokens
-  #   ))
-  # }
-  # Fallback: Try to find common patterns if raw response is available
-  raw_resp <- attr(llm_response_object, "raw_response_details") # Hypothetical attribute
-  if (!is.null(raw_resp) && is.list(raw_resp) && !is.null(raw_resp$usage)) {
-    return(list(
-      prompt_tokens = raw_resp$usage$prompt_tokens %||% raw_resp$usage$input_tokens %||% 0,
-      completion_tokens = raw_resp$usage$completion_tokens %||% raw_resp$usage$output_tokens %||% 0
-    ))
+  if (inherits(llm_response_object, "llmr_response")) {
+    # Prefer provider-agnostic tokens() from LLMR
+    u <- tryCatch(LLMR::tokens(llm_response_object), error = function(...) NULL)
+    if (!is.null(u)) {
+      return(list(prompt_tokens = u$sent %||% 0L, completion_tokens = u$rec %||% 0L))
+    }
   }
-  return(list(prompt_tokens = 0, completion_tokens = 0)) # Default if not found
-} 
+  list(prompt_tokens = 0L, completion_tokens = 0L)
+}

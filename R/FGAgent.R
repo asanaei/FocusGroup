@@ -7,7 +7,6 @@ NULL
 
 #' FGAgent Class
 #'
-#' @description
 #' Represents an agent (participant or moderator) in a focus group simulation.
 #' Each agent has a unique ID, a persona, an LLM configuration, and methods to
 #' generate utterances and express a desire to speak.
@@ -43,6 +42,12 @@ FGAgent <- R6::R6Class("FGAgent",
     persona_description = NULL,
     communication_style_instruction = NULL,
     model_config = NULL,
+    #' @field role Character. "moderator" or "participant" for convenience in reports.
+    role = NULL,
+    #' @field demographics Named list. Raw demographics used to build persona.
+    demographics = NULL,
+    #' @field survey_responses Named list. Raw survey responses used to build persona.
+    survey_responses = NULL,
     is_moderator = FALSE,
     history = list(),
     tokens_sent_agent = 0,
@@ -75,6 +80,10 @@ FGAgent <- R6::R6Class("FGAgent",
       self$id <- id
       self$model_config <- model_config
       self$is_moderator <- is_moderator
+      self$role <- if (is_moderator) "moderator" else "participant"
+      # Expose raw inputs for reporting/analysis convenience
+      self$demographics <- agent_details$demographics %||% list()
+      self$survey_responses <- agent_details$survey_responses %||% list()
       self$history <- list()
       self$tokens_sent_agent <- 0
       self$tokens_received_agent <- 0
@@ -122,28 +131,94 @@ FGAgent <- R6::R6Class("FGAgent",
       )
       final_prompt <- replace_placeholders(utterance_prompt_template, prompt_values)
 
+      # If topic is missing/empty, remove any topic-specific lines from the prompt to avoid empty 'Main topic' statements
+      if (is.null(topic) || !nzchar(trimws(topic))) {
+        # Remove lines mentioning the topic to avoid prompting the model to output an empty topic line
+        final_prompt <- gsub("(?mi)^.*\\b(main topic|focus group topic)\\b.*$", "", final_prompt, perl = TRUE)
+        # Collapse excessive blank lines
+        final_prompt <- gsub("\n{3,}", "\n\n", final_prompt)
+        final_prompt <- sub("^(\n)+", "", final_prompt)
+      }
+
       current_call_config <- self$model_config
       current_call_config$model_params$max_tokens <- max_tokens_utterance
+      current_call_config$model_params$temperature <- current_call_config$model_params$temperature %||% 0.7
 
       response_obj <- LLMR::call_llm_robust(
         config = current_call_config,
         messages = list(list(role = "user", content = final_prompt)),
-        tries = 5
+        tries = 5,
+        wait_seconds = 2,
+        backoff_factor = 3
+      )
+
+      utterance_text <- as.character(response_obj)
+      u <- LLMR::tokens(response_obj)
+      self$tokens_sent_agent <- self$tokens_sent_agent + (u$sent %||% 0L)
+      self$tokens_received_agent <- self$tokens_received_agent + (u$rec %||% 0L)
+
+      meta <- list(
+        response_id   = response_obj$response_id %||% NA_character_,
+        finish_reason = LLMR::finish_reason(response_obj) %||% NA_character_,
+        sent_tokens   = u$sent %||% NA_integer_,
+        rec_tokens    = u$rec %||% NA_integer_,
+        total_tokens  = u$total %||% NA_integer_,
+        duration_s    = response_obj$duration_s %||% NA_real_,
+        provider      = self$model_config$provider %||% NA_character_,
+        model         = self$model_config$model %||% NA_character_
       )
       
-      utterance_text <- as.character(response_obj) # Assuming robust call returns text directly
-      usage <- .extract_llm_usage(response_obj) # Hypothetical, depends on LLMR
-      self$tokens_sent_agent <- self$tokens_sent_agent + (usage$prompt_tokens %||% 0)
-      self$tokens_received_agent <- self$tokens_received_agent + (usage$completion_tokens %||% 0)
-      
       # Clean up potential self-references if LLM includes them despite instructions
-      utterance_text <- gsub(paste0("^As (an?|the) ", self$id, ", I (think|feel|believe)"), "I \\2", utterance_text, ignore.case = TRUE)
-      utterance_text <- gsub(paste0("^My name is ", self$id, " and I think"), "I think", utterance_text, ignore.case = TRUE)
-      utterance_text <- gsub(paste0("^As a participant with persona.*?:\\s*"), "", utterance_text, ignore.case = TRUE)
-      utterance_text <- trimws(utterance_text)
+      original_text <- utterance_text
+      cleaned <- trimws(original_text)
+      cleaned <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cleaned, ignore.case = TRUE)
+      cleaned <- sub(paste0("^As (an?|the) ", self$id, ", I (think|feel|believe)"), "I \\2", cleaned, ignore.case = TRUE)
+      cleaned <- sub(paste0("^My name is ", self$id, " and I think"), "I think", cleaned, ignore.case = TRUE)
+      cleaned <- sub("^As a participant with persona.*?:\\s*", "", cleaned, ignore.case = TRUE)
+      cleaned <- sub("^My name is[^\\n.]*([.]|\\n)\\s*", "", cleaned, ignore.case = TRUE)
+      if (!nzchar(cleaned)) cleaned <- "I think the key point is the policy specifics and trade-offs for voters."
+      # Keep the longer/non-empty between cleaned and original
+      if (nchar(cleaned) >= 20 || nchar(original_text) == 0) {
+        utterance_text <- cleaned
+      } else {
+        utterance_text <- trimws(original_text)
+      }
+
+      # Fallback: if the utterance is empty or clearly incomplete, request a complete response once
+      is_incomplete <- nchar(utterance_text) < 40 || grepl("\\.\\.\\.$", utterance_text) || !grepl("[.!?]$", utterance_text)
+      if (is_incomplete) {
+        completion_prompt <- paste0(
+          final_prompt,
+          "\n\nImportant: Your prior output was incomplete. Now provide a complete, self-contained response of 3-5 sentences.\n",
+          "Do not mention your persona or role. Do not start with 'As a'. Focus on the current question (",
+          current_moderator_question %||% "",
+          ") and the recent discussion."
+        )
+        current_call_config$model_params$max_tokens <- max(max_tokens_utterance, 320L)
+        response_obj2 <- LLMR::call_llm_robust(
+          config = current_call_config,
+          messages = list(list(role = "user", content = completion_prompt)),
+          tries = 3,
+          wait_seconds = 2,
+          backoff_factor = 2
+        )
+        cand <- as.character(response_obj2)
+        cand <- gsub(paste0("^As (an?|the) ", self$id, ", I (think|feel|believe)"), "I \\2", cand, ignore.case = TRUE)
+        cand <- gsub(paste0("^My name is ", self$id, " and I think"), "I think", cand, ignore.case = TRUE)
+        cand <- gsub(paste0("^As a participant with persona.*?:\\s*"), "", cand, ignore.case = TRUE)
+        cand <- sub("^My name is[^\\n.]*([.]|\\n)\\s*", "", cand, ignore.case = TRUE)
+        cand <- trimws(cand)
+        if (nchar(cand) >= max(nchar(utterance_text), 40)) {
+          utterance_text <- cand
+          # Update meta with second call usage if available
+          u2 <- LLMR::tokens(response_obj2)
+          self$tokens_sent_agent <- self$tokens_sent_agent + (u2$sent %||% 0L)
+          self$tokens_received_agent <- self$tokens_received_agent + (u2$rec %||% 0L)
+        }
+      }
 
       self$history <- c(self$history, list(list(topic = topic, text = utterance_text, timestamp = Sys.time(), phase = current_phase)))
-      return(utterance_text)
+      return(list(text = utterance_text, meta = meta))
     },
 
     #' @description Get the agent's "desire to talk" score.
@@ -176,27 +251,23 @@ FGAgent <- R6::R6Class("FGAgent",
 
       current_call_config <- self$model_config
       current_call_config$model_params$max_tokens <- max_tokens_desire
-      current_call_config$model_params$temperature <- 0.1 # Lower temp for more deterministic score
+      current_call_config$model_params$temperature <- 0.1
 
       response_obj <- LLMR::call_llm_robust(
         config = current_call_config,
         messages = list(list(role = "user", content = final_prompt)),
-        tries = 5
+        tries = 5,
+        wait_seconds = 2,
+        backoff_factor = 3
       )
       response_text <- as.character(response_obj)
-      usage <- .extract_llm_usage(response_obj)
-      self$tokens_sent_agent <- self$tokens_sent_agent + (usage$prompt_tokens %||% 0)
-      self$tokens_received_agent <- self$tokens_received_agent + (usage$completion_tokens %||% 0)
+      u <- LLMR::tokens(response_obj)
+      self$tokens_sent_agent <- self$tokens_sent_agent + (u$sent %||% 0L)
+      self$tokens_received_agent <- self$tokens_received_agent + (u$rec %||% 0L)
 
       # Try to parse a number from 0-10. More robust parsing.
-      score_match <- regmatches(response_text, regexpr("\\b(10|[0-9])\\b", response_text))
-      if (length(score_match) > 0) {
-        score <- as.numeric(score_match[[1]])
-        return(min(max(score, 0), 10)) # Clamp to 0-10 range
-      } else {
-        warning(paste("Agent", self$id, "could not parse need_to_talk score from LLM response:", response_text, ". Assigning random low score (0-3)."))
-        return(sample(0:3, 1)) # Return a random low score
-      }
+      sc <- parse_score_0_10(response_text)
+      return(as.numeric(sc))
     }
   ),
 

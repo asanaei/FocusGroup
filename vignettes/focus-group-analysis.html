@@ -12,9 +12,9 @@
 
 <meta name="author" content="Ali Sanaei" />
 
-<meta name="date" content="2025-05-23" />
+<meta name="date" content="2025-08-26" />
 
-<title>Analyzing Focus Group Conversations with the FocusGroup Package</title>
+<title>Focus Group Analysis</title>
 
 <script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
 // be compatible with the behavior of Pandoc < 2.8).
@@ -338,10 +338,9 @@ code > span.er { color: #a61717; background-color: #e3d2d2; }
 
 
 
-<h1 class="title toc-ignore">Analyzing Focus Group Conversations with
-the FocusGroup Package</h1>
+<h1 class="title toc-ignore">Focus Group Analysis</h1>
 <h4 class="author">Ali Sanaei</h4>
-<h4 class="date">2025-05-23</h4>
+<h4 class="date">2025-08-26</h4>
 
 
 
@@ -355,10 +354,27 @@ group study; these agents can be based on various LLM models potentially
 from different providers; see <code>LLMR</code> documentation for which
 providers have built-in support and how to add new ones. One
 <code>FGAgent</code> is always the moderator.</p>
+<div id="llmr-0.6.0-compatibility-notes" class="section level2">
+<h2>LLMR 0.6.0 compatibility notes</h2>
+<ul>
+<li>Generative calls return an <code>llmr_response</code> object. Use
+<code>as.character(resp)</code> for text, and
+<code>LLMR::tokens(resp)</code> and
+<code>LLMR::finish_reason(resp)</code> for usage/metadata.</li>
+<li>The legacy <code>json = TRUE</code> argument was removed from
+<code>LLMR::call_llm()</code> and <code>LLMR::call_llm_robust()</code>.
+You do not need to set it; FocusGroup handles responses correctly
+without it.</li>
+<li>Recommended: set your provider API key in an environment variable
+(e.g., <code>OPENAI_API_KEY</code>). You can omit <code>api_key</code>
+in <code>LLMR::llm_config(...)</code> and LLMR will read it
+automatically.</li>
+</ul>
+</div>
 <div id="installation" class="section level2">
 <h2>Installation</h2>
 <div class="sourceCode" id="cb1"><pre class="sourceCode r"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" tabindex="-1"></a><span class="co"># Install from GitHub</span></span>
-<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>remotes<span class="sc">::</span><span class="fu">install_github</span>(<span class="st">&quot;yourusername/FocusGroup&quot;</span>)</span></code></pre></div>
+<span id="cb1-2"><a href="#cb1-2" tabindex="-1"></a>remotes<span class="sc">::</span><span class="fu">install_github</span>(<span class="st">&quot;asanaei/FocusGroup&quot;</span>)</span></code></pre></div>
 </div>
 </div>
 <div id="running-a-simple-focus-group" class="section level1">
@@ -416,13 +432,11 @@ the conversation:</p>
 <span id="cb7-2"><a href="#cb7-2" tabindex="-1"></a>participation_plot <span class="ot">&lt;-</span> <span class="fu">create_participation_timeline</span>(result)</span>
 <span id="cb7-3"><a href="#cb7-3" tabindex="-1"></a><span class="fu">print</span>(participation_plot)</span>
 <span id="cb7-4"><a href="#cb7-4" tabindex="-1"></a></span>
-<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a><span class="co"># Create sentiment timeline</span></span>
-<span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a>sentiment_plot <span class="ot">&lt;-</span> <span class="fu">create_sentiment_timeline</span>(result)</span>
-<span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a><span class="fu">print</span>(sentiment_plot)</span>
-<span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a></span>
-<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a><span class="co"># Create readability by phase</span></span>
-<span id="cb7-10"><a href="#cb7-10" tabindex="-1"></a>readability_plot <span class="ot">&lt;-</span> <span class="fu">create_readability_by_phase</span>(result)</span>
-<span id="cb7-11"><a href="#cb7-11" tabindex="-1"></a><span class="fu">print</span>(readability_plot)</span></code></pre></div>
+<span id="cb7-5"><a href="#cb7-5" tabindex="-1"></a><span class="do">## (Sentiment visualizations removed to simplify dependencies.)</span></span>
+<span id="cb7-6"><a href="#cb7-6" tabindex="-1"></a></span>
+<span id="cb7-7"><a href="#cb7-7" tabindex="-1"></a><span class="co"># Create readability by phase</span></span>
+<span id="cb7-8"><a href="#cb7-8" tabindex="-1"></a>readability_plot <span class="ot">&lt;-</span> <span class="fu">create_readability_by_phase</span>(result)</span>
+<span id="cb7-9"><a href="#cb7-9" tabindex="-1"></a><span class="fu">print</span>(readability_plot)</span></code></pre></div>
 </div>
 </div>
 <div id="advanced-usage" class="section level1">

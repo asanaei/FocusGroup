@@ -64,7 +64,6 @@ used for managing context length in prompts.}
 \item \href{#method-FocusGroup-analyze_tfidf}{\code{FocusGroup$analyze_tfidf()}}
 \item \href{#method-FocusGroup-analyze_readability}{\code{FocusGroup$analyze_readability()}}
 \item \href{#method-FocusGroup-analyze_themes}{\code{FocusGroup$analyze_themes()}}
-\item \href{#method-FocusGroup-analyze_sentiment}{\code{FocusGroup$analyze_sentiment()}}
 \item \href{#method-FocusGroup-analyze_statistics}{\code{FocusGroup$analyze_statistics()}}
 \item \href{#method-FocusGroup-analyze_participation_balance}{\code{FocusGroup$analyze_participation_balance()}}
 \item \href{#method-FocusGroup-analyze_response_patterns}{\code{FocusGroup$analyze_response_patterns()}}
@@ -346,34 +345,6 @@ Perform LLM-assisted thematic analysis on the transcript.
 }
 \subsection{Returns}{
 A list with `themes_summary` (character string from LLM) and `raw_llm_response`.
-}
-}
-\if{html}{\out{<hr>}}
-\if{html}{\out{<a id="method-FocusGroup-analyze_sentiment"></a>}}
-\if{latex}{\out{\hypertarget{method-FocusGroup-analyze_sentiment}{}}}
-\subsection{Method \code{analyze_sentiment()}}{
-Perform sentiment analysis per utterance using tidytext.
-\subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_sentiment(
-  sentiment_lexicon = "afinn",
-  turns = NULL,
-  speaker_ids = NULL
-)}\if{html}{\out{</div>}}
-}
-
-\subsection{Arguments}{
-\if{html}{\out{<div class="arguments">}}
-\describe{
-\item{\code{sentiment_lexicon}}{Character. Sentiment lexicon to use: "afinn", "bing", or "nrc".}
-
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
-
-\item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
-}
-\if{html}{\out{</div>}}
-}
-\subsection{Returns}{
-A tibble with `turn`, `speaker_id`, `text`, `sentiment`, `sentiment_score`.
 }
 }
 \if{html}{\out{<hr>}}

@@ -1,5 +1,5 @@
 ---
-title: "Analyzing Focus Group Conversations with the FocusGroup Package"
+title: "Focus Group Analysis"
 author: "Ali Sanaei"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
@@ -20,6 +20,12 @@ library(FocusGroup)
 # Introduction
 
 The FocusGroup package provides tools for simulating and analyzing focus group conversations. This vignette demonstrates how to use the package to create, run, and analyze focus group simulations. The package uses `FGAgent`s as the agents who participate in a focus group study; these agents can be based on various LLM models potentially from different providers; see `LLMR` documentation for which providers have built-in support and how to add new ones. One `FGAgent` is always the moderator. 
+
+## LLMR 0.6.0 compatibility notes
+
+- Generative calls return an `llmr_response` object. Use `as.character(resp)` for text, and `LLMR::tokens(resp)` and `LLMR::finish_reason(resp)` for usage/metadata.
+- The legacy `json = TRUE` argument was removed from `LLMR::call_llm()` and `LLMR::call_llm_robust()`. You do not need to set it; FocusGroup handles responses correctly without it.
+- Recommended: set your provider API key in an environment variable (e.g., `OPENAI_API_KEY`). You can omit `api_key` in `LLMR::llm_config(...)` and LLMR will read it automatically.
 
 ## Installation
 
@@ -94,9 +100,7 @@ The package includes several plotting functions:
 participation_plot <- create_participation_timeline(result)
 print(participation_plot)
 
-# Create sentiment timeline
-sentiment_plot <- create_sentiment_timeline(result)
-print(sentiment_plot)
+## (Sentiment visualizations removed to simplify dependencies.)
 
 # Create readability by phase
 readability_plot <- create_readability_by_phase(result)

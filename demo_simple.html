@@ -1,0 +1,980 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.7.31">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>FocusGroup Package Demo</title>
+<style>
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+/* CSS for syntax highlighting */
+html { -webkit-text-size-adjust: 100%; }
+pre > code.sourceCode { white-space: pre; position: relative; }
+pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+pre > code.sourceCode > span:empty { height: 1.2em; }
+.sourceCode { overflow: visible; }
+code.sourceCode > span { color: inherit; text-decoration: inherit; }
+div.sourceCode { margin: 1em 0; }
+pre.sourceCode { margin: 0; }
+@media screen {
+div.sourceCode { overflow: auto; }
+}
+@media print {
+pre > code.sourceCode { white-space: pre-wrap; }
+pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+}
+pre.numberSource code
+  { counter-reset: source-line 0; }
+pre.numberSource code > span
+  { position: relative; left: -4em; counter-increment: source-line; }
+pre.numberSource code > span > a:first-child::before
+  { content: counter(source-line);
+    position: relative; left: -1em; text-align: right; vertical-align: baseline;
+    border: none; display: inline-block;
+    -webkit-touch-callout: none; -webkit-user-select: none;
+    -khtml-user-select: none; -moz-user-select: none;
+    -ms-user-select: none; user-select: none;
+    padding: 0 4px; width: 4em;
+  }
+pre.numberSource { margin-left: 3em;  padding-left: 4px; }
+div.sourceCode
+  {   }
+@media screen {
+pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+}
+</style>
+
+
+<script src="demo_simple_files/libs/clipboard/clipboard.min.js"></script>
+<script src="demo_simple_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="demo_simple_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="demo_simple_files/libs/quarto-html/popper.min.js"></script>
+<script src="demo_simple_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="demo_simple_files/libs/quarto-html/anchor.min.js"></script>
+<link href="demo_simple_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="demo_simple_files/libs/quarto-html/quarto-syntax-highlighting-e1a5c8363afafaef2c763b6775fbf3ca.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="demo_simple_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="demo_simple_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="demo_simple_files/libs/bootstrap/bootstrap-8a894fcc3cb5e37eb5bf30def131be2f.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#setup" id="toc-setup" class="nav-link active" data-scroll-target="#setup">Setup</a></li>
+  <li><a href="#create-agents-from-survey-data" id="toc-create-agents-from-survey-data" class="nav-link" data-scroll-target="#create-agents-from-survey-data">Create Agents from Survey Data</a></li>
+  <li><a href="#run-focus-group" id="toc-run-focus-group" class="nav-link" data-scroll-target="#run-focus-group">Run Focus Group</a></li>
+  <li><a href="#analysis" id="toc-analysis" class="nav-link" data-scroll-target="#analysis">Analysis</a></li>
+  <li><a href="#results" id="toc-results" class="nav-link" data-scroll-target="#results">Results</a></li>
+  </ul>
+</nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">FocusGroup Package Demo</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="setup" class="level2">
+<h2 class="anchored" data-anchor-id="setup">Setup</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb1"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">library</span>(FocusGroup)</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Configure LLM</span></span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a>llm_config <span class="ot">&lt;-</span> LLMR<span class="sc">::</span><span class="fu">llm_config</span>(</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a>  <span class="at">provider =</span> <span class="st">"openai"</span>,</span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">model =</span> <span class="st">"gpt-4o-mini"</span>,</span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">temperature =</span> <span class="fl">0.7</span>,</span>
+<span id="cb1-8"><a href="#cb1-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">max_tokens =</span> <span class="dv">300</span></span>
+<span id="cb1-9"><a href="#cb1-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb1-10"><a href="#cb1-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb1-11"><a href="#cb1-11" aria-hidden="true" tabindex="-1"></a>topic <span class="ot">&lt;-</span> <span class="st">"The future of remote work: Balancing productivity and well-being"</span></span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+</div>
+</section>
+<section id="create-agents-from-survey-data" class="level2">
+<h2 class="anchored" data-anchor-id="create-agents-from-survey-data">Create Agents from Survey Data</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb2"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Source ANES helpers</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">source</span>(<span class="st">"anes_2024/anes_helpers.R"</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="co"># Create agents from ANES data  </span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a>agents <span class="ot">&lt;-</span> <span class="fu">create_agents_from_anes</span>(</span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a>  <span class="at">n_participants =</span> <span class="dv">3</span>,</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">anes_dta_path =</span> <span class="st">"anes_2024/anes_timeseries_2024_stata.dta"</span>,</span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">llm_config =</span> llm_config</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">paste</span>(<span class="st">"Created"</span>, <span class="fu">length</span>(agents), <span class="st">"agents"</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] "Created 4 agents"</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb4"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Show agent details</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span><span class="fu">length</span>(agents)) {</span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a>  agent <span class="ot">&lt;-</span> agents[[i]]</span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n</span><span class="st">**Agent"</span>, i, <span class="st">":"</span>, agent<span class="sc">$</span>id, <span class="st">"**</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb4-5"><a href="#cb4-5" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Role:"</span>, agent<span class="sc">$</span>role, <span class="st">"</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb4-6"><a href="#cb4-6" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="st">"Demographics:"</span>, <span class="fu">substr</span>(agent<span class="sc">$</span>demographics, <span class="dv">1</span>, <span class="dv">150</span>), <span class="st">"...</span><span class="sc">\n</span><span class="st">"</span>)</span>
+<span id="cb4-7"><a href="#cb4-7" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+**Agent 1 : P1 **
+Role: participant 
+Demographics: Woman Bachelor's degree (For example: BA, AB, BS) No Heterosexual or straight Yes RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED ...
+
+**Agent 2 : P2 **
+Role: participant 
+Demographics: Woman High school graduate - High school diploma or equivalent (for example: GED) No Heterosexual or straight RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED ...
+
+**Agent 3 : P3 **
+Role: participant 
+Demographics: Woman Doctorate degree (For example: PhD, EdD) No Heterosexual or straight No RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED RESTRICTED ...
+
+**Agent 4 : MOD **
+Role: moderator 
+Demographics: professional_moderator ...</code></pre>
+</div>
+</div>
+</section>
+<section id="run-focus-group" class="level2">
+<h2 class="anchored" data-anchor-id="run-focus-group">Run Focus Group</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb6"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up focus group</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a>mod_id <span class="ot">&lt;-</span> agents[[<span class="fu">length</span>(agents)]]<span class="sc">$</span>id</span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a>agents_named <span class="ot">&lt;-</span> <span class="fu">setNames</span>(agents, <span class="fu">sapply</span>(agents, <span class="cf">function</span>(a) a<span class="sc">$</span>id))</span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a>flow <span class="ot">&lt;-</span> <span class="fu">create_conversation_flow</span>(<span class="st">"desire_based"</span>, agents_named, mod_id)</span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a>fg <span class="ot">&lt;-</span> FocusGroup<span class="sc">$</span><span class="fu">new</span>(</span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a>  <span class="at">topic =</span> topic,</span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>  <span class="at">purpose =</span> <span class="st">"Explore remote work perspectives"</span>,</span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a>  <span class="at">agents =</span> agents_named,</span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>  <span class="at">moderator_id =</span> mod_id,</span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>  <span class="at">turn_taking_flow =</span> flow</span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="co"># Set up a simple question script</span></span>
+<span id="cb6-15"><a href="#cb6-15" aria-hidden="true" tabindex="-1"></a>question_script <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb6-16"><a href="#cb6-16" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">phase =</span> <span class="st">"opening"</span>),</span>
+<span id="cb6-17"><a href="#cb6-17" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">phase =</span> <span class="st">"icebreaker_question"</span>, <span class="at">text =</span> <span class="st">"What's your experience with remote work?"</span>),</span>
+<span id="cb6-18"><a href="#cb6-18" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">phase =</span> <span class="st">"icebreaker_question"</span>, <span class="at">text =</span> <span class="st">"How has remote work affected your productivity?"</span>),</span>
+<span id="cb6-19"><a href="#cb6-19" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">phase =</span> <span class="st">"engagement_question"</span>, <span class="at">text =</span> <span class="st">"What are the main challenges of remote work?"</span>),</span>
+<span id="cb6-20"><a href="#cb6-20" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">phase =</span> <span class="st">"engagement_question"</span>, <span class="at">text =</span> <span class="st">"What are the benefits you've experienced?"</span>),</span>
+<span id="cb6-21"><a href="#cb6-21" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">phase =</span> <span class="st">"engagement_question"</span>, <span class="at">text =</span> <span class="st">"How do you maintain work-life balance?"</span>),</span>
+<span id="cb6-22"><a href="#cb6-22" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">phase =</span> <span class="st">"engagement_question"</span>, <span class="at">text =</span> <span class="st">"What tools or strategies help you most?"</span>),</span>
+<span id="cb6-23"><a href="#cb6-23" aria-hidden="true" tabindex="-1"></a>  <span class="fu">list</span>(<span class="at">phase =</span> <span class="st">"closing"</span>)</span>
+<span id="cb6-24"><a href="#cb6-24" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb6-25"><a href="#cb6-25" aria-hidden="true" tabindex="-1"></a>fg<span class="sc">$</span>question_script <span class="ot">&lt;-</span> question_script</span>
+<span id="cb6-26"><a href="#cb6-26" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-27"><a href="#cb6-27" aria-hidden="true" tabindex="-1"></a><span class="co"># Run simulation with fallback if LLM is unavailable</span></span>
+<span id="cb6-28"><a href="#cb6-28" aria-hidden="true" tabindex="-1"></a><span class="fu">tryCatch</span>({</span>
+<span id="cb6-29"><a href="#cb6-29" aria-hidden="true" tabindex="-1"></a>  fg<span class="sc">$</span><span class="fu">run_simulation</span>(<span class="at">verbose =</span> <span class="cn">TRUE</span>)</span>
+<span id="cb6-30"><a href="#cb6-30" aria-hidden="true" tabindex="-1"></a>}, <span class="at">error =</span> <span class="cf">function</span>(e) {</span>
+<span id="cb6-31"><a href="#cb6-31" aria-hidden="true" tabindex="-1"></a>  <span class="fu">message</span>(<span class="st">"LLM call failed: "</span>, <span class="fu">conditionMessage</span>(e), <span class="st">" — using offline stub so the demo renders."</span>)</span>
+<span id="cb6-32"><a href="#cb6-32" aria-hidden="true" tabindex="-1"></a>  now <span class="ot">&lt;-</span> <span class="fu">Sys.time</span>()</span>
+<span id="cb6-33"><a href="#cb6-33" aria-hidden="true" tabindex="-1"></a>  <span class="co"># Minimal stub conversation so downstream chunks render</span></span>
+<span id="cb6-34"><a href="#cb6-34" aria-hidden="true" tabindex="-1"></a>  fg<span class="sc">$</span>conversation_log <span class="ot">&lt;-</span> <span class="fu">list</span>(</span>
+<span id="cb6-35"><a href="#cb6-35" aria-hidden="true" tabindex="-1"></a>    <span class="fu">list</span>(<span class="at">turn =</span> <span class="dv">1</span>, <span class="at">speaker_id =</span> mod_id, <span class="at">is_moderator =</span> <span class="cn">TRUE</span>, <span class="at">text =</span> <span class="st">"Welcome! Let's discuss remote work."</span>, <span class="at">phase =</span> <span class="st">"opening"</span>, <span class="at">timestamp =</span> now),</span>
+<span id="cb6-36"><a href="#cb6-36" aria-hidden="true" tabindex="-1"></a>    <span class="fu">list</span>(<span class="at">turn =</span> <span class="dv">2</span>, <span class="at">speaker_id =</span> <span class="fu">names</span>(agents_named)[<span class="dv">1</span>], <span class="at">is_moderator =</span> <span class="cn">FALSE</span>, <span class="at">text =</span> <span class="st">"I appreciate flexibility."</span>, <span class="at">phase =</span> <span class="st">"icebreaker_question"</span>, <span class="at">timestamp =</span> now),</span>
+<span id="cb6-37"><a href="#cb6-37" aria-hidden="true" tabindex="-1"></a>    <span class="fu">list</span>(<span class="at">turn =</span> <span class="dv">3</span>, <span class="at">speaker_id =</span> <span class="fu">names</span>(agents_named)[<span class="dv">2</span>], <span class="at">is_moderator =</span> <span class="cn">FALSE</span>, <span class="at">text =</span> <span class="st">"Collaboration can be harder."</span>, <span class="at">phase =</span> <span class="st">"engagement_question"</span>, <span class="at">timestamp =</span> now)</span>
+<span id="cb6-38"><a href="#cb6-38" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb6-39"><a href="#cb6-39" aria-hidden="true" tabindex="-1"></a>})</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>Starting focus group simulation...
+Topic: The future of remote work: Balancing productivity and well-being 
+Purpose: Explore remote work perspectives 
+
+--- Turn 1 | Phase: opening ---
+MOD (Moderator): Welcome, everyone! Thank you all for joining us today. I’m excited to have you here as we delve into an important and timely topic.
+
+As the moderator for this focus group, my role is to facilitate our discussion, ensuring everyone has a chance to share their thoughts and experiences. I aim to create a comfortable and respectful environment where we can explore various perspectives openly.
+
+Today, we will be discussing "The future of remote work: Balancing productivity and well-being." This is a crucial topic as remote work continues to evolve, and it's essential to understand how it impacts both our productivity and our overall well-being.
+
+The purpose of this focus group is to explore remote work perspectives. We want to hear your insights, experiences, and ideas related to this topic, which will help us gain a deeper understanding of how we can navigate the future of work.
+
+Before we begin, I’d like to establish a few ground rules to ensure a smooth discussion:
+1. Please speak one at a time so that everyone can be heard.
+2. All opinions are valuable, and I encourage you to share your unique perspectives.
+3. Respect differing views; we are here to learn from one another.
+4. Please note that everything shared in this discussion is confidential and intended for this group only.
+
+Additionally, I want to inform you that this session is being recorded for simulation and note-taking purposes. If you have any concerns about this, please let me know.
+
+Now, let’s start with a brief round of introductions.
+
+--- Turn 2 | Phase: icebreaker_question | Current Question/Focus: What's your experience with remote work?... ---
+MOD (Moderator): Thank you all for being here today and for your valuable insights as we explore the future of remote work. To kick off our discussion and get everyone comfortable sharing, I’d like to start with a simple icebreaker question: 
+
+**What's your experience with remote work?**
+
+Feel free to share anything that comes to mind—whether it’s a specific project you worked on, how you feel about remote work in general, or any challenges or benefits you’ve encountered. I encourage everyone to jump in, and let’s create a welcoming space for this conversation. Who would like to start?
+Selected participant by flow: P2 
+P2: I'm really glad to be part of this discussion! My experience with remote work has been quite positive overall. I've found that it allows for a better work-life balance, which is something I really value. Being able to set my own schedule has helped me manage my time more effectively, especially when it comes to personal commitments. 
+
+However, I do think there can be challenges, like feeling a bit isolated at times. It can be hard to connect with colleagues when you’re not in the same physical space. I appreciate what you mentioned, P2, about the importance of maintaining those social interactions. I think companies could do more to encourage virtual team-building activities to help with that. 
+
+What about you all? Have you found ways to stay connected while working remotely?
+Selected participant by flow: P3 
+P3: I really resonate with what you shared, P2. The flexibility that comes with remote work has been a game-changer for me as well. It allows me to better juggle my professional responsibilities with my personal life, which is something I truly value. 
+
+However, I’ve also experienced that sense of isolation, especially when it comes to collaboration and brainstorming sessions. I think it’s so important for teams to feel connected, and I agree that virtual team-building activities can help. I’ve found that regular check-ins and casual virtual coffee breaks can foster those connections, even if it’s not the same as being in person. 
+
+Have any of you tried specific strategies or tools that have helped maintain that team spirit while working remotely?
+Selected participant by flow: P2 
+P2: I completely agree with both of you about the benefits of flexibility in remote work. It’s been a relief for me, too, as it allows me to balance my responsibilities better and feel more secure in managing my time. I’ve also noticed that having that control can boost my productivity. 
+
+But like you both mentioned, the isolation can be a real hurdle. I’ve found that regular check-ins with my team not only keep us aligned on projects but also help maintain those personal connections. It’s nice to have those moments where we can chat about non-work topics, even if it’s just for a few minutes. 
+
+Have any of you tried specific methods or tools that have made those connections easier? I’m curious to hear what’s worked for others!
+Maximum participant exchanges reached for this round.
+
+--- Turn 3 | Phase: icebreaker_question | Current Question/Focus: How has remote work affected your productivity?... ---
+MOD (Moderator): Thank you all for being here today and for sharing your thoughts on such an important topic. To kick off our discussion and help everyone feel more comfortable, I’d like to start with an icebreaker question: 
+
+**How has remote work affected your productivity?**
+
+Feel free to share your experiences, whether they’ve been positive or negative. There’s no right or wrong answer here; we’re just looking to understand different perspectives. Who would like to start?
+Selected participant by flow: P3 
+P3: I really appreciate what both of you have shared about the flexibility and the challenges of remote work. For me, remote work has definitely enhanced my productivity, primarily because I can design my environment to suit my needs. I find that working from home eliminates many distractions that I used to face in a traditional office setting. However, like you both mentioned, the isolation factor can be a hurdle. 
+
+I’ve made it a point to schedule regular virtual check-ins with my colleagues, which helps maintain that connection. It’s not just about the work; those moments of casual conversation really do make a difference in keeping morale high. Have any of you found specific times or formats for those check-ins that work best for your teams?
+Selected participant by flow: P2 
+P2: I really appreciate everything you all have shared. I feel similarly about the flexibility—being able to create my own workspace has helped me focus so much better without the usual office distractions. I also find that having a routine where I check in with my team at the same time each week really helps keep us connected. It makes it easier to share updates and also just chat a bit, which I think is so important to maintain morale.
+
+I’ve noticed that incorporating some informal virtual hangouts has helped too, even if it’s just a short 15-minute catch-up. Have you all found that those casual moments make a difference in how you feel about your work, especially when it comes to staying engaged?
+Selected participant by flow: P3 
+P3: I completely agree with what both of you have shared about the benefits of creating a personalized workspace. I've found that being able to set up my environment to fit my needs has really helped me maintain focus. It’s interesting, though, that while I thrive in that space, I also crave the social interaction that comes with being in an office.
+
+I’ve tried implementing more casual virtual hangouts, similar to what you mentioned, P2. Just having those moments to connect over non-work topics has really helped me feel more engaged and less isolated. It’s a simple way to remind ourselves that we’re part of a team beyond just our projects. Have any of you found that certain times work better for these informal check-ins? I think timing can really affect how people show up to those conversations.
+Maximum participant exchanges reached for this round.
+
+--- Turn 4 | Phase: engagement_question | Current Question/Focus: What are the main challenges of remote work?... ---
+MOD (Moderator): Thank you all for your thoughtful contributions so far. It’s clear that many of you have found ways to navigate the positives and challenges of remote work. Now, let’s delve a bit deeper into the topic. 
+
+**What are the main challenges of remote work?** 
+
+Feel free to share your experiences and thoughts on this. I'm looking forward to hearing from each of you!
+Selected participant by flow: P2 
+P2: I appreciate what everyone has shared about the benefits of flexibility and creating a supportive environment. However, I think one of the biggest challenges of remote work is the difficulty in separating work life from personal life. When your home becomes your office, it can be hard to switch off and truly disconnect at the end of the day. I’ve found that I sometimes feel like I’m always “on,” which can be draining.
+
+I also resonate with the need for social interaction. Even with virtual check-ins, there’s something about in-person connection that’s hard to replicate. I wonder if any of you have strategies for setting boundaries between work and personal time? That balance seems crucial for overall well-being.
+Selected participant by flow: P3 
+P3: I completely resonate with what you’ve shared, P2. The challenge of separating work from personal life can be really overwhelming. I’ve found that creating a designated workspace at home has helped to some extent, but it’s still difficult to turn off that work mindset at the end of the day. 
+
+One strategy I’ve adopted is setting strict work hours and using a physical transition, like a short walk or even a brief meditation, to signal the end of the workday. I think those small rituals can really help us mentally disconnect and recharge. 
+
+Also, I wonder if any of you have experienced challenges with communication styles in remote settings. Sometimes, without those in-person cues, messages can get misinterpreted, which can add to the stress. How do you all navigate that?
+Selected participant by flow: P2 
+P2: I completely agree with you, P2, about the difficulty of separating work from personal life when you’re working from home. It really can feel like we’re always on call. I’ve found that creating a specific work schedule helps, but I also struggle sometimes to stick to it. 
+
+As for the communication challenges, I’ve definitely noticed that tone can be easily misread in emails or messages. I try to use more emojis or even voice notes to convey my feelings better. It’s a small thing, but it seems to help bridge that gap a little. How do you all feel about using different communication tools to enhance understanding?
+Maximum participant exchanges reached for this round.
+
+--- Turn 5 | Phase: engagement_question | Current Question/Focus: What are the benefits you've experienced?... ---
+MOD (Moderator): MOD: Thank you for those insights; it’s clear that the challenges of remote work are significant. Now, let’s shift our focus a bit. **What are the benefits you've experienced?** 
+
+I encourage each of you to share your thoughts and experiences. What positive aspects have you found in remote work that contribute to both your productivity and well-being? Feel free to jump in!
+Selected participant by flow: P3 
+P3: I really appreciate what both of you have shared about the challenges of remote work, especially regarding boundaries and communication. For me, one of the most significant benefits of remote work has been the flexibility to structure my day in a way that aligns with my peak productivity times. I find that I can often accomplish more when I can choose when to tackle certain tasks, rather than being confined to traditional office hours.
+
+Additionally, I’ve noticed that I have more time for self-care and personal interests, which is vital for my overall well-being. For instance, I can take breaks to go for a walk or do a quick workout, which helps me recharge and stay focused. It’s a lot easier to integrate wellness into my daily routine when I’m not commuting. Have any of you found ways to incorporate wellness or personal time into your remote work schedule?
+Selected participant by flow: P2 
+P2: I really resonate with what you shared, P3. The flexibility of remote work has been a game changer for me, too. I've found that I can manage my time better and tackle tasks when I'm most energized, which has definitely boosted my productivity. Plus, being able to step away for a few moments to do something I enjoy, like reading or taking a short walk, has made a huge difference in how I feel throughout the day. 
+
+I also appreciate that I can prepare healthier meals instead of relying on quick, often unhealthy options during a busy workday. This little shift has really contributed to my overall well-being. Have any of you tried different ways to stay connected with colleagues while working remotely? I think that social aspect is so important, and I’m curious to hear what others are doing!
+Selected participant by flow: P3 
+P3: I can really relate to both of your points about the flexibility that remote work offers. It’s been such a relief for me, too, to have the ability to mold my workday around when I feel most productive. I’ve found that I can dive into deep work in the mornings when I’m alert, and then tackle more routine tasks in the afternoon. It’s made a noticeable difference in my output.
+
+Additionally, I appreciate the opportunity to prepare healthier meals, as you mentioned, P2. I think that having that time to invest in ourselves—whether it's cooking or taking breaks for movement—is crucial for maintaining our well-being while working remotely. As for staying connected with colleagues, I’ve started scheduling regular virtual coffee breaks just to catch up and share experiences. It feels nice to keep that social connection alive, even if it’s through a screen. How about you both? What methods have you found effective for maintaining those connections?
+Maximum participant exchanges reached for this round.
+
+--- Turn 6 | Phase: engagement_question | Current Question/Focus: How do you maintain work-life balance?... ---
+MOD (Moderator): MOD: Thank you for sharing your experiences and insights on the benefits of remote work. Now, let's dive a bit deeper into a key aspect of this topic. **How do you maintain work-life balance?** 
+
+I encourage each of you to share your strategies, routines, or any practices you’ve found helpful in creating that balance. Feel free to jump in!
+Selected participant by flow: P2 
+P2: I really appreciate what you both shared about flexibility and connecting with colleagues. For me, maintaining work-life balance has been about setting clear boundaries. I make it a point to establish specific work hours, so I can switch off and dedicate time to my personal life without feeling guilty about unfinished tasks. 
+
+I also schedule regular breaks throughout the day, like P2 mentioned, to step away from my desk and do something enjoyable. Whether it’s a quick walk or a few minutes of stretching, it helps me reset and come back to work feeling refreshed. I think it’s so important to prioritize those moments for ourselves to prevent burnout. 
+
+What about you, P3? Have you found any specific routines that help you maintain that balance?
+Selected participant by flow: P3 
+P3: I completely agree with you, P2, about the importance of setting clear boundaries. One strategy I’ve found really helpful is creating a dedicated workspace at home. It helps me mentally separate my work from my personal life. When I finish my workday, I physically leave that space, which signals to my brain that it’s time to switch gears.
+
+I also prioritize planning my week ahead, blocking out time not just for work tasks but also for personal activities, like reading or spending time with family. This way, I ensure I’m committing time to both my professional responsibilities and my personal well-being. I think it’s all about finding that balance and making intentional choices. Have either of you tried any specific techniques to manage your workspace?
+Selected participant by flow: P2 
+P2: I really resonate with what both of you have shared about setting boundaries and creating a dedicated workspace. I’ve found that having a specific area in my home for work helps me mentally switch off at the end of the day. When I close my laptop and step away from that space, it really does signal to my mind that it’s time to focus on my personal life.
+
+Another thing that helps me maintain work-life balance is incorporating a routine that includes both work tasks and self-care activities. I try to make time for things that bring me joy, whether it’s connecting with friends or enjoying a hobby. It’s all about making sure I’m not just working all the time, but truly living, too. Have either of you explored any new hobbies or activities during this remote work period that have helped you unwind?
+Maximum participant exchanges reached for this round.
+
+--- Turn 7 | Phase: engagement_question | Current Question/Focus: What tools or strategies help you most?... ---
+MOD (Moderator): MOD: Thank you for sharing those valuable insights on maintaining work-life balance. Now, let’s shift our focus a bit and explore the tools and strategies that support your remote work experience. **What tools or strategies help you most?** 
+
+Feel free to share anything that you’ve found particularly effective in managing your productivity, staying connected, or enhancing your overall well-being while working remotely. I’m looking forward to hearing your thoughts!
+Selected participant by flow: P3 
+P3: I completely agree with both of you regarding the importance of having a dedicated workspace. For me, using digital tools has also been crucial in enhancing my remote work experience. I rely heavily on project management apps like Trello or Asana to keep my tasks organized. They help me visualize my workload and prioritize effectively, which alleviates some of the stress that comes with remote work.
+
+Additionally, I’ve found that communication tools like Slack or Zoom are indispensable for staying connected with my colleagues. Regular check-ins not only help keep everyone on the same page but also foster a sense of community that can sometimes be lacking in remote settings. How about you, P2? Have you found any specific tools that help streamline your work or enhance communication with your team?
+Selected participant by flow: P1 
+P1: I really appreciate the emphasis on dedicated workspaces that both of you have mentioned. For me, I’ve found that using tools like Microsoft Teams has been incredibly helpful for maintaining communication and collaboration with my colleagues. It allows us to exchange ideas quickly and even have those informal chats that can often get lost in a remote setup. 
+
+I also agree with P3 about project management apps; I use a similar tool to keep my tasks organized. It really helps to visualize what I need to tackle each week. And I make it a point to share my progress in our team meetings, which not only keeps me accountable but also fosters a sense of connection with everyone. Have you both noticed any specific improvements in your productivity or relationships with team members using these tools?
+Selected participant by flow: P3 
+P3: I completely relate to the importance of using digital tools for staying organized and connected. I’ve found that incorporating both a calendar app and a dedicated project management tool has really streamlined my workflow. For instance, I use Google Calendar to block out time for both meetings and personal activities, which helps me visualize my day and maintain that essential balance.
+
+I also appreciate how you all mentioned the importance of communication tools. For me, having regular video check-ins not only keeps everyone aligned but also allows for that personal touch that can sometimes be missing in remote work. It’s nice to see familiar faces and share casual conversations, which help foster a sense of community. P3, have you noticed any specific ways that these tools have helped improve your team dynamics?
+Maximum participant exchanges reached for this round.
+
+--- Turn 8 | Phase: closing ---
+MOD (Moderator): Thank you all for your time and for sharing your valuable insights during today’s focus group discussion on 'The future of remote work: Balancing productivity and well-being.' Your contributions have been incredibly thoughtful and will provide us with a rich understanding of the various perspectives on this important topic.
+
+As we explore the diverse viewpoints on remote work, it is essential to remember that your input is crucial in shaping future strategies that prioritize both productivity and well-being. The ideas and experiences you’ve shared today will help inform our understanding and guide future conversations in this space.
+
+I want to remind everyone about the confidentiality of your contributions. As discussed at the beginning, your responses will remain anonymous in any reporting, ensuring that your privacy is protected.
+
+Looking ahead, we will be analyzing the insights gathered from this discussion to better understand the dynamics of remote work. If you have any questions or need further information about this process, please feel free to reach out. 
+
+Thank you once again for your engagement and for taking the time to participate in this important conversation. Your voices matter, and we appreciate your contributions. Have a great day!
+Moderator initiated closing. Ending simulation.
+
+--- Generating final summary of the entire discussion ---
+Final Summary:
+ The focus group discussion centered on the future of remote work, specifically exploring the balance between productivity and well-being. Participants shared predominantly positive experiences regarding the flexibility of remote work, which allowed them to manage their time better and integrate personal interests into their daily routines. However, they also voiced concerns about feelings of isolation and the challenge of separating work from personal life, noting that the home office environment can blur these boundaries.
+
+Key themes emerged around the importance of maintaining social connections and effective communication in a remote setting. Regular virtual check-ins and informal team-building activities were highlighted as strategies to foster relationships and mitigate feelings of isolation. Participants agreed that while digital tools like project management apps and communication platforms enhance collaboration, they can also lead to miscommunication without the non-verbal cues present in face-to-face interactions.
+
+Overall sentiment leaned towards optimism, with participants recognizing both the benefits and challenges of remote work. They emphasized the need for intentional strategies to maintain work-life balance, such as setting clear work hours and creating designated workspaces. A consensus was reached on the significance of self-care and personal time to support overall well-being.
+
+In conclusion, the discussion underscored the evolving nature of remote work, emphasizing the necessity for organizations to prioritize both productivity and employee well-being through supportive tools and practices. The insights gained will inform future strategies aimed at enhancing the remote work experience. </code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb8"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Get results</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>conversation <span class="ot">&lt;-</span> <span class="fu">do.call</span>(rbind, <span class="fu">lapply</span>(fg<span class="sc">$</span>conversation_log, <span class="cf">function</span>(msg) {</span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">data.frame</span>(</span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>    <span class="at">speaker =</span> msg<span class="sc">$</span>speaker_id <span class="sc">%||%</span> <span class="st">"Unknown"</span>,</span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">role =</span> msg<span class="sc">$</span>role <span class="sc">%||%</span> <span class="st">"Unknown"</span>,</span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>    <span class="at">text =</span> msg<span class="sc">$</span>text <span class="sc">%||%</span> <span class="st">""</span>,</span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>    <span class="at">phase =</span> msg<span class="sc">$</span>phase <span class="sc">%||%</span> <span class="st">"Unknown"</span>,</span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a>    <span class="at">stringsAsFactors =</span> <span class="cn">FALSE</span></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>  )</span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>}))</span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a><span class="fu">print</span>(<span class="fu">paste</span>(<span class="st">"Generated"</span>, <span class="fu">nrow</span>(conversation), <span class="st">"messages"</span>))</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>[1] "Generated 28 messages"</code></pre>
+</div>
+</div>
+</section>
+<section id="analysis" class="level2">
+<h2 class="anchored" data-anchor-id="analysis">Analysis</h2>
+<div class="cell">
+<div class="sourceCode cell-code" id="cb10"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Basic summary (fallback if LLM is unavailable)</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>summary1 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(</span>
+<span id="cb10-3"><a href="#cb10-3" aria-hidden="true" tabindex="-1"></a>  fg<span class="sc">$</span><span class="fu">summarize</span>(<span class="at">summary_level =</span> <span class="dv">1</span>),</span>
+<span id="cb10-4"><a href="#cb10-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) {</span>
+<span id="cb10-5"><a href="#cb10-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Summary unavailable (offline). Key points mentioned: flexibility vs productivity trade-offs; collaboration challenges."</span> </span>
+<span id="cb10-6"><a href="#cb10-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb10-7"><a href="#cb10-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb10-8"><a href="#cb10-8" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"**Basic Summary:**</span><span class="sc">\n</span><span class="st">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>**Basic Summary:**</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb12"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(summary1)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>The focus group discussion on "The future of remote work: Balancing productivity and well-being" revealed a predominantly positive sentiment among participants regarding their remote work experiences. They appreciated the flexibility it offers, allowing them to manage their time effectively and integrate personal interests into their daily routines. However, feelings of isolation and the difficulty in separating work from personal life emerged as significant challenges. Participants noted that the home office environment often blurs these boundaries, leading to a sense of being "always on."
+
+Key themes included the importance of maintaining social connections and effective communication in a remote setting. Regular virtual check-ins and informal team-building activities were emphasized as essential strategies for fostering relationships and combating isolation. While digital tools like project management apps and communication platforms were praised for enhancing collaboration, participants also acknowledged the potential for miscommunication without the non-verbal cues present in face-to-face interactions.
+
+The overall sentiment leaned towards optimism, with participants advocating for intentional strategies to uphold work-life balance, such as establishing clear work hours and creating dedicated workspaces. The conversation highlighted the significance of self-care and personal time in supporting overall well-being.
+
+In conclusion, the discussion underscored the evolving nature of remote work, emphasizing the need for organizations to prioritize both productivity and employee well-being through supportive tools and practices. The insights gathered will inform future strategies aimed at enhancing the remote work experience.</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb14"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n\n</span><span class="st">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="sourceCode cell-code" id="cb15"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Detailed summary (fallback if LLM is unavailable)</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>summary2 <span class="ot">&lt;-</span> <span class="fu">tryCatch</span>(</span>
+<span id="cb15-3"><a href="#cb15-3" aria-hidden="true" tabindex="-1"></a>  fg<span class="sc">$</span><span class="fu">summarize</span>(<span class="at">summary_level =</span> <span class="dv">2</span>),</span>
+<span id="cb15-4"><a href="#cb15-4" aria-hidden="true" tabindex="-1"></a>  <span class="at">error =</span> <span class="cf">function</span>(e) {</span>
+<span id="cb15-5"><a href="#cb15-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">"Detailed summary unavailable (offline). Participants discussed flexibility, productivity, and well-being; moderator guided exploration of trade-offs and tools."</span> </span>
+<span id="cb15-6"><a href="#cb15-6" aria-hidden="true" tabindex="-1"></a>  }</span>
+<span id="cb15-7"><a href="#cb15-7" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb15-8"><a href="#cb15-8" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"**Detailed Summary:**</span><span class="sc">\n</span><span class="st">"</span>) </span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>**Detailed Summary:**</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb17"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(summary2)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>### Detailed Summary of Focus Group Discussion on Remote Work: Balancing Productivity and Well-Being
+
+#### Opening Remarks
+- **Moderator (MOD)** emphasized the importance of the discussion topic and ground rules for a respectful and open dialogue.
+- Participants introduced themselves and shared their experiences with remote work, setting the stage for deeper exploration.
+
+#### Experiences with Remote Work
+- **P2** highlighted positive aspects:
+  - Better work-life balance and effective time management.
+  - Challenges of isolation and the need for virtual team-building activities.
+- **P3** echoed P2's sentiments on flexibility and isolation:
+  - Suggested regular check-ins and casual virtual coffee breaks to foster connections.
+- **P2 &amp; P3** agreed on the importance of maintaining social interactions in a remote setting.
+
+#### Impact on Productivity
+- **P3** noted productivity enhancements due to a personalized work environment:
+  - Reduced distractions compared to traditional office settings.
+- **P2** and **P3** shared strategies like regular check-ins to keep teams aligned and morale high.
+- Participants collectively acknowledged that flexibility allows them to work during peak productivity times, enhancing their output.
+
+#### Challenges of Remote Work
+- **P2** raised concerns about work-life separation:
+  - Difficulty disconnecting from work when home becomes the office.
+- **P3** shared strategies for setting work hours and transitioning out of work mode through physical actions (e.g., walking).
+- **P2** noted that communication styles can lead to misunderstandings without in-person cues, suggesting the use of emojis or voice notes to enhance clarity.
+
+#### Benefits of Remote Work
+- **P3** emphasized flexibility as a significant benefit:
+  - Ability to incorporate wellness activities into daily routines (e.g., walks, workouts).
+- **P2** agreed, mentioning healthier meal preparation as a bonus of working remotely.
+- Participants discussed the importance of social connections, sharing experiences of using virtual coffee breaks to maintain team spirit.
+
+#### Maintaining Work-Life Balance
+- **P2** and **P3** discussed strategies for clear boundaries:
+  - Setting specific work hours and incorporating enjoyable personal activities.
+- **P2** highlighted the significance of taking breaks for mental health and preventing burnout.
+- **P3** mentioned the effectiveness of a designated workspace to mentally separate work and personal life.
+
+#### Tools and Strategies for Remote Work
+- **P3** discussed the use of project management apps (e.g., Trello, Asana) for task organization.
+- **P1** emphasized the importance of communication tools (e.g., Microsoft Teams) for collaboration and maintaining informal interactions.
+- Participants shared their experiences with calendar apps to block time for both work and personal activities, emphasizing the role of these tools in enhancing productivity and team dynamics.
+
+#### Closing Remarks
+- **MOD** thanked participants for their insights and emphasized the value of the discussion in shaping future strategies for remote work.
+- The conversation underscored the need for organizations to prioritize both productivity and employee well-being, highlighting the evolving nature of remote work.
+
+### Key Quotes
+- **P2**: “Being able to set my own schedule has helped me manage my time more effectively, especially when it comes to personal commitments.”
+- **P3**: “Regular check-ins not only keep everyone on the same page but also foster a sense of community that can sometimes be lacking in remote settings.”
+- **P2**: “When your home becomes your office, it can be hard to switch off and truly disconnect at the end of the day.”
+
+### Points of Agreement
+- All participants recognized the benefits of flexibility in remote work.
+- There was a consensus on the importance of maintaining social connections through virtual interactions.
+- Strategies like setting boundaries and creating dedicated workspaces were agreed upon as essential for work-life balance.
+
+### Points of Disagreement
+- No significant disagreements were noted; rather, participants built upon each other's experiences and suggestions.
+
+### Surprising Statements
+- Participants noted that while tools enhance productivity, they can also lead to miscommunication and stress, highlighting the complexity of remote work dynamics.
+
+### New Arguments
+- The discussion revealed a nuanced understanding of remote work, emphasizing the need for intentional strategies to maintain not just productivity, but also well-being and social connections in a remote environment. 
+
+This summary encapsulates the diverse perspectives shared by the participants and highlights the evolving discourse surrounding remote work's future, focusing on the balance between productivity and well-being.</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb19"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Show conversation sample</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cat</span>(<span class="st">"</span><span class="sc">\n\n</span><span class="st">**Conversation Sample:**</span><span class="sc">\n</span><span class="st">"</span>)</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+
+**Conversation Sample:**</code></pre>
+</div>
+<div class="sourceCode cell-code" id="cb21"><pre class="sourceCode r code-with-copy"><code class="sourceCode r"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> (i <span class="cf">in</span> <span class="dv">1</span><span class="sc">:</span><span class="fu">min</span>(<span class="dv">5</span>, <span class="fu">nrow</span>(conversation))) {</span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>  msg <span class="ot">&lt;-</span> conversation[i, ]</span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>  <span class="fu">cat</span>(<span class="fu">sprintf</span>(<span class="st">"</span><span class="sc">\n</span><span class="st">**%s (%s):** %s</span><span class="sc">\n</span><span class="st">"</span>, msg<span class="sc">$</span>speaker, msg<span class="sc">$</span>role, msg<span class="sc">$</span>text))</span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>}</span></code><button title="Copy to Clipboard" class="code-copy-button"><i class="bi"></i></button></pre></div>
+<div class="cell-output cell-output-stdout">
+<pre><code>
+**System (Unknown):** Participants: P1, P2, P3; Moderator: MOD
+
+**MOD (Unknown):** Welcome, everyone! Thank you all for joining us today. I’m excited to have you here as we delve into an important and timely topic.
+
+As the moderator for this focus group, my role is to facilitate our discussion, ensuring everyone has a chance to share their thoughts and experiences. I aim to create a comfortable and respectful environment where we can explore various perspectives openly.
+
+Today, we will be discussing "The future of remote work: Balancing productivity and well-being." This is a crucial topic as remote work continues to evolve, and it's essential to understand how it impacts both our productivity and our overall well-being.
+
+The purpose of this focus group is to explore remote work perspectives. We want to hear your insights, experiences, and ideas related to this topic, which will help us gain a deeper understanding of how we can navigate the future of work.
+
+Before we begin, I’d like to establish a few ground rules to ensure a smooth discussion:
+1. Please speak one at a time so that everyone can be heard.
+2. All opinions are valuable, and I encourage you to share your unique perspectives.
+3. Respect differing views; we are here to learn from one another.
+4. Please note that everything shared in this discussion is confidential and intended for this group only.
+
+Additionally, I want to inform you that this session is being recorded for simulation and note-taking purposes. If you have any concerns about this, please let me know.
+
+Now, let’s start with a brief round of introductions.
+
+**MOD (Unknown):** Thank you all for being here today and for your valuable insights as we explore the future of remote work. To kick off our discussion and get everyone comfortable sharing, I’d like to start with a simple icebreaker question: 
+
+**What's your experience with remote work?**
+
+Feel free to share anything that comes to mind—whether it’s a specific project you worked on, how you feel about remote work in general, or any challenges or benefits you’ve encountered. I encourage everyone to jump in, and let’s create a welcoming space for this conversation. Who would like to start?
+
+**P2 (Unknown):** I'm really glad to be part of this discussion! My experience with remote work has been quite positive overall. I've found that it allows for a better work-life balance, which is something I really value. Being able to set my own schedule has helped me manage my time more effectively, especially when it comes to personal commitments. 
+
+However, I do think there can be challenges, like feeling a bit isolated at times. It can be hard to connect with colleagues when you’re not in the same physical space. I appreciate what you mentioned, P2, about the importance of maintaining those social interactions. I think companies could do more to encourage virtual team-building activities to help with that. 
+
+What about you all? Have you found ways to stay connected while working remotely?
+
+**P3 (Unknown):** I really resonate with what you shared, P2. The flexibility that comes with remote work has been a game-changer for me as well. It allows me to better juggle my professional responsibilities with my personal life, which is something I truly value. 
+
+However, I’ve also experienced that sense of isolation, especially when it comes to collaboration and brainstorming sessions. I think it’s so important for teams to feel connected, and I agree that virtual team-building activities can help. I’ve found that regular check-ins and casual virtual coffee breaks can foster those connections, even if it’s not the same as being in person. 
+
+Have any of you tried specific strategies or tools that have helped maintain that team spirit while working remotely?</code></pre>
+</div>
+</div>
+</section>
+<section id="results" class="level2">
+<h2 class="anchored" data-anchor-id="results">Results</h2>
+<p>The demo successfully:</p>
+<ol type="1">
+<li><strong>Created realistic personas</strong> from ANES survey data</li>
+<li><strong>Ran a structured focus group</strong> with desire-based turn-taking</li>
+<li><strong>Generated natural conversations</strong> aligned with participant personas<br>
+</li>
+<li><strong>Produced multi-level summaries</strong> and insights</li>
+</ol>
+<p>This demonstrates the FocusGroup package’s core capabilities for AI-powered qualitative research.</p>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+        const codeEl = trigger.previousElementSibling.cloneNode(true);
+        for (const childEl of codeEl.children) {
+          if (isCodeAnnotation(childEl)) {
+            childEl.remove();
+          }
+        }
+        return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

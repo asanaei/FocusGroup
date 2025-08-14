@@ -4,6 +4,11 @@
 \alias{FGAgent}
 \title{FGAgent Class}
 \description{
+FGAgent Class
+
+FGAgent Class
+}
+\details{
 Represents an agent (participant or moderator) in a focus group simulation.
 Each agent has a unique ID, a persona, an LLM configuration, and methods to
 generate utterances and express a desire to speak.
@@ -43,6 +48,12 @@ LLM provider, model, API key, and other parameters for this agent.}
 \item{\code{tokens_sent_agent}}{Numeric. Total tokens sent by this agent.}
 
 \item{\code{tokens_received_agent}}{Numeric. Total tokens received by this agent.}
+
+\item{\code{role}}{Character. "moderator" or "participant" for convenience in reports.}
+
+\item{\code{demographics}}{Named list. Raw demographics used to build persona.}
+
+\item{\code{survey_responses}}{Named list. Raw survey responses used to build persona.}
 }
 \if{html}{\out{</div>}}
 }

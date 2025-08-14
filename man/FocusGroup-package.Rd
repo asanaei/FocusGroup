@@ -64,7 +64,6 @@ fg$run_simulation(turns_per_phase = list(Engagement = 15, Exploration = 20))
 
 # Perform analysis
 topics <- fg$analyze_topics(num_topics = 5)
-sentiment <- fg$analyze_sentiment()
 ```
 }
 \section{Dependencies}{

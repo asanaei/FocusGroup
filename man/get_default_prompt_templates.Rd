@@ -8,7 +8,7 @@ get_default_prompt_templates()
 }
 \value{
 A named list where each element is a character string representing a prompt template.
-        Placeholders like `{{topic}}`, `{{persona_description}}`, etc., are used within
+        Placeholders like `\{\{topic\}\}`, `\{\{persona_description\}\}`, etc., are used within
         the templates and will be filled dynamically during the simulation.
 }
 \description{
