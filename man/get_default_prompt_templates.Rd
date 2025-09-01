@@ -27,6 +27,6 @@ print(default_prompts$participant_utterance_subtle_persona)
 
 # To customize a prompt:
 my_prompts <- get_default_prompt_templates()
-my_prompts$moderator_opening <- "Welcome all! Let's talk about {{topic}} today."
+my_prompts$moderator_opening <- "Welcome all! Let us talk about {{topic}} today."
 # Then use `my_prompts` when creating a FocusGroup object.
 }

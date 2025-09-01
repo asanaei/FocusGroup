@@ -21,7 +21,7 @@ create_agents_from_survey(
 If NULL, attempts to auto-detect common demographic variables.}
 
 \item{survey_vars}{Character vector of variable names to use as survey responses.
-If NULL, uses remaining non-demographic variables.}
+If NULL, auto-detects by variable labels or names. No dataset is hardcoded.}
 
 \item{llm_config}{Optional `LLMR::llm_config` for all agents. If `NULL`, a small OpenAI config is created.}
 }

@@ -1,6 +1,7 @@
 template:
   bootstrap: 5
-
+logo: man/figures/logo.png
+favicon: man/figures/logo.png
 url: https://asanaei.github.io/FocusGroup/
 
 home:
@@ -14,18 +15,23 @@ navbar:
   components:
     github:
       icon: fa-github
+      aria-label: GitHub repository
       href: https://github.com/asanaei/FocusGroup
 
 authors:
-  Ali Sanaei:
+  "Ali Sanaei":
     href: mailto:sanaei@uchicago.edu
 
 articles:
-  - title: Vignettes
+  - title: Articles
     contents:
-      - starts_with("architecture-and-api")
+      - architecture
+      - focus-group-analysis
 
 reference:
+  - title: Package
+    contents:
+      - FocusGroup-package   # remove this block if you mark the topic internal
   - title: Core Classes
     contents:
       - FGAgent
@@ -52,5 +58,4 @@ reference:
       - format_survey_responses
       - format_conversation_history
       - replace_placeholders
-
-
+      - default_llmr_config

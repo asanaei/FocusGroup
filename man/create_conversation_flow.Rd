@@ -26,7 +26,7 @@ Factory function to create an instance of a `ConversationFlow` subclass.
 }
 \examples{
 # Assuming FGAgent class and agents list (agent1, agent2, mod) are defined
-# mod_id <- "Moderator"
-# all_my_agents <- list(Agent1 = agent1, Agent2 = agent2, Moderator = mod)
+# mod_id <- "MOD"
+# all_my_agents <- list(P1 = agent1, P2 = agent2, MOD = mod)
 # flow <- create_conversation_flow("desire_based", all_my_agents, mod_id)
 }

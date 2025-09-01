@@ -2,36 +2,35 @@ name: pkgdown
 
 on:
   push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
 
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
       - uses: actions/checkout@v4
+      - uses: r-lib/actions/setup-pandoc@v2
       - uses: r-lib/actions/setup-r@v2
         with:
           use-public-rspm: true
-      - uses: r-lib/actions/setup-pandoc@v2
-      - name: Install dependencies
-        uses: r-lib/actions/setup-r-dependencies@v2
+      - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: |
-            any::pkgdown
-            any::devtools
-            any::remotes
+          extra-packages: any::pkgdown, local::.
           needs: website
-      - name: Build site
-        run: Rscript -e 'pkgdown::build_site()'
-      - name: Deploy to GitHub Pages
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Build pkgdown site
+        run: Rscript -e 'pkgdown::build_favicons(overwrite=TRUE); pkgdown::build_site()'
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
         with:
-          branch: gh-pages
-          folder: docs
-          clean: true
-
+          path: docs
+      - uses: actions/deploy-pages@v4

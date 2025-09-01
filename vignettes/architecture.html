@@ -1,0 +1,997 @@
+<!DOCTYPE html>
+
+<html>
+
+<head>
+
+<meta charset="utf-8" />
+<meta name="generator" content="pandoc" />
+<meta http-equiv="X-UA-Compatible" content="IE=EDGE" />
+
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+
+
+<title>FocusGroup Architecture</title>
+
+<script>// Pandoc 2.9 adds attributes on both header and div. We remove the former (to
+// be compatible with the behavior of Pandoc < 2.8).
+document.addEventListener('DOMContentLoaded', function(e) {
+  var hs = document.querySelectorAll("div.section[class*='level'] > :first-child");
+  var i, h, a;
+  for (i = 0; i < hs.length; i++) {
+    h = hs[i];
+    if (!/^h[1-6]$/i.test(h.tagName)) continue;  // it should be a header h1-h6
+    a = h.attributes;
+    while (a.length > 0) h.removeAttribute(a[0].name);
+  }
+});
+</script>
+
+<style type="text/css">
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+span.underline{text-decoration: underline;}
+div.column{display: inline-block; vertical-align: top; width: 50%;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+</style>
+
+
+
+
+
+
+
+<style type="text/css">body {
+background-color: #fff;
+margin: 1em auto;
+max-width: 700px;
+overflow: visible;
+padding-left: 2em;
+padding-right: 2em;
+font-family: "Open Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+font-size: 14px;
+line-height: 1.35;
+}
+#TOC {
+clear: both;
+margin: 0 0 10px 10px;
+padding: 4px;
+width: 400px;
+border: 1px solid #CCCCCC;
+border-radius: 5px;
+background-color: #f6f6f6;
+font-size: 13px;
+line-height: 1.3;
+}
+#TOC .toctitle {
+font-weight: bold;
+font-size: 15px;
+margin-left: 5px;
+}
+#TOC ul {
+padding-left: 40px;
+margin-left: -1.5em;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+#TOC ul ul {
+margin-left: -2em;
+}
+#TOC li {
+line-height: 16px;
+}
+table {
+margin: 1em auto;
+border-width: 1px;
+border-color: #DDDDDD;
+border-style: outset;
+border-collapse: collapse;
+}
+table th {
+border-width: 2px;
+padding: 5px;
+border-style: inset;
+}
+table td {
+border-width: 1px;
+border-style: inset;
+line-height: 18px;
+padding: 5px 5px;
+}
+table, table th, table td {
+border-left-style: none;
+border-right-style: none;
+}
+table thead, table tr.even {
+background-color: #f7f7f7;
+}
+p {
+margin: 0.5em 0;
+}
+blockquote {
+background-color: #f6f6f6;
+padding: 0.25em 0.75em;
+}
+hr {
+border-style: solid;
+border: none;
+border-top: 1px solid #777;
+margin: 28px 0;
+}
+dl {
+margin-left: 0;
+}
+dl dd {
+margin-bottom: 13px;
+margin-left: 13px;
+}
+dl dt {
+font-weight: bold;
+}
+ul {
+margin-top: 0;
+}
+ul li {
+list-style: circle outside;
+}
+ul ul {
+margin-bottom: 0;
+}
+pre, code {
+background-color: #f7f7f7;
+border-radius: 3px;
+color: #333;
+white-space: pre-wrap; 
+}
+pre {
+border-radius: 3px;
+margin: 5px 0px 10px 0px;
+padding: 10px;
+}
+pre:not([class]) {
+background-color: #f7f7f7;
+}
+code {
+font-family: Consolas, Monaco, 'Courier New', monospace;
+font-size: 85%;
+}
+p > code, li > code {
+padding: 2px 0px;
+}
+div.figure {
+text-align: center;
+}
+img {
+background-color: #FFFFFF;
+padding: 2px;
+border: 1px solid #DDDDDD;
+border-radius: 3px;
+border: 1px solid #CCCCCC;
+margin: 0 5px;
+}
+h1 {
+margin-top: 0;
+font-size: 35px;
+line-height: 40px;
+}
+h2 {
+border-bottom: 4px solid #f7f7f7;
+padding-top: 10px;
+padding-bottom: 2px;
+font-size: 145%;
+}
+h3 {
+border-bottom: 2px solid #f7f7f7;
+padding-top: 10px;
+font-size: 120%;
+}
+h4 {
+border-bottom: 1px solid #f7f7f7;
+margin-left: 8px;
+font-size: 105%;
+}
+h5, h6 {
+border-bottom: 1px solid #ccc;
+font-size: 105%;
+}
+a {
+color: #0033dd;
+text-decoration: none;
+}
+a:hover {
+color: #6666ff; }
+a:visited {
+color: #800080; }
+a:visited:hover {
+color: #BB00BB; }
+a[href^="http:"] {
+text-decoration: underline; }
+a[href^="https:"] {
+text-decoration: underline; }
+
+code > span.kw { color: #555; font-weight: bold; } 
+code > span.dt { color: #902000; } 
+code > span.dv { color: #40a070; } 
+code > span.bn { color: #d14; } 
+code > span.fl { color: #d14; } 
+code > span.ch { color: #d14; } 
+code > span.st { color: #d14; } 
+code > span.co { color: #888888; font-style: italic; } 
+code > span.ot { color: #007020; } 
+code > span.al { color: #ff0000; font-weight: bold; } 
+code > span.fu { color: #900; font-weight: bold; } 
+code > span.er { color: #a61717; background-color: #e3d2d2; } 
+</style>
+
+
+
+
+</head>
+
+<body>
+
+
+
+
+<h1 class="title toc-ignore">FocusGroup Architecture</h1>
+
+
+
+<div id="focusgroup-package-blueprint" class="section level3">
+<h3>FocusGroup Package Blueprint</h3>
+<p>This blueprint explains the architecture, logical flow, data model,
+and API surface of the FocusGroup R package. It is designed as a
+comprehensive, single reference for advanced users and, hopefully,
+contributors.</p>
+</div>
+<div id="overview" class="section level2">
+<h2>Overview</h2>
+<p>FocusGroup simulates and analyzes focus group discussions using
+LLM-backed agents. The core is built around R6 classes:</p>
+<ul>
+<li>FGAgent: individual participant/moderator with persona,
+communication style, and per-agent LLM config.</li>
+<li>FocusGroup: orchestrates the session across phases, manages
+conversation history, performs summaries and analyses, and renders
+visualizations.</li>
+<li>ConversationFlow: abstract turn-taking mechanism with concrete
+implementations: RoundRobinFlow, ProbabilisticFlow,
+DesireBasedFlow.</li>
+</ul>
+<p>High-level wrappers (<code>run_focus_group</code>,
+<code>fg_quick</code>) assemble agents, build a script, run the
+simulation, and return structured outputs. Analysis helpers
+(<code>analyze_focus_group</code>, <code>fg_analyze_quick</code>)
+compute statistics, topics, TF-IDF, readability, and LLM-assisted
+themes.</p>
+<p>LLM integration is provided via the LLMR package. Prompts are modular
+and customizable via <code>get_default_prompt_templates()</code>.
+Utilities handle placeholder substitution, prompt history formatting,
+token estimation, and score parsing.</p>
+</div>
+<div id="architecture" class="section level2">
+<h2>Architecture</h2>
+<div id="components-and-responsibilities" class="section level3">
+<h3>Components and Responsibilities</h3>
+<ul>
+<li>FGAgent (R6)
+<ul>
+<li>Encapsulates persona, style, demographics, survey responses, and an
+<code>LLMR::llm_config</code>.</li>
+<li>Generates utterances from prompt templates.</li>
+<li>Computes “desire to talk” scores for DesireBasedFlow.</li>
+<li>Tracks per-agent token usage and utterance history.</li>
+</ul></li>
+<li>FocusGroup (R6)
+<ul>
+<li>Holds topic, purpose, named list of agents,
+<code>moderator_id</code>, <code>turn_taking_flow</code>, prompt
+templates, and a question script (phase guide).</li>
+<li>Runs the simulation with a controlled loop, including moderator
+turns, participant-response rounds, interim summarization, and final
+summary.</li>
+<li>Logs all messages with rich metadata to
+<code>conversation_log</code>.</li>
+<li>Provides analysis methods and plotting utilities.</li>
+</ul></li>
+<li>ConversationFlow (R6 base) and subclasses
+<ul>
+<li>Defines interface: <code>select_next_speaker(focus_group)</code> and
+<code>update_state_post_selection(...)</code>.</li>
+<li>RoundRobinFlow: cycles through non-moderator participants.</li>
+<li>ProbabilisticFlow: weighted random selection with recovery
+dynamics.</li>
+<li>DesireBasedFlow: queries LLM(s) to score each participant’s desire
+to speak and selects the highest above a threshold, with fallbacks.</li>
+</ul></li>
+<li>Prompts and Utilities
+<ul>
+<li><code>get_default_prompt_templates()</code>: returns named prompt
+templates for moderator phases, participant utterances, and helper
+analyses.</li>
+<li>Placeholder utilities (<code>replace_placeholders</code>,
+<code>replace_placeholders_known</code>) populate dynamic context.</li>
+<li>History utilities (<code>format_conversation_history</code>,
+<code>make_prompt_history</code>) generate concise context windows,
+optionally including an interim summary.</li>
+<li>Token/score utilities (<code>estimate_tokens</code>,
+<code>parse_score_0_10</code>).</li>
+</ul></li>
+</ul>
+</div>
+<div id="data-model" class="section level3">
+<h3>Data Model</h3>
+<ul>
+<li>Agents: Named list of <code>FGAgent</code> (keys are agent IDs). One
+agent is the moderator (<code>moderator_id</code>).</li>
+<li>Conversation Log: <code>FocusGroup$conversation_log</code> is an
+ordered list of message records:
+<ul>
+<li>turn: integer</li>
+<li>speaker_id: character (agent ID or “System”)</li>
+<li>is_moderator: logical</li>
+<li>text: character</li>
+<li>timestamp: POSIXct</li>
+<li>phase: character (e.g., opening, engagement_question,
+exploration_question, closing, setup, final_summary)</li>
+<li>response_id, finish_reason: character (from LLMR)</li>
+<li>sent_tokens, rec_tokens, total_tokens: integers</li>
+<li>duration_s: numeric</li>
+<li>provider, model: character</li>
+</ul></li>
+<li>Question Script: list of phase steps, each as
+<code>list(phase = &lt;name&gt;, text = &lt;optional question&gt;)</code>.</li>
+<li>Prompt Templates: a named list of strings keyed by prompt role/phase
+(see API reference).</li>
+</ul>
+</div>
+<div id="simulation-flow" class="section level3">
+<h3>Simulation Flow</h3>
+<ol style="list-style-type: decimal">
+<li>Initialization
+<ul>
+<li>Create agents (participants + moderator) with personas.</li>
+<li>Select a conversation flow (turn-taking strategy).</li>
+<li>Prepare a question script across phases (or use defaults).</li>
+<li>Prepare prompts (defaults merged with any user overrides).</li>
+</ul></li>
+<li>Run Loop (<code>FocusGroup$run_simulation</code>)
+<ul>
+<li>Log roster as a System message to provide context for all
+agents.</li>
+<li>For each turn until script ends or <code>num_turns</code> max:
+<ol style="list-style-type: lower-alpha">
+<li>Determine current phase and question text (if applicable).</li>
+<li>Moderator speaks using phase-specific prompt, with placeholders
+populated from topic, purpose, recent history, participation stats, and
+current question. The moderator utterance is generated by the moderator
+agent via <code>FGAgent$generate_utterance</code> and logged.</li>
+<li>If phase expects participant responses (e.g.,
+icebreaker/engagement/exploration/generic), use
+<code>turn_taking_flow$select_next_speaker(self)</code> to choose
+participants. Up to 3 participants may respond in sequence before
+returning control to the moderator, unless the flow selects the
+moderator (then the participant round ends).</li>
+<li>After each utterance, update per-group token totals from
+metadata.</li>
+<li>Context Management: If recent token usage or message count passes
+thresholds, create an interim summary (<code>FocusGroup$summarize</code>
+with level 3) and store it in <code>current_conversation_summary</code>
+so subsequent prompts use a windowed history plus summary.</li>
+</ol></li>
+<li>When phase is closing, end simulation, generate a final (level 1)
+summary, and log it as a System message.</li>
+</ul></li>
+<li>Outputs
+<ul>
+<li><code>conversation_log</code> is the canonical transcript
+source.</li>
+<li>Wrappers optionally return a data frame transcript, summary text,
+basic stats, and more.</li>
+</ul></li>
+</ol>
+</div>
+<div id="turn-taking-strategies" class="section level3">
+<h3>Turn-Taking Strategies</h3>
+<ul>
+<li>RoundRobinFlow
+<ul>
+<li>Maintains a simple index over <code>participant_ids</code> and
+returns the next participant.</li>
+</ul></li>
+<li>ProbabilisticFlow
+<ul>
+<li>Maintains <code>propensities</code> and
+<code>base_propensities</code> for all agents.</li>
+<li>After a speaker is selected, that speaker’s propensity resets toward
+0 (participants) or halves (moderator), while others recover toward
+their base at a configured rate.</li>
+<li>Selection draws proportionally to current propensities, with simple
+guardrails against immediate self-succession by a participant.</li>
+</ul></li>
+<li>DesireBasedFlow
+<ul>
+<li>Computes per-participant desire scores (0–10) via LLM prompts
+tailored with persona, current question, last speaker, and recent
+history. May use <code>LLMR::call_llm_broadcast</code> to
+parallelize.</li>
+<li>Enforces a minimum score threshold; if none, relaxes threshold or
+picks the maximum to keep discussion moving.</li>
+</ul></li>
+</ul>
+</div>
+<div id="prompt-system" class="section level3">
+<h3>Prompt System</h3>
+<ul>
+<li>Moderator prompts are provided for phases: opening,
+icebreaker_question, engagement_question, exploration_question,
+probing_focused, summarizing, transition, manage_participation,
+ending_question, closing, plus a generic fallback.</li>
+<li>Participant prompts include utterance generation and desire-to-talk
+scoring.</li>
+<li>Helper prompts include question suggestion, persona generation, and
+thematic analysis.</li>
+<li>Placeholders support topic, purpose, persona, conversation history,
+current question, participation stats (dominant/quiet speakers), and
+more. Unknown placeholders are preserved by
+<code>replace_placeholders_known</code> to avoid accidental removal of
+tokens used by downstream steps.</li>
+</ul>
+</div>
+<div id="llm-integration-and-cost-controls" class="section level3">
+<h3>LLM Integration and Cost Controls</h3>
+<ul>
+<li>Each <code>FGAgent</code> has a dedicated
+<code>LLMR::llm_config</code> (provider, model, temperature,
+max_tokens). Group-level admin tasks (summaries, thematic analysis) use
+<code>FocusGroup$llm_config_admin</code>.</li>
+<li>Token accounting: per-agent tokens are recorded by FGAgent; group
+totals tracked in FocusGroup.</li>
+<li>Context control: history windows are reduced and summarized when
+thresholds are crossed.</li>
+<li>Defaults constrain max tokens for moderator/participant/desire
+queries. Choosing RoundRobin flow is cheaper than DesireBased flow.</li>
+</ul>
+</div>
+<div id="reproducibility-and-options" class="section level3">
+<h3>Reproducibility and Options</h3>
+<ul>
+<li><code>run_focus_group</code> and <code>fg_quick</code> accept
+<code>seed</code>; <code>create_agents_from_survey</code> and utilities
+read <code>getOption(&quot;focusgroup.seed&quot;)</code> if set (via
+<code>.onLoad</code>).</li>
+</ul>
+</div>
+</div>
+<div id="api-reference" class="section level2">
+<h2>API Reference</h2>
+<p>This section lists classes and functions, their inputs/outputs, and
+behavior. “Exported” denotes public API (present in
+<code>NAMESPACE</code>). Internals are stable for package use but may
+change more frequently.</p>
+<div id="r6-classes-exported" class="section level3">
+<h3>R6 Classes (Exported)</h3>
+<div id="fgagent" class="section level4">
+<h4>FGAgent</h4>
+<ul>
+<li>Fields: <code>id</code>, <code>persona_description</code>,
+<code>communication_style_instruction</code>, <code>model_config</code>,
+<code>role</code>, <code>demographics</code> (list),
+<code>survey_responses</code> (list), <code>is_moderator</code>,
+<code>history</code> (list), <code>tokens_sent_agent</code>,
+<code>tokens_received_agent</code>.</li>
+<li>initialize(id, agent_details, model_config, is_moderator = FALSE)
+<ul>
+<li>agent_details: list with optional <code>demographics</code>,
+<code>survey_responses</code>, <code>direct_persona_description</code>,
+<code>communication_style</code>.</li>
+<li>Validates and constructs persona and style (moderator has sensible
+defaults).</li>
+</ul></li>
+<li>generate_utterance(topic, conversation_history_string,
+utterance_prompt_template, max_tokens_utterance = 150,
+current_moderator_question = “N/A”, conversation_summary_so_far = “N/A”,
+current_phase = “discussion”) -&gt; list(text, meta)
+<ul>
+<li>Calls LLM, cleans self-referential openings, retries if incomplete,
+updates tokens and <code>history</code>.</li>
+</ul></li>
+<li>get_need_to_talk(topic, conversation_history_string,
+desire_prompt_template, max_tokens_desire = 20,
+current_moderator_question = “N/A”, last_speaker_id = “N/A”,
+last_utterance_text = “N/A”) -&gt; numeric score 0–10</li>
+</ul>
+<p>Private helper: construct_persona_elements(details,
+is_moderator_flag) -&gt; list(description, style_instruction)</p>
+</div>
+<div id="focusgroup" class="section level4">
+<h4>FocusGroup</h4>
+<ul>
+<li>Fields: <code>topic</code>, <code>purpose</code>,
+<code>agents</code> (named list of FGAgent), <code>moderator_id</code>,
+<code>conversation_log</code> (list), <code>turn_taking_flow</code>,
+<code>prompt_templates</code> (list), <code>question_script</code>
+(list), <code>current_phase_index</code>,
+<code>current_question_text</code>,
+<code>current_conversation_summary</code>,
+<code>llm_config_admin</code>, <code>max_tokens_utterance</code>,
+<code>max_tokens_moderator</code>, <code>max_tokens_desire</code>,
+<code>total_tokens_sent</code>, <code>total_tokens_received</code>.</li>
+<li>initialize(topic, purpose, agents, moderator_id, turn_taking_flow,
+question_script = list(), prompt_templates = list(), llm_config_admin =
+NULL, max_tokens_config = list())
+<ul>
+<li>Merges defaults with overrides, builds minimal script if not
+provided, sets admin LLM config and token caps.</li>
+</ul></li>
+<li>run_simulation(num_turns = NULL, verbose = FALSE) -&gt;
+conversation_log (invisibly)
+<ul>
+<li>Executes the full loop, manages interim summaries and final
+summary.</li>
+</ul></li>
+<li>advance_turn(current_turn_number, verbose = FALSE) -&gt; logical
+continue
+<ul>
+<li>Executes one moderator step plus a small participant response round
+(up to 3) if phase expects responses.</li>
+</ul></li>
+<li>summarize(llm_config = NULL, summary_level = 1, max_tokens = NULL,
+internal_call = FALSE, transcript_override = NULL) -&gt; character
+<ul>
+<li>Levels: 1 (prose overview), 2 (detailed bullets), 3 (short
+bullets).</li>
+</ul></li>
+<li>analyze(turns = NULL, speaker_ids = NULL) -&gt; list(speaker_stats
+tibble, full_transcript character)</li>
+<li>analyze_topics(num_topics = 5, min_doc_length = 20, top_n_terms =
+10, turns = NULL, speaker_ids = NULL, …) -&gt; list or NULL</li>
+<li>analyze_tfidf(top_n_terms = 10, turns = NULL, speaker_ids = NULL, …)
+-&gt; tibble(speaker_id, term, tf_idf)</li>
+<li>analyze_readability(measures = “Flesch”, turns = NULL, speaker_ids =
+NULL) -&gt; tibble(measures…, speaker_id)</li>
+<li>analyze_themes(llm_config = NULL, turns = NULL, speaker_ids = NULL)
+-&gt; character (themes summary; raw response in attribute)</li>
+<li>analyze_statistics(turns = NULL, speaker_ids = NULL) -&gt;
+list(word_count_anova, phase_participation tibble,
+turns_words_correlation test)</li>
+<li>analyze_participation_balance(turns = NULL, speaker_ids = NULL)
+-&gt; list(participation_stats tibble, balance_metrics list)</li>
+<li>analyze_response_patterns(turns = NULL, speaker_ids = NULL) -&gt;
+list(response_metrics tibble, interaction_metrics tibble)</li>
+<li>analyze_question_patterns(turns = NULL, speaker_ids = NULL) -&gt;
+list(question_patterns tibble, question_distribution tibble)</li>
+<li>analyze_key_phrases(min_freq = 2, turns = NULL, speaker_ids = NULL)
+-&gt; list(bigrams df, trigrams df, totals)</li>
+<li>plot_participation_timeline() -&gt; ggplot</li>
+<li>plot_word_count_distribution() -&gt; ggplot</li>
+<li>plot_participation_by_agent() -&gt; ggplot</li>
+<li>plot_turn_length_timeline() -&gt; ggplot</li>
+</ul>
+<p>Private helpers: <code>get_next_phase_or_question()</code>,
+<code>log_message(...)</code>, <code>get_filtered_log(...)</code>,
+<code>get_recent_transcript_for_summary(n)</code>.</p>
+</div>
+<div id="conversationflow-base" class="section level4">
+<h4>ConversationFlow (base)</h4>
+<ul>
+<li>Fields: <code>agents</code>, <code>agent_ids</code>,
+<code>participant_ids</code>, <code>moderator_id</code>,
+<code>last_speaker_id</code>.</li>
+<li>initialize(agents, moderator_id)</li>
+<li>select_next_speaker(focus_group) -&gt; FGAgent or NULL
+(abstract)</li>
+<li>update_state_post_selection(speaker_id, focus_group)</li>
+</ul>
+</div>
+<div id="roundrobinflow" class="section level4">
+<h4>RoundRobinFlow</h4>
+<ul>
+<li>initialize(agents, moderator_id)</li>
+<li>select_next_speaker(focus_group) -&gt; FGAgent (participant)</li>
+</ul>
+</div>
+<div id="probabilisticflow" class="section level4">
+<h4>ProbabilisticFlow</h4>
+<ul>
+<li>Fields: <code>propensities</code>, <code>base_propensities</code>,
+<code>recovery_increment</code>.</li>
+<li>initialize(agents, moderator_id, initial_propensities = NULL,
+recovery_increment = 0.1)</li>
+<li>select_next_speaker(focus_group) -&gt; FGAgent</li>
+<li>update_state_post_selection(speaker_id, focus_group)</li>
+</ul>
+</div>
+<div id="desirebasedflow" class="section level4">
+<h4>DesireBasedFlow</h4>
+<ul>
+<li>Fields: <code>last_desire_scores</code> (named numeric),
+<code>min_desire_threshold</code>.</li>
+<li>initialize(agents, moderator_id, min_desire_threshold = 3)</li>
+<li>select_next_speaker(focus_group) -&gt; FGAgent (participant)</li>
+<li>get_last_desire_scores() -&gt; named numeric</li>
+</ul>
+</div>
+</div>
+<div id="factories-and-wrappers-exported" class="section level3">
+<h3>Factories and Wrappers (Exported)</h3>
+<div id="create_conversation_flowmode-agents-moderator_id-flow_params-list---conversationflow" class="section level4">
+<h4>create_conversation_flow(mode, agents, moderator_id, flow_params =
+list()) -&gt; ConversationFlow</h4>
+<ul>
+<li>mode: “round_robin” | “probabilistic” | “desire_based”.</li>
+<li>flow_params: <code>initial_propensities</code>,
+<code>recovery_increment</code>, <code>min_desire_threshold</code> as
+applicable.</li>
+</ul>
+</div>
+<div id="run_focus_grouptopic-participants-6-turns_per_phase-copening-2-icebreaker-3-engagement-8-exploration-10-closing-2-demographics-null-survey_responses-null-conversation_flow-desire_based-llm_config-null-seed-null-verbose-true---list" class="section level4">
+<h4>run_focus_group(topic, participants = 6, turns_per_phase = c(Opening
+= 2, Icebreaker = 3, Engagement = 8, Exploration = 10, Closing = 2),
+demographics = NULL, survey_responses = NULL, conversation_flow =
+“desire_based”, llm_config = NULL, seed = NULL, verbose = TRUE) -&gt;
+list</h4>
+<ul>
+<li>Returns:
+<ul>
+<li>focus_group: FocusGroup object</li>
+<li>conversation: data.frame transcript extracted from
+<code>conversation_log</code></li>
+<li>summary: character (overall summary)</li>
+<li>basic_stats: from <code>FocusGroup$analyze()</code></li>
+<li>participants: list with id, moderator flag, persona, and input
+data</li>
+</ul></li>
+</ul>
+</div>
+<div id="fg_quicktopic-participants-6-flow-cdesire_basedround_robinprobabilistic-model_config-null-seed-null-mode-cquickpro-verbose-true---list" class="section level4">
+<h4>fg_quick(topic, participants = 6, flow =
+c(“desire_based”,“round_robin”,“probabilistic”), model_config = NULL,
+seed = NULL, mode = c(“quick”,“pro”), verbose = TRUE) -&gt; list</h4>
+<ul>
+<li>Returns: transcript tibble, summary character, participants list,
+totals (tokens and turns), config_meta, and the
+<code>focus_group</code>.</li>
+</ul>
+</div>
+<div id="fg_analyze_quickres---list" class="section level4">
+<h4>fg_analyze_quick(res) -&gt; list</h4>
+<ul>
+<li>Input: <code>fg_quick()</code> result or a <code>FocusGroup</code>
+object.</li>
+<li>Returns: <code>basic_stats</code> and <code>short_summary</code>
+(summary level 3).</li>
+</ul>
+</div>
+<div id="analyze_focus_groupfocus_group_result-num_topics-5-include_plots-true-sentiment_method-afinn---list" class="section level4">
+<h4>analyze_focus_group(focus_group_result, num_topics = 5,
+include_plots = TRUE, sentiment_method = “afinn”) -&gt; list</h4>
+<ul>
+<li>Input: a <code>FocusGroup</code> object or the result of
+<code>run_focus_group()</code>.</li>
+<li>Returns: list
+<code>{ basic_stats, topics, sentiment=NULL, tfidf, readability, themes, plots? }</code>.</li>
+</ul>
+</div>
+</div>
+<div id="agent-creation-and-survey-integration" class="section level3">
+<h3>Agent Creation and Survey Integration</h3>
+<div id="create_diverse_agentsn_participants-demographics-null-survey_responses-null-llm_config-null---list-of-fgagent" class="section level4">
+<h4>create_diverse_agents(n_participants, demographics = NULL,
+survey_responses = NULL, llm_config = NULL) -&gt; list of FGAgent</h4>
+<ul>
+<li>Creates <code>n_participants</code> participants plus one moderator
+(<code>MOD</code>).</li>
+<li>If <code>demographics</code>/<code>survey_responses</code> are
+missing, uses generators below.</li>
+<li>Each participant’s persona is built via
+<code>generate_persona()</code>.</li>
+</ul>
+</div>
+<div id="create_agents_from_surveyn_participants-survey_path-demographic_vars-null-survey_vars-null-llm_config-null---list-of-fgagent" class="section level4">
+<h4>create_agents_from_survey(n_participants, survey_path,
+demographic_vars = NULL, survey_vars = NULL, llm_config = NULL) -&gt;
+list of FGAgent</h4>
+<ul>
+<li>Loads haven-labeled survey files (<code>.dta</code>,
+<code>.sav</code>, <code>.sas7bdat</code>) and converts value labels to
+characters.</li>
+<li>Auto-detects common demographics and survey variables (with ANES
+2024-specific mappings).</li>
+<li>Samples rows to create agent inputs and delegates to
+<code>create_diverse_agents()</code>.</li>
+</ul>
+</div>
+<div id="generate_diverse_demographicsn---data.frame-internal" class="section level4">
+<h4>generate_diverse_demographics(n) -&gt; data.frame (internal)</h4>
+<ul>
+<li>Columns: <code>age</code>, <code>gender</code>,
+<code>education</code>, <code>income</code>, <code>location</code>.</li>
+</ul>
+</div>
+<div id="generate_survey_responsesn---data.frame-internal" class="section level4">
+<h4>generate_survey_responses(n) -&gt; data.frame (internal)</h4>
+<ul>
+<li>Example Likert-like variables: <code>tech_usage_comfort</code>,
+<code>social_media_frequency</code>, <code>privacy_concern_level</code>,
+<code>environmental_concern</code>.</li>
+</ul>
+</div>
+<div id="generate_personademographics-survey_responses-null---character-internal" class="section level4">
+<h4>generate_persona(demographics, survey_responses = NULL) -&gt;
+character (internal)</h4>
+<ul>
+<li>Builds a succinct persona paragraph from demographics and optional
+survey attributes; includes cautious handling of values and simple
+heuristics for traits.</li>
+</ul>
+</div>
+</div>
+<div id="prompts-and-formatting" class="section level3">
+<h3>Prompts and Formatting</h3>
+<div id="get_default_prompt_templates---named-list-exported" class="section level4">
+<h4>get_default_prompt_templates() -&gt; named list (exported)</h4>
+<ul>
+<li>Keys (non-exhaustive):
+<ul>
+<li>Participant: <code>participant_utterance_subtle_persona</code>,
+<code>participant_desire_to_talk_nuanced</code>.</li>
+<li>Moderator: <code>moderator_opening</code>,
+<code>moderator_icebreaker_question</code>,
+<code>moderator_engagement_question</code>,
+<code>moderator_exploration_question</code>,
+<code>moderator_probing_focused</code>,
+<code>moderator_summarizing</code>, <code>moderator_transition</code>,
+<code>moderator_manage_participation</code>,
+<code>moderator_ending_question</code>, <code>moderator_closing</code>,
+<code>moderator_generic_utterance</code>.</li>
+<li>Helpers: <code>suggest_questions_prompt</code>,
+<code>generate_persona_prompt</code>,
+<code>thematic_analysis_prompt</code>,
+<code>sentiment_analysis_prompt</code>.</li>
+</ul></li>
+</ul>
+</div>
+<div id="format_demographicsdemographics---character-exported" class="section level4">
+<h4>format_demographics(demographics) -&gt; character (exported)</h4>
+<ul>
+<li>Filters empty values and returns “key: value; key: value; …” or an
+informative fallback string.</li>
+</ul>
+</div>
+<div id="format_survey_responsessurvey_responses---character-exported" class="section level4">
+<h4>format_survey_responses(survey_responses) -&gt; character
+(exported)</h4>
+<ul>
+<li>Produces a readable multi-line block from a named list of
+question-answer pairs.</li>
+</ul>
+</div>
+<div id="format_conversation_historyconversation_log-n_recent-7-include_summary-null---character-exported" class="section level4">
+<h4>format_conversation_history(conversation_log, n_recent = 7,
+include_summary = NULL) -&gt; character (exported)</h4>
+<ul>
+<li>Formats recent turns (optionally prefixed with a summary) for
+prompts.</li>
+</ul>
+</div>
+<div id="make_prompt_historylog-n_recent-5-include_summary-null---character-internal" class="section level4">
+<h4>make_prompt_history(log, n_recent = 5, include_summary = NULL) -&gt;
+character (internal)</h4>
+<ul>
+<li>Thin wrapper over <code>format_conversation_history</code> used
+throughout the codebase.</li>
+</ul>
+</div>
+</div>
+<div id="placeholder-utilities" class="section level3">
+<h3>Placeholder Utilities</h3>
+<div id="replace_placeholderstemplate_string-values_list---character-exported" class="section level4">
+<h4>replace_placeholders(template_string, values_list) -&gt; character
+(exported)</h4>
+<ul>
+<li>Replaces all <code>{{key}}</code> placeholders found in the template
+with given values; unknown placeholders are removed.</li>
+</ul>
+</div>
+<div id="replace_placeholders_knowntemplate_string-values_list---character-internal" class="section level4">
+<h4>replace_placeholders_known(template_string, values_list) -&gt;
+character (internal)</h4>
+<ul>
+<li>Only replaces placeholders present in <code>values_list</code>,
+preserving other <code>{{...}}</code> tokens for later resolution.</li>
+</ul>
+</div>
+</div>
+<div id="token-and-scoring-utilities-internal" class="section level3">
+<h3>Token and Scoring Utilities (Internal)</h3>
+<div id="estimate_tokenstext---integer" class="section level4">
+<h4>estimate_tokens(text) -&gt; integer</h4>
+<ul>
+<li>Rough token estimate: character length / 4.</li>
+</ul>
+</div>
+<div id="parse_score_0_10text---integer-in-010" class="section level4">
+<h4>parse_score_0_10(text) -&gt; integer in [0,10]</h4>
+<ul>
+<li>Extracts a single integer desire score from free text.</li>
+</ul>
+</div>
+</div>
+<div id="visualization" class="section level3">
+<h3>Visualization</h3>
+<p>All plotting methods live on <code>FocusGroup</code> and return
+<code>ggplot</code> objects: - plot_participation_timeline() -
+plot_word_count_distribution() - plot_participation_by_agent() -
+plot_turn_length_timeline()</p>
+</div>
+<div id="conversation-log-schema-detailed" class="section level3">
+<h3>Conversation Log Schema (Detailed)</h3>
+<p>Each log entry is created via a private logger and includes:</p>
+<ul>
+<li>turn: integer (auto-assigned sequentially; system messages may use
+the current turn context)</li>
+<li>speaker_id: character (agent ID or “System”)</li>
+<li>is_moderator: logical (inferred for moderator ID if not
+provided)</li>
+<li>text: character (utterance or system content)</li>
+<li>timestamp: POSIXct (time of logging)</li>
+<li>phase: character (script phase or special markers like
+<code>setup</code>, <code>final_summary</code>)</li>
+<li>response_id: character (LLMR response ID when available)</li>
+<li>finish_reason: character (e.g., stop, length)</li>
+<li>sent_tokens, rec_tokens, total_tokens: integers (LLMR token
+accounting when available)</li>
+<li>duration_s: numeric (provider-reported duration)</li>
+<li>provider, model: character</li>
+</ul>
+</div>
+<div id="error-handling-and-edge-cases" class="section level3">
+<h3>Error Handling and Edge Cases</h3>
+<ul>
+<li>Strict input validation on constructors and wrappers (e.g.,
+non-empty topic, presence of moderator, correct flow types).</li>
+<li>Missing prompts fall back to a generic moderator template.</li>
+<li>Empty logs yield informative messages and guarded behaviors in
+analysis and plotting.</li>
+<li>Topic modeling, TF-IDF, readability gracefully return
+<code>NULL</code>/empty tibbles with warnings if data is
+insufficient.</li>
+</ul>
+</div>
+<div id="extensibility-guidelines" class="section level3">
+<h3>Extensibility Guidelines</h3>
+<ul>
+<li>New Conversation Flow
+<ul>
+<li>Subclass <code>ConversationFlow</code>, implement
+<code>select_next_speaker()</code> and (optionally) override
+<code>update_state_post_selection()</code>.</li>
+<li>Add a case to <code>create_conversation_flow()</code>.</li>
+</ul></li>
+<li>Custom Prompts
+<ul>
+<li>Retrieve defaults with <code>get_default_prompt_templates()</code>,
+modify any entries, and pass them to
+<code>FocusGroup$new(..., prompt_templates = ...)</code>.</li>
+</ul></li>
+<li>New Analyses
+<ul>
+<li>Add methods on <code>FocusGroup</code> using
+<code>private$get_filtered_log()</code> to reuse consistent filtering
+and transcript assembly.</li>
+</ul></li>
+<li>Alternative LLM Providers
+<ul>
+<li>Configure per-agent <code>LLMR::llm_config</code> accordingly.
+Group-level tasks use <code>llm_config_admin</code> if set; else fall
+back to the moderator’s config.</li>
+</ul></li>
+</ul>
+</div>
+<div id="directory-structure" class="section level3">
+<h3>Directory Structure</h3>
+<ul>
+<li><code>R/FGAgent.R</code>: agent class</li>
+<li><code>R/FocusGroup.R</code>: group orchestration, analysis,
+plots</li>
+<li><code>R/ConversationFlow.R</code>: base and flow implementations;
+<code>create_conversation_flow()</code></li>
+<li><code>R/convenience_wrappers.R</code>: wrappers, analysis entry
+points, data generators, survey integration</li>
+<li><code>R/prompts.R</code>: default prompt templates</li>
+<li><code>R/utils.R</code>: formatting, placeholders, prompt history and
+token utilities</li>
+<li><code>R/zzz.R</code>: package docs and <code>.onLoad</code>
+options</li>
+</ul>
+</div>
+</div>
+<div id="exported-symbols-public-api" class="section level2">
+<h2>Exported Symbols (Public API)</h2>
+<ul>
+<li>Classes: <code>FGAgent</code>, <code>FocusGroup</code>,
+<code>ConversationFlow</code>, <code>RoundRobinFlow</code>,
+<code>ProbabilisticFlow</code>, <code>DesireBasedFlow</code></li>
+<li>Functions: <code>run_focus_group</code>, <code>fg_quick</code>,
+<code>fg_analyze_quick</code>, <code>analyze_focus_group</code>,
+<code>create_diverse_agents</code>,
+<code>create_agents_from_survey</code>,
+<code>create_conversation_flow</code>,
+<code>get_default_prompt_templates</code>,
+<code>format_demographics</code>, <code>format_survey_responses</code>,
+<code>format_conversation_history</code>,
+<code>replace_placeholders</code></li>
+</ul>
+<p>Internals documented but not exported:
+<code>generate_diverse_demographics</code>,
+<code>generate_survey_responses</code>, <code>generate_persona</code>,
+<code>estimate_tokens</code>, <code>parse_score_0_10</code>,
+<code>make_prompt_history</code>,
+<code>replace_placeholders_known</code>.</p>
+</div>
+<div id="known-limitations-and-notes" class="section level2">
+<h2>Known Limitations and Notes</h2>
+<ul>
+<li>Desire-based flow can be costlier (more LLM calls) than round-robin;
+choose based on budget/needs.</li>
+<li>Summarization uses LLM and contributes to token usage; thresholds
+are conservative defaults.</li>
+<li>Topic modeling requires sufficient term diversity; small or very
+short transcripts may not yield meaningful results.</li>
+<li>Sentiment analysis helpers are present in prompts, but sentiment
+computation is not currently part of the exported analysis
+pipeline.</li>
+</ul>
+</div>
+<div id="quick-usage-patterns" class="section level2">
+<h2>Quick Usage Patterns</h2>
+<ul>
+<li>Rapid run:
+<ul>
+<li><code>fg_quick(topic = &quot;...&quot;, participants = 4)</code></li>
+</ul></li>
+<li>Full run and analyze:
+<ul>
+<li><code>res &lt;- run_focus_group(topic = &quot;...&quot;, participants = 6)</code></li>
+<li><code>analysis &lt;- analyze_focus_group(res, num_topics = 5, include_plots = TRUE)</code></li>
+</ul></li>
+</ul>
+</div>
+<div id="change-impact-matrix-high-level" class="section level2">
+<h2>Change Impact Matrix (High-Level)</h2>
+<ul>
+<li>Prompt changes: affect agent outputs; no structural changes.</li>
+<li>Flow changes: affect speaker selection; ensure selection invariants
+(participants vs. moderator) align with phase logic.</li>
+<li>Analysis additions: safe; prefer using
+<code>private$get_filtered_log()</code> and return tibbles/lists
+consistently.</li>
+<li>LLM config changes: affect cost/latency; ensure token caps are
+respected.</li>
+</ul>
+<hr />
+<p>This blueprint should be kept in sync with Roxygen documentation and
+<code>NAMESPACE</code>. Update when classes, flows, prompts, or analysis
+capabilities change.</p>
+</div>
+
+
+
+<!-- code folding -->
+
+
+<!-- dynamically load mathjax for compatibility with self-contained -->
+<script>
+  (function () {
+    var script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src  = "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML";
+    document.getElementsByTagName("head")[0].appendChild(script);
+  })();
+</script>
+
+</body>
+</html>

@@ -1,16 +1,20 @@
-#' FocusGroup: LLM-Powered Focus Group Simulation and Analysis
+#' FocusGroup: Focus Group Simulation and Analysis Using LLM Agents
+#' @docType package
+#' @name FocusGroup
+#' @keywords internal
+"_PACKAGE"
 #'
 #' @description
-#' The FocusGroup package provides a comprehensive framework for simulating 
-#' and analyzing focus group discussions using Large Language Models (LLMs). 
-#' It enables researchers to create virtual focus groups with diverse AI agents,
-#' conduct structured discussions across multiple phases, and perform 
-#' sophisticated analysis of the resulting conversations.
+#' Provides utilities for simulating and analyzing
+#' focus group discussions using Large Language Models.
+#' Enables researchers to create virtual focus groups with diverse AI agents
+#' with detailed personas, conduct structured discussions across multiple
+#' phases, and perform analysis of the resulting conversations.
 #'
 #' @details
 #' ## Key Features
-#' 
-#' * **Agent-Based Modeling**: Create diverse AI participants and moderators 
+#'
+#' * **Agent-Based Modeling**: Create diverse AI participants and moderators
 #'   with customizable personas, demographics, and survey responses
 #' * **Flexible Conversation Flow**: Multiple turn-taking mechanisms including
 #'   round-robin, probabilistic, and desire-based approaches
@@ -22,23 +26,23 @@
 #'   R6 class manipulation
 #'
 #' ## Main Classes
-#' 
+#'
 #' * [FGAgent]: Represents individual participants or moderators
 #' * [FocusGroup]: Manages the overall simulation and analysis
 #' * [ConversationFlow]: Controls turn-taking mechanisms
 #'
 #' ## Quick Start
-#' 
+#'
 #' For simple focus group simulation:
 #' ```r
 #' # Run a basic focus group
 #' result <- run_focus_group(
 #'   topic = "Social media usage among students",
 #'   participants = 6,
-#'   turns_per_phase = c(Opening = 2, Icebreaker = 3, 
+#'   turns_per_phase = c(Opening = 2, Icebreaker = 3,
 #'                       Engagement = 8, Exploration = 10, Closing = 2)
 #' )
-#' 
+#'
 #' # Analyze results
 #' analyze_focus_group(result)
 #' ```
@@ -46,18 +50,23 @@
 #' For advanced control:
 #' ```r
 #' # Create custom agents
-#' agents <- create_diverse_agents(6, demographics_file = "demographics.csv")
-#' 
-#' # Set up focus group
+#' agents <- create_diverse_agents(6)
+#'
+#' # Set up a flow and focus group
+#' agents_named <- setNames(agents, vapply(agents, function(a) a$id, ""))
+#' mod_id <- "MOD"
+#' flow <- create_conversation_flow("desire_based", agents_named, mod_id)
 #' fg <- FocusGroup$new(
-#'   agents = agents,
 #'   topic = "Climate change attitudes",
-#'   conversation_flow = DesireBasedFlow$new()
+#'   purpose = "Explore perspectives and trade-offs",
+#'   agents = agents_named,
+#'   moderator_id = mod_id,
+#'   turn_taking_flow = flow
 #' )
-#' 
+#'
 #' # Run simulation
-#' fg$run_simulation(turns_per_phase = list(Engagement = 15, Exploration = 20))
-#' 
+#' fg$run_simulation()
+#'
 #' # Perform analysis
 #' topics <- fg$analyze_topics(num_topics = 5)
 #' ```
@@ -79,13 +88,10 @@
 #'
 #' @author Ali Sanaei \email{sanaei@@uchicago.edu}
 #' @keywords package focus-group llm simulation qualitative-research
-"_PACKAGE"
 
-NULL
-
-NULL 
 
 # Set package options on load without overriding user choices
+#' @noRd
 .onLoad <- function(libname, pkgname) {
   op <- options()
   op.focusgroup <- list(
@@ -95,3 +101,5 @@ NULL
   if (any(toset)) options(op.focusgroup[toset])
   invisible()
 }
+
+

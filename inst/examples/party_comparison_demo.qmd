@@ -45,10 +45,8 @@ set.seed(123)
 
 # Configure LLM for agents and admin tasks
 llm_config <- LLMR::llm_config(
-  provider = 'openai',
-  model = 'gpt-4.1',
-  temperature = 0.7,
-  max_tokens = 600
+  provider = 'deepseek',
+  model = 'deepseek-chat'
 )
 
 # Paths

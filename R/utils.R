@@ -4,7 +4,25 @@
 #' @importFrom stats runif setNames
 #' @importFrom utils modifyList
 #' @importFrom rlang .data
+#' @importFrom withr with_seed
 NULL
+
+#' Default LLMR configuration for this package
+#'
+#' Creates a default configuration for the large language model used by agents.
+#' Values are read from options() so users can override without editing code.
+#' @return An LLMR::llm_config object.
+#' @export
+default_llmr_config <- function() {
+  if (!requireNamespace("LLMR", quietly = TRUE)) {
+    stop("LLMR is required to build an LLM config.")
+  }
+  prov  <- getOption("focusgroup.provider", "openai")
+  model <- getOption("focusgroup.model", "gpt-4o-mini")
+  temp  <- getOption("focusgroup.temperature", 0.7)
+  maxt  <- getOption("focusgroup.max_tokens", 500L)
+  LLMR::llm_config(provider = prov, model = model, temperature = temp, max_tokens = maxt)
+}
 
 # Null-coalescing operator (handles NULL and length-0)
 `%||%` <- function(x, y) {

@@ -13,11 +13,7 @@ knitr::opts_chunk$set(eval = FALSE)
 
 ### FocusGroup Package Blueprint
 
-Version: 0.2.1
-
-Author: Ali Sanaei
-
-This blueprint explains the architecture, logical flow, data model, and API surface of the FocusGroup R package. It is designed as a comprehensive, single reference for maintainers and contributors.
+This blueprint explains the architecture, logical flow, data model, and API surface of the FocusGroup R package. It is designed as a comprehensive, single reference for advanced users and, hopefully, contributors.
 
 ## Overview
 

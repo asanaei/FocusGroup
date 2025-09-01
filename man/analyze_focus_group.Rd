@@ -18,7 +18,7 @@ analyze_focus_group(
 
 \item{include_plots}{Logical, whether to generate plots (default: TRUE)}
 
-\item{sentiment_method}{Character, sentiment analysis method (default: "afinn")}
+\item{sentiment_method}{Deprecated. Ignored. Sentiment analysis was removed from package scope.}
 }
 \value{
 List containing various analysis results including topics, sentiment,

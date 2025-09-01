@@ -51,9 +51,9 @@ Initialize ProbabilisticFlow.
 
 \item{\code{moderator_id}}{Character. The ID of the moderator agent.}
 
-\item{\code{initial_propensities}}{Named numeric vector. Optional. Base propensities for each agent.
-If `NULL`, defaults to 1.0 for all participants and 1.5 for the moderator.
-Names must match agent IDs.}
+\item{\code{initial_propensities}}{Named numeric vector. Optional. Base propensities for each participant.
+If `NULL`, defaults to 1.0 for all participants (moderator excluded).
+Names must match participant IDs.}
 
 \item{\code{recovery_increment}}{Numeric. Rate at which propensity recovers (0 to 1).}
 }

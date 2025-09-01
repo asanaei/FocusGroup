@@ -10,3 +10,7 @@
 ^inst/examples/.*\.pdf$
 ^inst/examples$
 ^inst/examples/.*$
+^_pkgdown\.yml$
+^docs$
+^assets$
+^demo_simple\.html$

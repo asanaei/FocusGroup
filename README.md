@@ -1,9 +1,10 @@
 # FocusGroup: LLM-Powered Focus Group Simulation and Analysis
 
-<img src="assets/FocusGroup_icon_512x512.jpg" alt="FocusGroup icon" width="120" />
+<img src="man/figures/logo.png" alt="FocusGroup icon" width="120" class="d-none" />
+
 
 [![R-CMD-check](https://github.com/asanaei/FocusGroup/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/asanaei/FocusGroup/actions/workflows/R-CMD-check.yaml)
-[![pkgdown](https://github.com/asanaei/FocusGroup/actions/workflows/pkgdown.yaml/badge.svg)](https://github.com/asanaei/FocusGroup/actions/workflows/pkgdown.yaml)
+[![pkgdown](https://img.shields.io/badge/docs-pkgdown-blue.svg)](https://asanaei.github.io/FocusGroup/)
 [![Lifecycle: experimental](https://img.shields.io/badge/lifecycle-experimental-orange.svg)](https://lifecycle.r-lib.org/articles/stages.html#experimental)
 [![Website](https://img.shields.io/badge/docs-pkgdown-blue)](https://asanaei.github.io/FocusGroup/)
 

@@ -46,12 +46,10 @@ if (requireNamespace("DT", quietly = TRUE)) library(DT)
 
 set.seed(1234)
 
-# Configure LLM - Using the specified powerful model
+# Configure LLM
 llm_config <- LLMR::llm_config(
-  provider = 'groq', 
-  model = 'openai/gpt-oss-120b', 
-  temperature = 0.7,
-  max_tokens = 800
+  provider = 'deepseek',
+  model = 'deepseek-chat'
 )
 
 # Set focus group topic - Updated for 2025 political landscape

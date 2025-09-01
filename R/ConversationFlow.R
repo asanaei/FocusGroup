@@ -130,26 +130,23 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
     #' @description Initialize ProbabilisticFlow.
     #' @param agents A named list of `FGAgent` objects.
     #' @param moderator_id Character. The ID of the moderator agent.
-    #' @param initial_propensities Named numeric vector. Optional. Base propensities for each agent.
-    #'        If `NULL`, defaults to 1.0 for all participants and 1.5 for the moderator.
-    #'        Names must match agent IDs.
+    #' @param initial_propensities Named numeric vector. Optional. Base propensities for each participant.
+    #'        If `NULL`, defaults to 1.0 for all participants (moderator excluded).
+    #'        Names must match participant IDs.
     #' @param recovery_increment Numeric. Rate at which propensity recovers (0 to 1).
     initialize = function(agents, moderator_id, initial_propensities = NULL, recovery_increment = 0.1) {
       super$initialize(agents, moderator_id)
       self$recovery_increment <- recovery_increment
-
+      ids <- self$participant_ids
       if (is.null(initial_propensities)) {
-        self$base_propensities <- stats::setNames(rep(1.0, length(self$agent_ids)), self$agent_ids)
-        if (self$moderator_id %in% self$agent_ids) {
-          self$base_propensities[self$moderator_id] <- 1.5 # Moderator slightly more likely by default
-        }
+        self$base_propensities <- stats::setNames(rep(1.0, length(ids)), ids)
       } else {
         if (!is.numeric(initial_propensities) || is.null(names(initial_propensities)) ||
-            !all(names(initial_propensities) %in% self$agent_ids) ||
-            !all(self$agent_ids %in% names(initial_propensities))) {
-          stop("ProbabilisticFlow: initial_propensities must be a named numeric vector with names matching all agent_ids.")
+            !all(names(initial_propensities) %in% ids) ||
+            !all(ids %in% names(initial_propensities))) {
+          stop("ProbabilisticFlow: initial_propensities must be named numeric for all participant_ids.")
         }
-        self$base_propensities <- initial_propensities[self$agent_ids] # Ensure correct order
+        self$base_propensities <- initial_propensities[ids]
       }
       self$propensities <- self$base_propensities
     },
@@ -158,34 +155,23 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
     #' @param focus_group The `FocusGroup` object.
     #' @return The selected `FGAgent`, or `NULL` if no eligible speaker.
     select_next_speaker = function(focus_group) {
-      eligible_ids <- self$agent_ids
-      # Prevent immediate self-succession if multiple agents are available and it's not the moderator
-      if (!is.null(self$last_speaker_id) && length(self$agent_ids) > 1 && self$last_speaker_id != self$moderator_id) {
-         # Allow moderator to speak again if needed by script, but participants shouldn't self-succeed easily
-        if (self$last_speaker_id %in% self$participant_ids) {
-            eligible_ids <- setdiff(self$agent_ids, self$last_speaker_id)
-        }
-      }
+      eligible_ids <- self$participant_ids
       
-      if (length(eligible_ids) == 0) { # Fallback if last_speaker_id was the only one eligible
-          eligible_ids <- self$agent_ids
-      }
+      if(length(eligible_ids) == 0) return(NULL)
 
       current_eligible_propensities <- self$propensities[eligible_ids]
-      current_eligible_propensities[current_eligible_propensities < 0] <- 0 # Floor at 0
+      current_eligible_propensities[current_eligible_propensities < 0] <- 0
 
       if (all(current_eligible_propensities == 0)) {
-        # warning("ProbabilisticFlow: All eligible agents have zero propensity. Assigning equal probability.")
         if (length(eligible_ids) > 0) {
             normalized_probs <- rep(1/length(eligible_ids), length(eligible_ids))
         } else {
-            return(NULL) # No one to select
+            return(NULL)
         }
       } else {
         normalized_probs <- current_eligible_propensities / sum(current_eligible_propensities)
       }
       
-      if(length(eligible_ids) == 0) return(NULL)
       if(length(eligible_ids) == 1) {
         next_speaker_id <- eligible_ids[1]
       } else {
@@ -201,16 +187,11 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
     update_state_post_selection = function(speaker_id, focus_group) {
       super$update_state_post_selection(speaker_id, focus_group)
 
-      # Agent who just spoke has their propensity reset (or significantly reduced)
-      # Moderator's propensity might be managed differently or reset less drastically
-      if (speaker_id == self$moderator_id) {
-          self$propensities[[speaker_id]] <- self$base_propensities[[speaker_id]] * 0.5 # Moderator recovers faster or resets higher
-      } else {
-          self$propensities[[speaker_id]] <- 0 # Participants reset to 0
+      if (speaker_id %in% names(self$propensities)) {
+        self$propensities[[speaker_id]] <- 0
       }
 
-      # Others recover
-      for (id in self$agent_ids) {
+      for (id in names(self$propensities)) {
         if (id != speaker_id) {
           self$propensities[[id]] <- min(
             self$base_propensities[[id]],
@@ -270,7 +251,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 
       # Vectorized parallel desire scoring using LLMR broadcast when available
       eligible_ids <- self$participant_ids
-      if (!is.null(self$last_speaker_id) && length(self$participant_ids) > 1) {
+      if (!is.null(self$last_speaker_id) && self$last_speaker_id %in% eligible_ids && length(eligible_ids) > 1) {
         eligible_ids <- setdiff(eligible_ids, self$last_speaker_id)
       }
       if (length(eligible_ids) > 0 && requireNamespace("LLMR", quietly = TRUE)) {
@@ -413,8 +394,8 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 #' @export
 #' @examples
 #' # Assuming FGAgent class and agents list (agent1, agent2, mod) are defined
-#' # mod_id <- "Moderator"
-#' # all_my_agents <- list(Agent1 = agent1, Agent2 = agent2, Moderator = mod)
+#' # mod_id <- "MOD"
+#' # all_my_agents <- list(P1 = agent1, P2 = agent2, MOD = mod)
 #' # flow <- create_conversation_flow("desire_based", all_my_agents, mod_id)
 create_conversation_flow <- function(mode, agents, moderator_id, flow_params = list()) {
   if (!is.character(mode) || length(mode) != 1) {

@@ -1166,7 +1166,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     plot_word_count_distribution = function() {
       if (length(self$conversation_log) == 0) {
         warning("No conversation data available for plotting")
-        return(NULL)
+        return(ggplot2::ggplot() +
+                 ggplot2::labs(title = "Word Count Distribution",
+                               subtitle = "No conversation data available") +
+                 ggplot2::theme_void())
       }
 
       conv_df <- dplyr::bind_rows(lapply(self$conversation_log, function(x) {
@@ -1201,7 +1204,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     plot_participation_by_agent = function() {
       if (length(self$conversation_log) == 0) {
         warning("No conversation data available for plotting")
-        return(NULL)
+        return(ggplot2::ggplot() +
+                 ggplot2::labs(title = "Participation by Agent",
+                               subtitle = "No conversation data available") +
+                 ggplot2::theme_void())
       }
 
       conv_df <- dplyr::bind_rows(lapply(self$conversation_log, function(x) {
@@ -1236,7 +1242,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     plot_turn_length_timeline = function() {
       if (length(self$conversation_log) == 0) {
         warning("No conversation data available for plotting")
-        return(NULL)
+        return(ggplot2::ggplot() +
+                 ggplot2::labs(title = "Turn Length Timeline",
+                               subtitle = "No conversation data available") +
+                 ggplot2::theme_void())
       }
 
       messages <- sapply(self$conversation_log, function(x) x$text)

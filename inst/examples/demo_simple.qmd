@@ -18,10 +18,8 @@ library(FocusGroup)
 
 # Configure LLM
 llm_config <- LLMR::llm_config(
-  provider = "openai",
-  model = "gpt-4o-mini",
-  temperature = 0.7,
-  max_tokens = 300
+  provider = "deepseek",
+  model = "deepseek-chat"
 )
 
 topic <- "The future of remote work: Balancing productivity and well-being"
