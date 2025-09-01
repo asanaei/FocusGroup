@@ -4,12 +4,11 @@ Title: Focus Group Simulation Using LLM Agents
 Version: 0.2.2
 Author: Ali Sanaei <sanaei@uchicago.edu>
 Maintainer: Ali Sanaei <sanaei@uchicago.edu>
-Description: Provides a comprehensive framework for simulating and analyzing 
-    focus group discussions using Large Language Models (LLMs). Enables 
-    researchers to create virtual focus groups with diverse AI agents, conduct 
-    structured discussions across multiple phases, and perform sophisticated 
-    analysis of the resulting conversations including topic modeling, sentiment 
-    analysis, and readability assessment.
+Description: Provides utilities for simulating and analyzing
+    focus group discussions using Large Language Models.
+    Enables researchers to create virtual focus groups with diverse AI agents
+    with detailed personas, conduct structured discussions across multiple
+    phases, and perform analysis of the resulting conversations.
 License: MIT + file LICENSE
 Encoding: UTF-8
 RoxygenNote: 7.3.2
