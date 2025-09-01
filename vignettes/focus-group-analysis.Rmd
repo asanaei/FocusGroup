@@ -1,6 +1,5 @@
 ---
 title: "Focus Group Analysis"
-author: "Ali Sanaei"
 date: "`r Sys.Date()`"
 output: rmarkdown::html_vignette
 vignette: >

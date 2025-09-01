@@ -2,9 +2,9 @@ name: R-CMD-check
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   pull_request:
-    branches: [ main ]
+    branches: [main]
 
 jobs:
   R-CMD-check:
@@ -22,13 +22,18 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: r-lib/actions/setup-pandoc@v2
-
       - uses: r-lib/actions/setup-r@v2
         with:
           r-version: ${{ matrix.config.r }}
           use-public-rspm: true
+
+      - name: Install system libraries (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libfontconfig1-dev libfreetype6-dev libcurl4-openssl-dev libgsl-dev
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
@@ -38,24 +43,3 @@ jobs:
       - uses: r-lib/actions/check-r-package@v2
         with:
           upload-snapshots: true
-on: [push, pull_request]
-name: R-CMD-check
-jobs:
-  check:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: r-lib/actions/setup-r@v2
-      - name: Install System Dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libfontconfig1-dev \
-            libfreetype6-dev \
-            libcurl4-openssl-dev \
-            libgsl-dev
-      - run: |
-          Rscript -e 'options(repos = c(CRAN="https://cloud.r-project.org"));
-                      install.packages(c("remotes","devtools"))'
-      - run: Rscript -e 'remotes::install_deps(dependencies = TRUE)'
-      - run: R CMD check --no-manual --as-cran .
