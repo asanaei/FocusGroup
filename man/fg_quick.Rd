@@ -11,7 +11,8 @@ fg_quick(
   model_config = NULL,
   seed = NULL,
   mode = c("quick", "pro"),
-  verbose = TRUE
+  verbose = TRUE,
+  max_participant_responses = NULL
 )
 }
 \arguments{

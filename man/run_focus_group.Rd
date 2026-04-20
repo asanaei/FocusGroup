@@ -14,7 +14,8 @@ run_focus_group(
   conversation_flow = "desire_based",
   llm_config = NULL,
   seed = NULL,
-  verbose = TRUE
+  verbose = TRUE,
+  max_participant_responses = NULL
 )
 }
 \arguments{

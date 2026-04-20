@@ -62,6 +62,8 @@ used for managing context length in prompts.}
 
 \item{\code{max_tokens_desire}}{Integer. Default max tokens for desire-to-talk queries.}
 
+\item{\code{max_participant_responses}}{Integer. Maximum number of participant exchanges per round before the moderator can intervene. Can also be set globally via `options(focusgroup.max_participant_responses = N)`.}
+
 \item{\code{total_tokens_sent}}{Numeric. Total tokens sent across all LLM calls in the group.}
 
 \item{\code{total_tokens_received}}{Numeric. Total tokens received across all LLM calls.}
@@ -107,7 +109,8 @@ Initialize a new FocusGroup simulation.
   question_script = list(),
   prompt_templates = list(),
   llm_config_admin = NULL,
-  max_tokens_config = list()
+  max_tokens_config = list(),
+  max_participant_responses = NULL
 )}\if{html}{\out{</div>}}
 }
 
@@ -134,6 +137,9 @@ If NULL, the moderator's `model_config` will be used for these tasks.}
 
 \item{\code{max_tokens_config}}{List. Optional. Named list with `utterance`, `moderator`, `desire`
 to override default max token limits for these LLM call types.}
+
+\item{\code{max_participant_responses}}{Integer. Optional. Maximum participant exchanges per round before moderator intervention.
+Defaults to `getOption("focusgroup.max_participant_responses", 3)`.}
 }
 \if{html}{\out{</div>}}
 }

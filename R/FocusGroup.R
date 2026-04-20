@@ -34,6 +34,7 @@ NULL
 #' @field max_tokens_utterance Integer. Default max tokens for participant utterances.
 #' @field max_tokens_moderator Integer. Default max tokens for moderator utterances.
 #' @field max_tokens_desire Integer. Default max tokens for desire-to-talk queries.
+#' @field max_participant_responses Integer. Maximum number of participant exchanges per round before the moderator can intervene. Can also be set globally via `options(focusgroup.max_participant_responses = N)`.
 #' @field total_tokens_sent Numeric. Total tokens sent across all LLM calls in the group.
 #' @field total_tokens_received Numeric. Total tokens received across all LLM calls.
 #'
@@ -55,6 +56,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     max_tokens_utterance = 160,
     max_tokens_moderator = 400,
     max_tokens_desire = 16,
+    max_participant_responses = 3,
     total_tokens_sent = 0,
     total_tokens_received = 0,
 
@@ -71,9 +73,12 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'        If NULL, the moderator's `model_config` will be used for these tasks.
     #' @param max_tokens_config List. Optional. Named list with `utterance`, `moderator`, `desire`
     #'        to override default max token limits for these LLM call types.
+    #' @param max_participant_responses Integer. Optional. Maximum participant exchanges per round before moderator intervention.
+    #'        Defaults to `getOption("focusgroup.max_participant_responses", 3)`.
     initialize = function(topic, purpose, agents, moderator_id, turn_taking_flow,
                           question_script = list(), prompt_templates = list(),
-                          llm_config_admin = NULL, max_tokens_config = list()) {
+                          llm_config_admin = NULL, max_tokens_config = list(),
+                          max_participant_responses = NULL) {
       # Validations
       if (!is.character(topic) || length(topic) != 1 || nchar(topic) == 0) stop("'topic' must be a non-empty character string.")
       if (!is.character(purpose) || length(purpose) != 1 || nchar(purpose) == 0) stop("'purpose' must be a non-empty character string.")
@@ -110,6 +115,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$max_tokens_utterance <- max_tokens_config$utterance %||% self$max_tokens_utterance
       self$max_tokens_moderator <- max_tokens_config$moderator %||% self$max_tokens_moderator
       self$max_tokens_desire <- max_tokens_config$desire %||% self$max_tokens_desire
+      self$max_participant_responses <- max_participant_responses %||% getOption("focusgroup.max_participant_responses", 3)
 
       self$total_tokens_sent <- 0
       self$total_tokens_received <- 0
@@ -322,7 +328,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         # Allow multiple participants to respond organically before moderator intervenes again
         # This creates more natural conversation flow
         participants_responded_this_round <- 0
-        max_participant_responses <- 3  # Allow up to 3 participant exchanges before moderator can intervene
+        max_participant_responses <- self$max_participant_responses
         
         repeat {
           next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT

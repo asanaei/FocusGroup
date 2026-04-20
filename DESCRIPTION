@@ -1,7 +1,7 @@
 Package: FocusGroup
 Type: Package
 Title: Focus Group Simulation Using LLM Agents 
-Version: 0.2.2
+Version: 0.2.3
 Author: Ali Sanaei <sanaei@uchicago.edu>
 Maintainer: Ali Sanaei <sanaei@uchicago.edu>
 Description: Provides utilities for simulating and analyzing

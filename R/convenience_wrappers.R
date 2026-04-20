@@ -57,7 +57,8 @@ run_focus_group <- function(topic,
                            conversation_flow = "desire_based",
                            llm_config = NULL,
                            seed = NULL,
-                           verbose = TRUE) {
+                           verbose = TRUE,
+                           max_participant_responses = NULL) {
 
   if (!is.null(seed)) {
     if (!requireNamespace("withr", quietly = TRUE)) stop("withr is required for deterministic seeding")
@@ -119,7 +120,8 @@ run_focus_group <- function(topic,
     purpose = paste("To explore perspectives and experiences related to", topic),
     agents = agents_named,
     moderator_id = moderator_id,
-    turn_taking_flow = flow_obj
+    turn_taking_flow = flow_obj,
+    max_participant_responses = max_participant_responses
   )
 
   # Convert turns_per_phase to question script if needed
@@ -256,7 +258,8 @@ fg_quick <- function(topic,
                      model_config = NULL,
                      seed = NULL,
                      mode = c("quick","pro"),
-                     verbose = TRUE) {
+                     verbose = TRUE,
+                     max_participant_responses = NULL) {
 
   flow <- match.arg(flow)
   mode <- match.arg(mode)
@@ -291,7 +294,8 @@ fg_quick <- function(topic,
     agents = agents_named,
     moderator_id = moderator_id,
     turn_taking_flow = flow_obj,
-    question_script = script
+    question_script = script,
+    max_participant_responses = max_participant_responses
   )
 
   fg$run_simulation(verbose = verbose)
