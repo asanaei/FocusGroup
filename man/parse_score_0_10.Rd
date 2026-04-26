@@ -2,11 +2,11 @@
 % Please edit documentation in R/utils.R
 \name{parse_score_0_10}
 \alias{parse_score_0_10}
-\title{Parse a 0–10 integer score from free text}
+\title{Parse a 0-10 integer score from free text}
 \usage{
 parse_score_0_10(text)
 }
 \description{
-Parse a 0–10 integer score from free text
+Parse a 0-10 integer score from free text
 }
 \keyword{internal}

@@ -29,6 +29,9 @@ fg_quick(
 \item{mode}{Character. Currently informational ("quick" or "pro"). Default "quick".}
 
 \item{verbose}{Logical. Print progress.}
+
+\item{max_participant_responses}{Optional integer. Maximum participant responses
+per moderator question before the moderator advances.}
 }
 \value{
 A list with elements: `transcript` (tibble), `summary` (character), `participants` (list),

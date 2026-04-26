@@ -54,6 +54,8 @@ Each element is a list with `phase` (e.g., "opening", "icebreaker_question") and
 \item{\code{current_conversation_summary}}{Character. An LLM-generated summary of earlier parts of the conversation,
 used for managing context length in prompts.}
 
+\item{\code{final_summary}}{Character. Final LLM-generated summary from the most recent simulation run.}
+
 \item{\code{llm_config_admin}}{An `llm_config` object for group-level LLM tasks (summarization, analysis).}
 
 \item{\code{max_tokens_utterance}}{Integer. Default max tokens for participant utterances.}
@@ -73,6 +75,7 @@ used for managing context length in prompts.}
 \section{Methods}{
 \subsection{Public methods}{
 \itemize{
+\item \href{#method-FocusGroup-record_token_usage}{\code{FocusGroup$record_token_usage()}}
 \item \href{#method-FocusGroup-new}{\code{FocusGroup$new()}}
 \item \href{#method-FocusGroup-run_simulation}{\code{FocusGroup$run_simulation()}}
 \item \href{#method-FocusGroup-advance_turn}{\code{FocusGroup$advance_turn()}}
@@ -92,6 +95,25 @@ used for managing context length in prompts.}
 \item \href{#method-FocusGroup-plot_participation_by_agent}{\code{FocusGroup$plot_participation_by_agent()}}
 \item \href{#method-FocusGroup-plot_turn_length_timeline}{\code{FocusGroup$plot_turn_length_timeline()}}
 \item \href{#method-FocusGroup-clone}{\code{FocusGroup$clone()}}
+}
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-FocusGroup-record_token_usage"></a>}}
+\if{latex}{\out{\hypertarget{method-FocusGroup-record_token_usage}{}}}
+\subsection{Method \code{record_token_usage()}}{
+Add token usage to package-level accounting.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$record_token_usage(sent = 0L, rec = 0L)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{sent}}{Integer. Prompt/input tokens.}
+
+\item{\code{rec}}{Integer. Completion/output tokens.}
+}
+\if{html}{\out{</div>}}
 }
 }
 \if{html}{\out{<hr>}}

@@ -30,6 +30,7 @@ NULL
 #' @field current_question_text Character. Text of the current question being discussed.
 #' @field current_conversation_summary Character. An LLM-generated summary of earlier parts of the conversation,
 #'   used for managing context length in prompts.
+#' @field final_summary Character. Final LLM-generated summary from the most recent simulation run.
 #' @field llm_config_admin An `llm_config` object for group-level LLM tasks (summarization, analysis).
 #' @field max_tokens_utterance Integer. Default max tokens for participant utterances.
 #' @field max_tokens_moderator Integer. Default max tokens for moderator utterances.
@@ -52,6 +53,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     current_phase_index = 0,
     current_question_text = NULL,
     current_conversation_summary = NULL,
+    final_summary = NULL,
     llm_config_admin = NULL, # For summarization, LLM-based analysis
     max_tokens_utterance = 160,
     max_tokens_moderator = 400,
@@ -59,6 +61,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
     max_participant_responses = 3,
     total_tokens_sent = 0,
     total_tokens_received = 0,
+
+    #' @description Add token usage to package-level accounting.
+    #' @param sent Integer. Prompt/input tokens.
+    #' @param rec Integer. Completion/output tokens.
+    record_token_usage = function(sent = 0L, rec = 0L) {
+      self$total_tokens_sent <- self$total_tokens_sent + (sent %||% 0L)
+      self$total_tokens_received <- self$total_tokens_received + (rec %||% 0L)
+      invisible(list(sent = self$total_tokens_sent, rec = self$total_tokens_received))
+    },
 
     #' @description Initialize a new FocusGroup simulation.
     #' @param topic Character. The main discussion topic.
@@ -94,6 +105,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       if(!is.null(self$agents[[moderator_id]])) self$agents[[moderator_id]]$is_moderator <- TRUE # Ensure flag is set
       self$turn_taking_flow <- turn_taking_flow
       self$conversation_log <- list()
+      self$final_summary <- NULL
 
       if (length(question_script) == 0) {
         message("No question_script provided. Using a minimal default script (opening, generic discussion, closing).")
@@ -139,6 +151,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$current_phase_index <- 0 # Reset for fresh run
       turn_counter <- 0
       simulation_active <- TRUE
+      private$last_summary_turn <- -Inf
 
       # Log a roster system message so all agents "see" who is present
       participant_ids <- setdiff(names(self$agents), self$moderator_id)
@@ -148,11 +161,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
       )
       private$log_message("System", roster_msg, turn_counter, is_moderator = FALSE, phase = "setup", meta = list())
 
-      # Working context ceilings and triggers (quick defaults)
-      working_context_ceiling <- 8000L
-      summarize_trigger_tokens <- 6000L
-      summarize_trigger_count  <- 30L
-      keep_recent_raw_tokens   <- 4000L
+      # Working context ceilings and triggers.
+      summarize_trigger_tokens <- 48000L
+      summarize_probe_tokens   <- 64000L  # probe window larger than cap so trigger can fire
+      summarize_trigger_count  <- 200L
+      summarize_cooldown_turns <- 10L
       interim_summary_tokens   <- 250L
 
       while(simulation_active) {
@@ -165,10 +178,20 @@ FocusGroup <- R6::R6Class("FocusGroup",
         # advance_turn returns FALSE if script ends or moderator closes
         simulation_active <- self$advance_turn(current_turn_number = turn_counter, verbose = verbose)
 
-        # Threshold-based interim summarization and prompt window trimming
-        recent_hist <- make_prompt_history(self$conversation_log, n_recent = 10, include_summary = NULL)
-        recent_tokens <- estimate_tokens(recent_hist)
-        if (recent_tokens > summarize_trigger_tokens || length(self$conversation_log) > summarize_trigger_count) {
+        # Threshold-based interim summarization and prompt window trimming.
+        # Use a probe window larger than the trigger so the token condition can actually fire.
+        needs_summary <- FALSE
+        if ((turn_counter - private$last_summary_turn) >= summarize_cooldown_turns) {
+          recent_hist <- make_prompt_history(
+            self$conversation_log,
+            include_summary = NULL,
+            max_tokens_history = summarize_probe_tokens
+          )
+          recent_tokens <- estimate_tokens(recent_hist)
+          needs_summary <- recent_tokens >= summarize_trigger_tokens ||
+            length(self$conversation_log) > summarize_trigger_count
+        }
+        if (needs_summary) {
           if (verbose) cat("\n--- Generating interim summary for context management ---\n")
           current_transcript_for_summary <- private$get_recent_transcript_for_summary(30)
           interim_summary_text <- self$summarize(
@@ -179,8 +202,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
             transcript_override = current_transcript_for_summary
           )
           self$current_conversation_summary <- interim_summary_text
-
-      # Prompt window trimming is effected by using small n_recent windows
+          private$last_summary_turn <- turn_counter
           if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
         }
       }
@@ -189,7 +211,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       # Final summary of the entire discussion
       if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
       final_summary <- self$summarize(llm_config = self$llm_config_admin, summary_level = 1, internal_call = FALSE) # Level 1 for overall summary
-      private$log_message("System", paste("Final Summary:\n", final_summary), turn_counter + 1, is_moderator = FALSE, phase = "final_summary", meta = list())
+      self$final_summary <- final_summary
       if (verbose) cat("Final Summary:\n", final_summary, "\n")
 
       invisible(self$conversation_log)
@@ -222,7 +244,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       if (verbose) {
         cat(paste0("\n--- Turn ", current_turn_number, " | Phase: ", current_phase_name))
-        if (nzchar(self$current_question_text) && current_phase_name != "opening" && current_phase_name != "closing") {
+        if (!is.null(self$current_question_text) && nzchar(self$current_question_text) && current_phase_name != "opening" && current_phase_name != "closing") {
             cat(paste0(" | Current Question/Focus: ", substr(self$current_question_text,1,100), "..."))
         }
         cat(" ---\n")
@@ -247,7 +269,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
       # Compute participation counts (exclude System and Moderator)
       non_system <- Filter(function(m) !is.null(m$speaker_id) && m$speaker_id != "System", self$conversation_log)
       non_mod <- Filter(function(m) m$speaker_id != self$moderator_id, non_system)
-      counts <- if (length(non_mod) > 0) table(vapply(non_mod, function(m) m$speaker_id, "")) else integer(0)
+      counts_raw <- if (length(non_mod) > 0) table(vapply(non_mod, function(m) m$speaker_id, "")) else integer(0)
+      counts <- stats::setNames(rep(0L, length(participant_ids)), participant_ids)
+      valid_count_names <- intersect(names(counts_raw), participant_ids)
+      counts[valid_count_names] <- counts_raw[valid_count_names]
       dominant_id <- if (length(counts) > 0) names(counts)[which.max(counts)] else (participant_ids %||% character(1))[1] %||% ""
       quiet_id <- if (length(counts) > 0) names(counts)[which.min(counts)] else (participant_ids %||% character(1))[1] %||% ""
       other_id <- {
@@ -290,8 +315,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
       # Construct conversation history for the moderator
       history_for_moderator <- make_prompt_history(
         self$conversation_log,
-        n_recent = 7,
-        include_summary = self$current_conversation_summary
+        include_summary = self$current_conversation_summary,
+        max_tokens_history = 64000L
       )
 
       mod_res <- moderator_agent$generate_utterance(
@@ -309,8 +334,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       if (verbose) cat(paste0(self$moderator_id, " (Moderator): ", mod_text, "\n"))
 
       # Update total tokens (per-call accounting)
-      self$total_tokens_sent <- self$total_tokens_sent + (mod_meta$sent_tokens %||% 0L)
-      self$total_tokens_received <- self$total_tokens_received + (mod_meta$rec_tokens %||% 0L)
+      self$record_token_usage(mod_meta$sent_tokens %||% 0L, mod_meta$rec_tokens %||% 0L)
 
 
       # If moderator's action was closing, end simulation
@@ -340,7 +364,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
             } else {
               if (verbose) cat(paste("Selected participant by flow:", next_participant$id, "\n"))
 
-              history_for_participant <- make_prompt_history(self$conversation_log, n_recent = 5, include_summary = self$current_conversation_summary)
+              history_for_participant <- make_prompt_history(
+                self$conversation_log,
+                include_summary = self$current_conversation_summary,
+                max_tokens_history = 64000L
+              )
 
               part_res <- next_participant$generate_utterance(
                 topic = self$topic,
@@ -359,8 +387,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
               self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
 
               # Update total tokens (per-call accounting)
-              self$total_tokens_sent <- self$total_tokens_sent + (part_meta$sent_tokens %||% 0L)
-              self$total_tokens_received <- self$total_tokens_received + (part_meta$rec_tokens %||% 0L)
+              self$record_token_usage(part_meta$sent_tokens %||% 0L, part_meta$rec_tokens %||% 0L)
               
               participants_responded_this_round <- participants_responded_this_round + 1
 
@@ -452,9 +479,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
       summary_text <- as.character(response_obj)
 
       if (!internal_call) { # Only add to group totals if it's an "external" summarization request
-          u <- LLMR::tokens(response_obj)
-          self$total_tokens_sent <- self$total_tokens_sent + (u$sent %||% 0L)
-          self$total_tokens_received <- self$total_tokens_received + (u$rec %||% 0L)
+          u <- extract_token_counts(response_obj)
+          self$record_token_usage(u$sent, u$rec)
       }
       return(summary_text)
     },
@@ -771,16 +797,12 @@ FocusGroup <- R6::R6Class("FocusGroup",
           tries = 5
         )
 
-        # list(
-        #   themes_summary = as.character(response_obj),
-        #   raw_llm_response = response_obj
-        # )
         themes_summary = as.character(response_obj)
         attr(themes_summary , 'raw_llm_response') <- response_obj
+        u <- extract_token_counts(response_obj)
+        self$record_token_usage(u$sent, u$rec)
+        themes_summary
       }, error = function(e) NULL)
-      # Update total tokens
-      # This needs .analyze_themes_impl to return token usage.
-      # For now, assuming it's handled if it were to be added.
       return(result)
     },
 
@@ -1341,6 +1363,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
     # Store last token counts per agent to calculate diff for group total
     last_agent_tokens = list(),
+    last_summary_turn = NULL,
 
     # Helper to get recent transcript for interim summary
     get_recent_transcript_for_summary = function(n_recent_utterances = 10) {

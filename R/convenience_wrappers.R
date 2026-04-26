@@ -21,6 +21,8 @@ NULL
 #' @param llm_config List with LLM configuration. If NULL, uses default configuration.
 #' @param seed Optional integer for reproducibility
 #' @param verbose Logical, whether to print progress messages
+#' @param max_participant_responses Optional integer. Maximum participant responses
+#'   per moderator question before the moderator advances.
 #'
 #' @return A list containing:
 #'   * `focus_group`: The FocusGroup object
@@ -62,6 +64,7 @@ run_focus_group <- function(topic,
 
   if (!is.null(seed)) {
     if (!requireNamespace("withr", quietly = TRUE)) stop("withr is required for deterministic seeding")
+    withr::local_seed(as.integer(seed))
   }
 
   # Validate inputs
@@ -164,11 +167,7 @@ run_focus_group <- function(topic,
 
   # Run simulation
   if (verbose) cat("Running simulation...\n")
-  if (is.null(seed)) {
-    fg$run_simulation(verbose = verbose)
-  } else {
-    withr::with_seed(as.integer(seed), fg$run_simulation(verbose = verbose))
-  }
+  fg$run_simulation(verbose = verbose)
 
   # Generate summary and basic stats
   if (verbose) cat("Generating summary and statistics...\n")
@@ -198,7 +197,7 @@ run_focus_group <- function(topic,
   }
 
   summary_result <- if (length(fg$conversation_log) > 0) {
-    fg$summarize(summary_level = 1)
+    fg$final_summary %||% fg$summarize(summary_level = 1)
   } else {
     "No conversation to summarize"
   }
@@ -240,6 +239,8 @@ run_focus_group <- function(topic,
 #' @param seed Optional integer for reproducibility.
 #' @param mode Character. Currently informational ("quick" or "pro"). Default "quick".
 #' @param verbose Logical. Print progress.
+#' @param max_participant_responses Optional integer. Maximum participant responses
+#'   per moderator question before the moderator advances.
 #'
 #' @return A list with elements: `transcript` (tibble), `summary` (character), `participants` (list),
 #'   `totals` (list), `config_meta` (list), and `focus_group` (the `FocusGroup` object).
@@ -263,6 +264,11 @@ fg_quick <- function(topic,
 
   flow <- match.arg(flow)
   mode <- match.arg(mode)
+
+  if (!is.null(seed)) {
+    if (!requireNamespace("withr", quietly = TRUE)) stop("withr is required for deterministic seeding")
+    withr::local_seed(as.integer(seed))
+  }
 
   if (is.null(model_config)) model_config <- default_llmr_config()
 
@@ -322,7 +328,7 @@ fg_quick <- function(topic,
 
   list(
     transcript = conversation_df,
-    summary = fg$summarize(summary_level = 1),
+    summary = fg$final_summary %||% fg$summarize(summary_level = 1),
     participants = lapply(fg$agents, function(a) list(id = a$id, persona = a$persona_description)),
     totals = list(total_tokens_in = fg$total_tokens_sent, total_tokens_out = fg$total_tokens_received, total_turns = length(fg$conversation_log)),
     config_meta = list(provider = model_config$provider, model = model_config$model),

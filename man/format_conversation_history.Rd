@@ -6,18 +6,22 @@
 \usage{
 format_conversation_history(
   conversation_log,
-  n_recent = 7,
-  include_summary = NULL
+  n_recent = NULL,
+  include_summary = NULL,
+  max_tokens_history = 64000L
 )
 }
 \arguments{
 \item{conversation_log}{A list of message objects from the simulation. Each message
 should be a list with at least `speaker_id` and `text`.}
 
-\item{n_recent}{Integer. The number of most recent messages to include in detail.}
+\item{n_recent}{Integer. Optional. The number of most recent messages to include in detail.}
 
 \item{include_summary}{Character string. An optional summary of earlier parts of the
 conversation to prepend to the recent history.}
+
+\item{max_tokens_history}{Integer. Approximate token ceiling for dynamically selected history
+when `n_recent` is `NULL`.}
 }
 \value{
 A character string representing the formatted conversation history.
@@ -33,5 +37,5 @@ log <- list(
   list(speaker_id = "Alice", text = "How are you?")
 )
 format_conversation_history(log, n_recent = 2)
-format_conversation_history(log, n_recent = 1, include_summary = "They greeted each other.")
+format_conversation_history(log, include_summary = "They greeted each other.")
 }

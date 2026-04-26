@@ -41,6 +41,9 @@ responses will be automatically generated.}
 \item{seed}{Optional integer for reproducibility}
 
 \item{verbose}{Logical, whether to print progress messages}
+
+\item{max_participant_responses}{Optional integer. Maximum participant responses
+per moderator question before the moderator advances.}
 }
 \value{
 A list containing:

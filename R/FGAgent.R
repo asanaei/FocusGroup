@@ -154,19 +154,13 @@ FGAgent <- R6::R6Class("FGAgent",
 
       utterance_text <- as.character(response_obj)
       u <- LLMR::tokens(response_obj)
-      self$tokens_sent_agent <- self$tokens_sent_agent + (u$sent %||% 0L)
-      self$tokens_received_agent <- self$tokens_received_agent + (u$rec %||% 0L)
+      agg_sent <- u$sent %||% 0L
+      agg_rec  <- u$rec  %||% 0L
+      self$tokens_sent_agent     <- self$tokens_sent_agent     + agg_sent
+      self$tokens_received_agent <- self$tokens_received_agent + agg_rec
 
-      meta <- list(
-        response_id   = response_obj$response_id %||% NA_character_,
-        finish_reason = LLMR::finish_reason(response_obj) %||% NA_character_,
-        sent_tokens   = u$sent %||% NA_integer_,
-        rec_tokens    = u$rec %||% NA_integer_,
-        total_tokens  = u$total %||% NA_integer_,
-        duration_s    = response_obj$duration_s %||% NA_real_,
-        provider      = self$model_config$provider %||% NA_character_,
-        model         = self$model_config$model %||% NA_character_
-      )
+      # meta is built from aggregates after any retry so the caller always has full usage.
+      final_response_obj <- response_obj
       
       # Clean up potential self-references if LLM includes them despite instructions
       original_text <- utterance_text
@@ -210,12 +204,25 @@ FGAgent <- R6::R6Class("FGAgent",
         cand <- trimws(cand)
         if (nchar(cand) >= max(nchar(utterance_text), 40)) {
           utterance_text <- cand
-          # Update meta with second call usage if available
           u2 <- LLMR::tokens(response_obj2)
-          self$tokens_sent_agent <- self$tokens_sent_agent + (u2$sent %||% 0L)
-          self$tokens_received_agent <- self$tokens_received_agent + (u2$rec %||% 0L)
+          agg_sent <- agg_sent + (u2$sent %||% 0L)
+          agg_rec  <- agg_rec  + (u2$rec  %||% 0L)
+          self$tokens_sent_agent     <- self$tokens_sent_agent     + (u2$sent %||% 0L)
+          self$tokens_received_agent <- self$tokens_received_agent + (u2$rec  %||% 0L)
+          final_response_obj <- response_obj2
         }
       }
+
+      meta <- list(
+        response_id   = final_response_obj$response_id %||% NA_character_,
+        finish_reason = LLMR::finish_reason(final_response_obj) %||% NA_character_,
+        sent_tokens   = as.integer(agg_sent),
+        rec_tokens    = as.integer(agg_rec),
+        total_tokens  = as.integer(agg_sent + agg_rec),
+        duration_s    = final_response_obj$duration_s %||% NA_real_,
+        provider      = self$model_config$provider %||% NA_character_,
+        model         = self$model_config$model %||% NA_character_
+      )
 
       self$history <- c(self$history, list(list(topic = topic, text = utterance_text, timestamp = Sys.time(), phase = current_phase)))
       return(list(text = utterance_text, meta = meta))

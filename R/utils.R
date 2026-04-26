@@ -86,9 +86,11 @@ format_survey_responses <- function(survey_responses) {
 #'
 #' @param conversation_log A list of message objects from the simulation. Each message
 #'        should be a list with at least `speaker_id` and `text`.
-#' @param n_recent Integer. The number of most recent messages to include in detail.
+#' @param n_recent Integer. Optional. The number of most recent messages to include in detail.
 #' @param include_summary Character string. An optional summary of earlier parts of the
 #'        conversation to prepend to the recent history.
+#' @param max_tokens_history Integer. Approximate token ceiling for dynamically selected history
+#'        when `n_recent` is `NULL`.
 #' @return A character string representing the formatted conversation history.
 #' @export
 #' @examples
@@ -98,8 +100,11 @@ format_survey_responses <- function(survey_responses) {
 #'   list(speaker_id = "Alice", text = "How are you?")
 #' )
 #' format_conversation_history(log, n_recent = 2)
-#' format_conversation_history(log, n_recent = 1, include_summary = "They greeted each other.")
-format_conversation_history <- function(conversation_log, n_recent = 7, include_summary = NULL) {
+#' format_conversation_history(log, include_summary = "They greeted each other.")
+format_conversation_history <- function(conversation_log,
+                                        n_recent = NULL,
+                                        include_summary = NULL,
+                                        max_tokens_history = 64000L) {
   history_parts <- character(0)
 
   if (!is.null(include_summary) && nzchar(trimws(include_summary))) {
@@ -111,23 +116,49 @@ format_conversation_history <- function(conversation_log, n_recent = 7, include_
     return("The conversation has not started yet.")
   }
 
-  start_index <- max(1, length(conversation_log) - n_recent + 1)
-  recent_messages_list <- conversation_log[start_index:length(conversation_log)]
+  format_message <- function(msg) {
+    paste0(msg$speaker_id %||% "UnknownSpeaker", ": ", msg$text %||% "")
+  }
 
-  if (length(recent_messages_list) > 0) {
-    formatted_messages <- sapply(recent_messages_list, function(msg) {
-      paste0(msg$speaker_id %||% "UnknownSpeaker", ": ", msg$text %||% "")
-    })
+  if (!is.null(n_recent)) {
+    if (!is.numeric(n_recent) || length(n_recent) != 1 || n_recent < 0) {
+      stop("n_recent must be NULL or a non-negative number.")
+    }
+    if (n_recent == 0) {
+      formatted_messages <- character(0)
+    } else {
+      start_index <- max(1, length(conversation_log) - as.integer(n_recent) + 1)
+      recent_messages_list <- conversation_log[start_index:length(conversation_log)]
+      formatted_messages <- vapply(recent_messages_list, format_message, character(1))
+    }
+  } else {
+    if (!is.numeric(max_tokens_history) || length(max_tokens_history) != 1 || max_tokens_history <= 0) {
+      stop("max_tokens_history must be a positive number.")
+    }
+    formatted_messages <- character(0)
+    current_tokens <- 0L
+
+    for (i in rev(seq_along(conversation_log))) {
+      msg_text <- format_message(conversation_log[[i]])
+      msg_tokens <- estimate_tokens(msg_text)
+      if (length(formatted_messages) > 0 && current_tokens + msg_tokens > max_tokens_history) {
+        break
+      }
+      formatted_messages <- c(msg_text, formatted_messages)
+      current_tokens <- current_tokens + msg_tokens
+    }
+  }
+
+  if (length(formatted_messages) > 0) {
     history_parts <- c(history_parts, paste(formatted_messages, collapse = "\n"))
   } else if (length(history_parts) == 0) {
-    # No summary and no recent messages (e.g., n_recent = 0 and log is not empty)
-     return("No recent messages to display based on n_recent setting.")
+    return("No recent messages to display based on history limits.")
   }
-  
-  if (length(history_parts) == 0) { # Should only happen if log was empty and no summary
-      return("The conversation has not started yet.")
+
+  if (length(history_parts) == 0) {
+    return("The conversation has not started yet.")
   }
-  
+
   paste(history_parts, collapse = "\n")
 }
 
@@ -141,7 +172,42 @@ estimate_tokens <- function(text) {
   as.integer(nchar(as.character(text)[1]) / 4)
 }
 
-#' Parse a 0–10 integer score from free text
+#' Extract token counts from an LLM response-like object
+#' @keywords internal
+extract_token_counts <- function(response_obj) {
+  empty_usage <- list(sent = 0L, rec = 0L, total = 0L)
+
+  llmr_usage <- tryCatch(
+    {
+      if (requireNamespace("LLMR", quietly = TRUE)) LLMR::tokens(response_obj) else NULL
+    },
+    error = function(...) NULL
+  )
+  if (!is.null(llmr_usage)) {
+    sent <- as.integer(llmr_usage$sent %||% llmr_usage$prompt_tokens %||% 0L)
+    rec <- as.integer(llmr_usage$rec %||% llmr_usage$completion_tokens %||% 0L)
+    return(list(sent = sent, rec = rec, total = as.integer(llmr_usage$total %||% (sent + rec))))
+  }
+
+  if (!is.list(response_obj)) return(empty_usage)
+
+  sent <- response_obj$sent %||%
+    response_obj$sent_tokens %||%
+    response_obj$prompt_tokens %||%
+    response_obj$input_tokens %||%
+    0L
+  rec <- response_obj$rec %||%
+    response_obj$rec_tokens %||%
+    response_obj$completion_tokens %||%
+    response_obj$output_tokens %||%
+    0L
+
+  sent <- sum(suppressWarnings(as.integer(sent)), na.rm = TRUE)
+  rec <- sum(suppressWarnings(as.integer(rec)), na.rm = TRUE)
+  list(sent = sent, rec = rec, total = sent + rec)
+}
+
+#' Parse a 0-10 integer score from free text
 #' @keywords internal
 parse_score_0_10 <- function(text) {
   txt <- as.character(text)[1]
@@ -153,9 +219,23 @@ parse_score_0_10 <- function(text) {
 }
 
 #' Build prompt history string for role-specific windows
+#'
+#' @param log A conversation log list.
+#' @param n_recent Integer. Optional. Number of recent messages to include.
+#' @param include_summary Character. Optional summary of earlier discussion.
+#' @param max_tokens_history Integer. Approximate token ceiling when `n_recent` is `NULL`.
+#' @return A character string with recent prompt history.
 #' @keywords internal
-make_prompt_history <- function(log, n_recent = 5, include_summary = NULL) {
-  format_conversation_history(log, n_recent = n_recent, include_summary = include_summary)
+make_prompt_history <- function(log,
+                                n_recent = NULL,
+                                include_summary = NULL,
+                                max_tokens_history = 64000L) {
+  format_conversation_history(
+    log,
+    n_recent = n_recent,
+    include_summary = include_summary,
+    max_tokens_history = max_tokens_history
+  )
 }
 
 

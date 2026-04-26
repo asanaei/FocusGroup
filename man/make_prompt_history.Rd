@@ -4,7 +4,24 @@
 \alias{make_prompt_history}
 \title{Build prompt history string for role-specific windows}
 \usage{
-make_prompt_history(log, n_recent = 5, include_summary = NULL)
+make_prompt_history(
+  log,
+  n_recent = NULL,
+  include_summary = NULL,
+  max_tokens_history = 64000L
+)
+}
+\arguments{
+\item{log}{A conversation log list.}
+
+\item{n_recent}{Integer. Optional. Number of recent messages to include.}
+
+\item{include_summary}{Character. Optional summary of earlier discussion.}
+
+\item{max_tokens_history}{Integer. Approximate token ceiling when `n_recent` is `NULL`.}
+}
+\value{
+A character string with recent prompt history.
 }
 \description{
 Build prompt history string for role-specific windows
