@@ -16,6 +16,10 @@ This flow is mainly for choosing which participant responds to the moderator.
 \describe{
 \item{\code{last_desire_scores}}{Named numeric vector. Stores the most recent desire scores.}
 
+\item{\code{last_scoring_mode}}{Character. How the most recent desire scores were
+obtained: "broadcast_shared_config" (one config for all), "broadcast_grouped_config"
+(agents grouped by differing configs), or "per_agent".}
+
 \item{\code{min_desire_threshold}}{Numeric. Minimum desire score for a participant to be considered.}
 }
 \if{html}{\out{</div>}}
@@ -74,7 +78,9 @@ Selects the next participant based on desire to talk.
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-The selected `FGAgent` (a participant), or `NULL` if no participant meets threshold.
+The selected `FGAgent`. When no participant clears the desire
+  threshold the highest-scoring participant is chosen, so this returns
+  `NULL` only when there are no participants.
 }
 }
 \if{html}{\out{<hr>}}

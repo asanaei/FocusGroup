@@ -10,7 +10,7 @@ fg_analyze_quick(res)
 \item{res}{The object returned by `fg_quick()` (or a `FocusGroup` object).}
 }
 \value{
-A list with `basic_stats`, optional `sentiment` (if tidytext present), and `short_summary`.
+A list with `basic_stats` and `short_summary`.
 }
 \description{
 Quick analysis helper for a `fg_quick()` result

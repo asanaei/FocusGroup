@@ -242,7 +242,7 @@ run_focus_group <- function(topic,
 #' @param max_participant_responses Optional integer. Maximum participant responses
 #'   per moderator question before the moderator advances.
 #'
-#' @return A list with elements: `transcript` (tibble), `summary` (character), `participants` (list),
+#' @return A list with elements: `transcript` (data frame), `summary` (character), `participants` (list),
 #'   `totals` (list), `config_meta` (list), and `focus_group` (the `FocusGroup` object).
 #'
 #' @examples
@@ -340,7 +340,7 @@ fg_quick <- function(topic,
 #'
 #' @param res The object returned by `fg_quick()` (or a `FocusGroup` object).
 #'
-#' @return A list with `basic_stats`, optional `sentiment` (if tidytext present), and `short_summary`.
+#' @return A list with `basic_stats` and `short_summary`.
 #'
 #' @examples
 #' \dontrun{
@@ -498,16 +498,17 @@ create_diverse_agents <- function(n_participants,
 
 #' Analyze Focus Group Results
 #'
-#' Performs comprehensive analysis on focus group results, including topic modeling,
-#' sentiment analysis, and basic statistics.
+#' Runs topic modeling, term-frequency, readability, and thematic analysis on
+#' focus group results, with basic conversation statistics.
 #'
 #' @param focus_group_result Either a FocusGroup object or the result from run_focus_group()
 #' @param num_topics Integer number of topics for topic modeling (default: 5)
 #' @param include_plots Logical, whether to generate plots (default: TRUE)
 #' @param sentiment_method Deprecated. Ignored. Sentiment analysis was removed from package scope.
 #'
-#' @return List containing various analysis results including topics, sentiment,
-#'   readability, and visualizations
+#' @return A list with `basic_stats`, `topics`, `sentiment` (always `NULL`;
+#'   sentiment analysis was removed from package scope), `tfidf`, `readability`,
+#'   `themes`, and (when `include_plots = TRUE`) `plots`.
 #'
 #' @examples
 #' \dontrun{
@@ -518,8 +519,8 @@ create_diverse_agents <- function(n_participants,
 #' # View topic analysis
 #' analysis$topics
 #'
-#' # View sentiment over time
-#' analysis$plots$sentiment_timeline
+#' # View the readability table
+#' analysis$readability
 #' }
 #'
 #' @export

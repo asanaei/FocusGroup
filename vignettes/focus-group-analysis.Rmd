@@ -67,43 +67,43 @@ The package provides several analysis functions to help understand the conversat
 ```{r basic_analysis, eval = FALSE}
 # Get basic statistics
 stats <- analyze_focus_group(result)
-print(stats$summary)
+print(stats$basic_stats)
 ```
 
 ## Text Analysis
 
-```{r text_analysis, eval = FALSE}
-# Analyze text complexity
-complexity <- analyze_text_complexity(result)
-print(complexity$readability)
+Several analyses are methods on the `FocusGroup` object itself, reached through
+`result$focus_group`.
 
-# Analyze response patterns
-patterns <- analyze_response_patterns(result)
-print(patterns$turn_patterns)
+```{r text_analysis, eval = FALSE}
+# Readability scores per speaker
+readability <- result$focus_group$analyze_readability()
+print(readability)
+
+# Response patterns and interaction behaviors
+patterns <- result$focus_group$analyze_response_patterns()
+print(patterns$response_metrics)
 ```
 
 ## Question Analysis
 
 ```{r questions, eval = FALSE}
 # Analyze question patterns
-questions <- analyze_question_patterns(result)
+questions <- result$focus_group$analyze_question_patterns()
 print(questions$question_patterns)
 ```
 
 ## Visualization
 
-The package includes several plotting functions:
+The `FocusGroup` object provides several plotting methods:
 
 ```{r plots, eval = FALSE}
-# Create participation timeline
-participation_plot <- create_participation_timeline(result)
+# Participation timeline
+participation_plot <- result$focus_group$plot_participation_timeline()
 print(participation_plot)
 
-## (Sentiment visualizations removed to simplify dependencies.)
-
-# Create readability by phase
-readability_plot <- create_readability_by_phase(result)
-print(readability_plot)
+# Readability by speaker (a table, not a plot)
+print(result$focus_group$analyze_readability())
 ```
 
 # Advanced Usage
@@ -116,21 +116,23 @@ You can create custom agent profiles and manually construct a FocusGroup object:
 # Set your OpenAI API key (or set it in your environment)
 Sys.setenv(OPENAI_API_KEY = "your-api-key-here")
 
-# Create diverse agents
+# Create diverse agents. `demographics` is a data frame with one row per
+# participant.
 agents <- create_diverse_agents(
   n_participants = 3,
-  demographics = list(
+  demographics = data.frame(
     age = c(25, 35, 45),
     gender = c("male", "female", "non-binary"),
-    education = c("high school", "bachelor's", "master's")
+    education = c("high school", "bachelor's", "master's"),
+    stringsAsFactors = FALSE
   )
 )
 
 # Name the agents by their IDs
 agents_named <- setNames(agents, sapply(agents, function(a) a$id))
 
-# Find moderator ID
-moderator_id <- agents_named[[1]]$id
+# Find moderator ID (create_diverse_agents adds a moderator with ID "MOD")
+moderator_id <- "MOD"
 
 # Create a conversation flow object
 flow_obj <- DesireBasedFlow$new(agents_named, moderator_id)
@@ -154,7 +156,7 @@ You can perform custom analysis using the conversation data:
 conv_data <- result$conversation
 
 # Custom analysis example
-word_counts <- sapply(conv_data$message, function(x) length(strsplit(x, "\\s+")[[1]]))
+word_counts <- sapply(conv_data$text, function(x) length(strsplit(x, "\\s+")[[1]]))
 summary(word_counts)
 ```
 

@@ -134,7 +134,8 @@ Generate an utterance for the agent.
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-Character string containing the agent's generated utterance.
+A list with `text` (the generated utterance) and `meta` (a list
+  of call metadata: token counts, finish reason, provider, model, timing).
 }
 }
 \if{html}{\out{<hr>}}

@@ -34,7 +34,7 @@ LLM integration is provided via the LLMR package. Prompts are modular and custom
 - FGAgent (R6)
   - Encapsulates persona, style, demographics, survey responses, and an `LLMR::llm_config`.
   - Generates utterances from prompt templates.
-  - Computes “desire to talk” scores for DesireBasedFlow.
+  - Computes "desire to talk" scores for DesireBasedFlow.
   - Tracks per-agent token usage and utterance history.
 
 - FocusGroup (R6)
@@ -47,7 +47,7 @@ LLM integration is provided via the LLMR package. Prompts are modular and custom
   - Defines interface: `select_next_speaker(focus_group)` and `update_state_post_selection(...)`.
   - RoundRobinFlow: cycles through non-moderator participants.
   - ProbabilisticFlow: weighted random selection with recovery dynamics.
-  - DesireBasedFlow: queries LLM(s) to score each participant’s desire to speak and selects the highest above a threshold, with fallbacks.
+  - DesireBasedFlow: queries LLM(s) to score each participant's desire to speak and selects the highest above a threshold, with fallbacks.
 
 - Prompts and Utilities
   - `get_default_prompt_templates()`: returns named prompt templates for moderator phases, participant utterances, and helper analyses.
@@ -64,7 +64,7 @@ LLM integration is provided via the LLMR package. Prompts are modular and custom
   - is_moderator: logical
   - text: character
   - timestamp: POSIXct
-  - phase: character (e.g., opening, engagement_question, exploration_question, closing, setup, final_summary)
+  - phase: character (e.g., opening, engagement_question, exploration_question, closing, setup). The roster is logged as a System message under the `setup` phase. The final summary is not logged here; it is stored in `FocusGroup$final_summary`.
   - response_id, finish_reason: character (from LLMR)
   - sent_tokens, rec_tokens, total_tokens: integers
   - duration_s: numeric
@@ -89,7 +89,7 @@ LLM integration is provided via the LLMR package. Prompts are modular and custom
      c) If phase expects participant responses (e.g., icebreaker/engagement/exploration/generic), use `turn_taking_flow$select_next_speaker(self)` to choose participants. Up to 3 participants may respond in sequence before returning control to the moderator, unless the flow selects the moderator (then the participant round ends).
      d) After each utterance, update per-group token totals from metadata.
      e) Context Management: If recent token usage or message count passes thresholds, create an interim summary (`FocusGroup$summarize` with level 3) and store it in `current_conversation_summary` so subsequent prompts use a windowed history plus summary.
-   - When phase is closing, end simulation, generate a final (level 1) summary, and log it as a System message.
+   - When phase is closing, end simulation and generate a final (level 1) summary. The final summary is stored in `FocusGroup$final_summary`; it is not appended to `conversation_log`.
 
 3) Outputs
    - `conversation_log` is the canonical transcript source.
@@ -102,12 +102,12 @@ LLM integration is provided via the LLMR package. Prompts are modular and custom
 
 - ProbabilisticFlow
   - Maintains `propensities` and `base_propensities` for all agents.
-  - After a speaker is selected, that speaker’s propensity resets toward 0 (participants) or halves (moderator), while others recover toward their base at a configured rate.
+  - After a speaker is selected, that speaker's propensity resets toward 0 (participants) or halves (moderator), while others recover toward their base at a configured rate.
   - Selection draws proportionally to current propensities, with simple guardrails against immediate self-succession by a participant.
 
 - DesireBasedFlow
-  - Computes per-participant desire scores (0–10) via LLM prompts tailored with persona, current question, last speaker, and recent history. May use `LLMR::call_llm_broadcast` to parallelize.
-  - Enforces a minimum score threshold; if none, relaxes threshold or picks the maximum to keep discussion moving.
+  - Computes per-participant desire scores (0-10) via LLM prompts tailored with persona, current question, last speaker, and recent history. Scoring is broadcast within groups of agents that share one model config: broadcasting requires a single config, so agents with differing providers/models/params are grouped separately and scored per group. The common case (all agents share a config) is one broadcast. The path that ran is recorded in `last_scoring_mode`.
+  - Enforces a minimum score threshold; if none clears it, falls back to the maximum-scored participant to keep discussion moving.
 
 ### Prompt System
 
@@ -129,7 +129,7 @@ LLM integration is provided via the LLMR package. Prompts are modular and custom
 
 ## API Reference
 
-This section lists classes and functions, their inputs/outputs, and behavior. “Exported” denotes public API (present in `NAMESPACE`). Internals are stable for package use but may change more frequently.
+This section lists classes and functions, their inputs/outputs, and behavior. "Exported" denotes public API (present in `NAMESPACE`). Internals are stable for package use but may change more frequently.
 
 ### R6 Classes (Exported)
 
@@ -140,7 +140,7 @@ This section lists classes and functions, their inputs/outputs, and behavior. �
   - Validates and constructs persona and style (moderator has sensible defaults).
 - generate_utterance(topic, conversation_history_string, utterance_prompt_template, max_tokens_utterance = 150, current_moderator_question = "N/A", conversation_summary_so_far = "N/A", current_phase = "discussion") -> list(text, meta)
   - Calls LLM, cleans self-referential openings, retries if incomplete, updates tokens and `history`.
-- get_need_to_talk(topic, conversation_history_string, desire_prompt_template, max_tokens_desire = 20, current_moderator_question = "N/A", last_speaker_id = "N/A", last_utterance_text = "N/A") -> numeric score 0–10
+- get_need_to_talk(topic, conversation_history_string, desire_prompt_template, max_tokens_desire = 20, current_moderator_question = "N/A", last_speaker_id = "N/A", last_utterance_text = "N/A") -> numeric score 0--10
 
 Private helper: construct_persona_elements(details, is_moderator_flag) -> list(description, style_instruction)
 
@@ -188,9 +188,9 @@ Private helpers: `get_next_phase_or_question()`, `log_message(...)`, `get_filter
 - update_state_post_selection(speaker_id, focus_group)
 
 #### DesireBasedFlow
-- Fields: `last_desire_scores` (named numeric), `min_desire_threshold`.
+- Fields: `last_desire_scores` (named numeric), `last_scoring_mode` (character: "broadcast_shared_config", "broadcast_grouped_config", or "per_agent"), `min_desire_threshold`.
 - initialize(agents, moderator_id, min_desire_threshold = 3)
-- select_next_speaker(focus_group) -> FGAgent (participant)
+- select_next_speaker(focus_group) -> FGAgent (participant); falls back to the maximum-scored participant when none clears the threshold, returning `NULL` only when there are no participants.
 - get_last_desire_scores() -> named numeric
 
 ### Factories and Wrappers (Exported)
@@ -223,7 +223,7 @@ Private helpers: `get_next_phase_or_question()`, `log_message(...)`, `get_filter
 #### create_diverse_agents(n_participants, demographics = NULL, survey_responses = NULL, llm_config = NULL) -> list of FGAgent
 - Creates `n_participants` participants plus one moderator (`MOD`).
 - If `demographics`/`survey_responses` are missing, uses generators below.
-- Each participant’s persona is built via `generate_persona()`.
+- Each participant's persona is built via `generate_persona()`.
 
 #### create_agents_from_survey(n_participants, survey_path, demographic_vars = NULL, survey_vars = NULL, llm_config = NULL) -> list of FGAgent
 - Loads haven-labeled survey files (`.dta`, `.sav`, `.sas7bdat`) and converts value labels to characters.
@@ -319,7 +319,7 @@ Each log entry is created via a private logger and includes:
   - Add methods on `FocusGroup` using `private$get_filtered_log()` to reuse consistent filtering and transcript assembly.
 
 - Alternative LLM Providers
-  - Configure per-agent `LLMR::llm_config` accordingly. Group-level tasks use `llm_config_admin` if set; else fall back to the moderator’s config.
+  - Configure per-agent `LLMR::llm_config` accordingly. Group-level tasks use `llm_config_admin` if set; else fall back to the moderator's config.
 
 ### Directory Structure
 

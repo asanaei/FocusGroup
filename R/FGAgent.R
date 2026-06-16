@@ -105,7 +105,8 @@ FGAgent <- R6::R6Class("FGAgent",
     #' @param current_moderator_question Character. The current question posed by the moderator.
     #' @param conversation_summary_so_far Character. A summary of earlier parts of the conversation.
     #' @param current_phase Character. The current phase of the focus group (e.g., "icebreaker", "exploration").
-    #' @return Character string containing the agent's generated utterance.
+    #' @return A list with `text` (the generated utterance) and `meta` (a list
+    #'   of call metadata: token counts, finish reason, provider, model, timing).
     generate_utterance = function(topic,
                                   conversation_history_string,
                                   utterance_prompt_template,

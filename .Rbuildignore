@@ -15,3 +15,19 @@
 ^docs$
 ^assets$
 ^demo_simple\.html$
+^cran-comments\.md$
+
+# Build artifacts
+^.*\.tar\.gz$
+^.*\.Rcheck$
+^_integration$
+
+# AI tooling
+^[.]claude$
+^[.]claude/
+^[.]gemini$
+^[.]gemini/
+^[.]cursor$
+^[.]cursor/
+^[.]codex$
+^[.]codex/

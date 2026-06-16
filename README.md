@@ -22,9 +22,10 @@ The package is designed with flexibility in mind, allowing users to define agent
     -   `ProbabilisticFlow`: Turn-taking based on dynamically adjusting propensity scores.
     -   `DesireBasedFlow`: LLM-rated "desire to talk" determines the next speaker.
 -   **Phase-Driven Simulations**: The `FocusGroup` class orchestrates discussions through a `question_script` that defines phases (e.g., Opening, Icebreaker, Engagement, Exploration, Closing) and moderator actions.
--   **Comprehensive Analysis**: The `FocusGroup` class includes methods for basic conversation statistics, and the `analyze_focus_group` wrapper provides a higher-level interface for more detailed analyses (topic modeling, sentiment, TF-IDF, readability, thematic analysis).
+-   **Comprehensive Analysis**: The `FocusGroup` class includes methods for basic conversation statistics, and the `analyze_focus_group` wrapper provides a higher-level interface for more detailed analyses (topic modeling, TF-IDF, readability, thematic analysis).
 -   **Customizable Prompts**: Default prompts are provided (`get_default_prompt_templates()`), but users can supply their own to tailor agent behavior.
 -   **LLM Integration**: Leverages the `LLMR` package for robust interaction with various LLM providers.
+-   **Point-and-Click GUI**: `run_focus_studio()` opens a Shiny app with three tabs: Run a focus group (live moderated session), Analyze (load a saved transcript and read its participation and word statistics), and Continuation experiment (extend a saved session under new conditions).
 
 ## Note
 
@@ -53,6 +54,21 @@ install.packages(c("R6", "LLMR", "dplyr", "tidyr", "ggplot2",
 You will also need to configure API keys for your chosen LLM provider (e.g., set `OPENAI_API_KEY` as an environment variable if using OpenAI via `LLMR`).
 
 ## Quick Start
+
+### 0. Point-and-click with `run_focus_studio()`
+
+If you prefer a graphical interface, launch the bundled Shiny app:
+
+```r
+library(FocusGroup)
+run_focus_studio()
+```
+
+The app has three tabs. **Run a focus group** starts a fresh moderated session
+live and offers it as a downloadable `.rds`. **Analyze** loads a saved transcript
+and reads its participation and word statistics without an API key.
+**Continuation experiment** loads a saved session and extends it under new
+conditions.
 
 ### 1. Simple Focus Group Simulation using `run_focus_group`
 
@@ -84,7 +100,7 @@ result <- run_focus_group(
   participants = 4,
   turns_per_phase = c(Opening = 1, Icebreaker = 2, Engagement = 5, Exploration = 6, Closing = 1),
   llm_config = llm_config_agents, # Used for all agents and admin tasks if not specified otherwise
-  seed = 123,
+  seed = 110,
   verbose = TRUE
 )
 
@@ -212,7 +228,7 @@ Defines how the next speaker is chosen.
 
 The package is designed to allow agent personas to be informed by survey data. The `create_diverse_agents` function (and by extension, `run_focus_group`) can accept `demographics` and `survey_responses` data frames.
 
-**Key Idea**: If `direct_persona_description` is NOT provided in `agent_details`, `FGAgent$new` (via `create_diverse_agents` and its internal `generate_persona` function) should ideally be able to:
+**Key Idea**: If `direct_persona_description` is NOT provided in `agent_details`, `FGAgent$new` (via `create_diverse_agents` and its internal `generate_persona` function) builds the persona from the supplied data. It will:
 1.  Use the `demographics` data frame for basic demographic facts.
 2.  Iterate through columns in the `survey_responses` data frame for a given agent.
 3.  For each survey variable (column):
@@ -263,7 +279,7 @@ These are also accessible via the `plots` element in the output of `analyze_focu
 
 ## Contributing
 
-Contributions, bug reports, and feature requests are welcome! Please open an issue or submit a pull request on the [GitHub repository](https://github.com/asanaei/FocusGroup). <!-- Update link -->
+Contributions, bug reports, and feature requests are welcome! Please open an issue or submit a pull request on the [GitHub repository](https://github.com/asanaei/FocusGroup).
 
 ## License
 

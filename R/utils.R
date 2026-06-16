@@ -184,9 +184,14 @@ extract_token_counts <- function(response_obj) {
     error = function(...) NULL
   )
   if (!is.null(llmr_usage)) {
-    sent <- as.integer(llmr_usage$sent %||% llmr_usage$prompt_tokens %||% 0L)
-    rec <- as.integer(llmr_usage$rec %||% llmr_usage$completion_tokens %||% 0L)
-    return(list(sent = sent, rec = rec, total = as.integer(llmr_usage$total %||% (sent + rec))))
+    # A provider that does not report usage yields NA token columns; %||% keeps
+    # NA (it only catches NULL), so coerce to 0 to keep callers' arithmetic and
+    # if() guards from hitting a missing value.
+    na0 <- function(x) { v <- suppressWarnings(as.integer(x)); v[is.na(v)] <- 0L; v }
+    sent <- sum(na0(llmr_usage$sent %||% llmr_usage$prompt_tokens %||% 0L))
+    rec <- sum(na0(llmr_usage$rec %||% llmr_usage$completion_tokens %||% 0L))
+    total <- llmr_usage$total %||% (sent + rec)
+    return(list(sent = sent, rec = rec, total = sum(na0(total))))
   }
 
   if (!is.list(response_obj)) return(empty_usage)

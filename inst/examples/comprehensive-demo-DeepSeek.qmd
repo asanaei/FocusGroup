@@ -1,0 +1,605 @@
+---
+title: "FocusGroup Comprehensive Demo with DeepSeek"
+subtitle: "Publicly funded health insurance with mixed partisan thick personas"
+author: "FocusGroup Package Demo"
+date: "`r Sys.Date()`"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-depth: 4
+    number-sections: true
+    code-fold: true
+    code-summary: "Show code"
+    theme: cosmo
+    highlight-style: github
+execute:
+  echo: true
+  warning: false
+  message: false
+---
+
+## Purpose
+
+This file is intentionally live only. It does not silently fabricate a transcript.  
+It runs API calls through DeepSeek and then performs a final direct LLMR analysis on:
+
+1. Full participant personas
+2. Full transcript
+3. Metadata for party and education
+
+The topic is publicly funded health insurance. The script is long, and participant responses are forced to be longer than one sentence.
+
+<style>
+.turn-card {
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
+  margin-bottom: 0.65rem;
+  background: #ffffff;
+}
+.turn-card summary {
+  cursor: pointer;
+  padding: 0.7rem 0.85rem;
+  font-weight: 600;
+}
+.turn-meta {
+  color: #5e5e5e;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+.turn-body {
+  padding: 0.8rem 1rem 0.9rem 1rem;
+  border-top: 1px solid #ececec;
+  line-height: 1.6;
+}
+.turn-body.moderator {
+  border-left: 5px solid #2e8b57;
+  background: #f5fbf7;
+}
+.turn-body.participant {
+  border-left: 5px solid #1f77b4;
+  background: #f8fbff;
+}
+</style>
+
+## Setup
+
+```{r setup}
+library(LLMR)
+library(FocusGroup)
+library(haven)
+library(dplyr)
+library(stringr)
+library(tibble)
+library(knitr)
+
+`%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
+
+clean_value_text <- function(x) {
+  x <- as.character(x)
+  x <- gsub("^[-0-9]+\\.\\s*", "", x)
+  x <- trimws(x)
+  bad <- grepl("inapplicable|missing|refused|error|don.*know|no answer", x, ignore.case = TRUE)
+  x[bad] <- NA_character_
+  x
+}
+
+clean_labelled_column <- function(col) {
+  if (inherits(col, c("haven_labelled", "labelled"))) {
+    return(clean_value_text(haven::as_factor(col, levels = "default")))
+  }
+  clean_value_text(col)
+}
+
+escape_html <- function(text) {
+  text <- gsub("&", "&amp;", text, fixed = TRUE)
+  text <- gsub("<", "&lt;", text, fixed = TRUE)
+  text <- gsub(">", "&gt;", text, fixed = TRUE)
+  text
+}
+
+unwrap_llm_text <- function(resp) {
+  if (!is.null(resp$text)) return(as.character(resp$text))
+  as.character(resp)
+}
+
+build_turn_dataframe <- function(conversation_log) {
+  bind_rows(lapply(conversation_log, function(entry) {
+    txt <- as.character(entry$text %||% "")
+    tibble(
+      turn = as.integer(entry$turn %||% NA_integer_),
+      speaker_id = as.character(entry$speaker_id %||% "Unknown"),
+      is_moderator = isTRUE(entry$is_moderator),
+      phase = as.character(entry$phase %||% "unknown"),
+      text = txt,
+      timestamp = as.POSIXct(entry$timestamp %||% Sys.time(), origin = "1970-01-01"),
+      word_count = if (nchar(txt) == 0) 0L else length(strsplit(txt, "\\s+")[[1]])
+    )
+  })) |>
+    mutate(turn = ifelse(is.na(.data$turn), row_number(), .data$turn))
+}
+```
+
+## DeepSeek Configuration
+
+```{r llm-config}
+cfg_agents <- LLMR::llm_config(
+  provider = "deepseek",
+  model = "deepseek-v4-pro",
+  thinking = "enabled",
+  reasoning_effort = "high",
+  temperature = 0.9,
+  max_tokens = 900
+)
+
+cfg_admin <- LLMR::llm_config(
+  provider = "deepseek",
+  model = "deepseek-v4-pro",
+  thinking = "enabled",
+  reasoning_effort = "high",
+  temperature = 0.8,
+  max_tokens = 2200
+)
+```
+
+## Thick Dictionaries and Sampling Rules
+
+```{r dictionaries}
+demo_vars <- c(
+  age            = "V241458x",
+  gender         = "V241551",
+  education      = "V241465x",
+  race           = "V241501x",
+  marital_status = "V241461x",
+  income         = "V241567x",
+  religion       = "V241445x",
+  employment     = "V241488x"
+)
+
+thin_vars <- c(
+  party_id    = "V241227x",
+  ideology    = "V241177",
+  vote_intent = "V241075x"
+)
+
+thick_health_vars <- c(
+  thin_vars,
+  approve_congress = "V241127",
+  approve_scotus = "V241130",
+  approve_president = "V241134",
+  trust_fed_gov = "V241229",
+  gov_run_by_big_interests = "V241231",
+  gov_waste_tax = "V241232",
+  gov_corrupt = "V241233",
+  country_track = "V241117",
+  natl_economy_retro = "V241291",
+  party_better_economy = "V241236",
+  income_gap_larger = "V241360",
+  scale_gov_services = "V241239",
+  scale_guaranteed_jobs = "V241252",
+  scale_gov_private_insurance = "V241245",
+  spend_social_security = "V241261",
+  spend_welfare = "V241273",
+  spend_public_schools = "V241264",
+  scale_abortion = "V241248",
+  party_better_immigration = "V241237",
+  policy_unauth_immigrants = "V241386",
+  speak_english_importance = "V241396",
+  scale_env_vs_business = "V241258",
+  govt_action_climate = "V241364",
+  require_voter_id = "V241317",
+  political_violence_justified = "V241579"
+)
+
+resolve_anes_path <- function() {
+  candidates <- c(
+    file.path("anes_2024", "anes_timeseries_2024_stata.dta"),
+    file.path("..", "anes_2024", "anes_timeseries_2024_stata.dta"),
+    file.path("..", "..", "inst", "examples", "anes_2024", "anes_timeseries_2024_stata.dta")
+  )
+  found <- candidates[file.exists(candidates)]
+  if (length(found) == 0) stop("ANES .dta file not found in expected paths.")
+  found[1]
+}
+
+party_bucket <- function(x) {
+  x <- tolower(x %||% "")
+  if (grepl("republican", x)) return("Republican")
+  if (grepl("democrat", x)) return("Democrat")
+  if (grepl("independent|non-partisan|no party", x)) return("Independent")
+  "Other"
+}
+
+sample_mixed_rows <- function(clean_data, party_code, n_participants = 8) {
+  party_raw <- clean_data[[party_code]]
+  party_grp <- vapply(party_raw, party_bucket, character(1))
+  valid_rows <- which(!is.na(party_raw))
+  if (length(valid_rows) < n_participants) stop("Not enough valid party rows for requested participant count.")
+
+  targets <- c(Democrat = 3, Republican = 3, Independent = 2)
+  selected <- integer(0)
+  for (grp in names(targets)) {
+    idx <- intersect(valid_rows, which(party_grp == grp))
+    take <- min(length(idx), targets[[grp]])
+    if (take > 0) selected <- c(selected, sample(idx, take))
+  }
+
+  if (length(selected) < n_participants) {
+    remainder <- setdiff(valid_rows, selected)
+    need <- n_participants - length(selected)
+    selected <- c(selected, sample(remainder, need))
+  }
+  selected
+}
+
+extract_frame <- function(raw_data, clean_data, rows, var_map, use_labels = FALSE) {
+  present <- var_map[unname(var_map) %in% names(clean_data)]
+  if (length(present) == 0) stop("No requested variables found in ANES file.")
+
+  codes <- unname(present)
+  df <- clean_data[rows, codes, drop = FALSE]
+  df <- as.data.frame(lapply(df, clean_value_text), stringsAsFactors = FALSE)
+
+  if (use_labels) {
+    labs <- vapply(seq_along(present), function(i) {
+      code <- unname(present)[i]
+      fallback <- names(present)[i]
+      lbl <- attr(raw_data[[code]], "label")
+      if (is.null(lbl) || !nzchar(lbl)) return(fallback)
+      lbl <- trimws(gsub(
+        "^(?:(?:PRE|POST|PRE-POST|SUMMARY|RESTRICTED|PAPER|ONLY|GSS|\\[.*?\\])[:\\s-]*)+",
+        "",
+        lbl,
+        ignore.case = TRUE
+      ))
+      if (nzchar(lbl)) lbl else fallback
+    }, character(1))
+    names(df) <- labs
+  } else {
+    names(df) <- names(present)
+  }
+  df
+}
+```
+
+## Build Mixed Partisan Thick Personas
+
+```{r create-agents}
+set.seed(2026)
+options(focusgroup.seed = 2026)
+
+anes_path <- resolve_anes_path()
+raw_data <- haven::read_dta(anes_path)
+clean_data <- as.data.frame(lapply(raw_data, clean_labelled_column), stringsAsFactors = FALSE)
+
+required_codes <- unique(c(unname(demo_vars), unname(thick_health_vars)))
+missing_codes <- setdiff(required_codes, names(clean_data))
+if (length(missing_codes) > 0) {
+  stop("ANES file is missing required variables: ", paste(missing_codes[1:min(20, length(missing_codes))], collapse = ", "))
+}
+
+n_participants <- 8
+selected_rows <- sample_mixed_rows(clean_data, party_code = thin_vars[["party_id"]], n_participants = n_participants)
+
+demo_df <- extract_frame(raw_data, clean_data, selected_rows, demo_vars, use_labels = FALSE)
+survey_df <- extract_frame(raw_data, clean_data, selected_rows, thick_health_vars, use_labels = TRUE)
+
+agents <- FocusGroup::create_diverse_agents(
+  n_participants = n_participants,
+  demographics = demo_df,
+  survey_responses = survey_df,
+  llm_config = cfg_agents
+)
+
+for (i in seq_along(agents)) {
+  if (!agents[[i]]$is_moderator && length(agents[[i]]$survey_responses) > 0) {
+    agents[[i]]$persona_description <- paste(
+      agents[[i]]$persona_description,
+      FocusGroup::format_survey_responses(agents[[i]]$survey_responses),
+      sep = "\n\n"
+    )
+  }
+}
+
+agents_named <- stats::setNames(agents, vapply(agents, function(a) a$id, character(1)))
+moderator_id <- if ("MOD" %in% names(agents_named)) "MOD" else tail(names(agents_named), 1)
+participant_ids <- setdiff(names(agents_named), moderator_id)
+
+participant_meta <- tibble(
+  row_id = selected_rows,
+  participant_id = participant_ids[seq_len(n_participants)],
+  party_group = vapply(clean_data[[thin_vars[["party_id"]]]][selected_rows], party_bucket, character(1)),
+  education = clean_data[[demo_vars[["education"]]]][selected_rows] %||% NA_character_,
+  ideology = clean_data[[thin_vars[["ideology"]]]][selected_rows] %||% NA_character_
+)
+
+options(focusgroup.seed = NULL)
+set.seed(NULL)
+```
+
+## Long Script and Long-Answer Prompt Controls
+
+```{r script-and-prompts}
+fg_topic <- "Publicly funded health insurance in the United States"
+fg_purpose <- paste(
+  "To examine policy trade-offs in publicly funded health insurance, with explicit attention to",
+  "financing, eligibility, administrative design, private-public boundaries, equity, and political feasibility."
+)
+
+script <- list(
+  list(phase = "opening"),
+  list(phase = "icebreaker_question", text = "Briefly describe one concrete challenge your household has faced in paying for or accessing health care. Please respond in at least four sentences."),
+  list(phase = "engagement_question", text = "When you hear publicly funded health insurance, what institutional model do you imagine, and what outcome would make you call it successful? Please answer with at least four sentences."),
+  list(phase = "exploration_question", text = "Should coverage be universal for all residents, or targeted to specific groups? Explain your principles and practical concerns in detail, with at least four sentences."),
+  list(phase = "probing_focused", text = "What financing mix would you accept: payroll tax, progressive income tax, wealth tax, consumption tax, or blended mechanisms? Explain why in at least four sentences."),
+  list(phase = "exploration_question", text = "Which benefits must be guaranteed: primary care, emergency, mental health, maternal care, pediatric care, dental, vision, prescription drugs, and long term care? Please prioritize with reasons."),
+  list(phase = "exploration_question", text = "How much role should private insurance keep if a public system expands? Compare single-payer, public option, and tightly regulated multi-payer designs."),
+  list(phase = "probing_focused", text = "Discuss the strongest argument against your own preferred model. What downside worries you most, and how would you mitigate it?"),
+  list(phase = "exploration_question", text = "How should policy address equity gaps across class, race, rural geography, disability, and immigration status while preserving administrative clarity?"),
+  list(phase = "exploration_question", text = "Who should govern the system, federal or state institutions, and what anti-corruption and anti-waste controls are indispensable?"),
+  list(phase = "engagement_question", text = "Assume this reform is politically contested. What message would persuade skeptical voters without misrepresenting trade-offs?"),
+  list(phase = "ending_question", text = "State your final package in three elements: financing, coverage architecture, and implementation safeguards. Defend feasibility and legitimacy."),
+  list(phase = "closing")
+)
+
+prompts <- FocusGroup::get_default_prompt_templates()
+prompts$participant_utterance_subtle_persona <- paste0(
+  prompts$participant_utterance_subtle_persona,
+  "\n8. Length requirement: write 4 to 8 sentences and approximately 90 to 180 words.",
+  "\n9. Include at least one concrete policy mechanism and one explicit trade-off.",
+  "\n10. If you agree with another participant, add one original caveat or extension so your response is not redundant.",
+  "\n11. Avoid one-sentence or slogan-style responses."
+)
+
+prompts$moderator_exploration_question <- paste0(
+  prompts$moderator_exploration_question,
+  "\nAdditional moderator instruction: if answers become short, explicitly ask for detail, examples, and trade-off reasoning."
+)
+
+prompts$moderator_engagement_question <- paste0(
+  prompts$moderator_engagement_question,
+  "\nAdditional moderator instruction: request multi-sentence responses with policy specificity."
+)
+```
+
+## Run Live Simulation (No Fabricated Fallback)
+
+```{r run-live}
+flow_mode <- tolower(Sys.getenv("FG_DEMO_FLOW", "round_robin"))
+if (!(flow_mode %in% c("round_robin", "probabilistic", "desire_based"))) {
+  flow_mode <- "round_robin"
+}
+
+fg <- FocusGroup$new(
+  topic = fg_topic,
+  purpose = fg_purpose,
+  agents = agents_named,
+  moderator_id = moderator_id,
+  turn_taking_flow = create_conversation_flow(
+    flow_mode,
+    agents_named,
+    moderator_id,
+    flow_params = list(min_desire_threshold = 2)
+  ),
+  question_script = script,
+  prompt_templates = prompts,
+  llm_config_admin = cfg_admin,
+  max_tokens_config = list(utterance = 380, moderator = 500, desire = 22)
+)
+
+run_result <- tryCatch(
+  {
+    num_turns_live <- suppressWarnings(as.integer(Sys.getenv("FG_DEMO_TURNS", "24")))
+    if (is.na(num_turns_live) || num_turns_live < 20) num_turns_live <- 24L
+    fg$run_simulation(num_turns = num_turns_live, verbose = TRUE)
+  },
+  error = function(e) {
+    stop("Live API simulation failed: ", conditionMessage(e))
+  }
+)
+
+if (length(fg$conversation_log) == 0) {
+  stop("Simulation returned an empty conversation log. No fallback is used in this file.")
+}
+
+turn_df <- build_turn_dataframe(fg$conversation_log)
+analysis_core <- fg$analyze()
+full_transcript <- analysis_core$full_transcript
+```
+
+## Participant Composition Check
+
+```{r composition}
+kable(participant_meta, caption = "Participant metadata used for subgroup interpretation")
+
+party_counts <- participant_meta |>
+  count(party_group, name = "n_participants") |>
+  arrange(desc(n_participants))
+
+education_counts <- participant_meta |>
+  count(education, name = "n_participants") |>
+  arrange(desc(n_participants))
+
+kable(party_counts, caption = "Party composition")
+kable(education_counts, caption = "Education composition")
+```
+
+## Expandable Transcript
+
+```{r transcript, results='asis'}
+cat("### Full Transcript\n\n")
+
+for (i in seq_len(length(fg$conversation_log))) {
+  entry <- fg$conversation_log[[i]]
+  speaker <- entry$speaker_id %||% "Unknown"
+  phase <- entry$phase %||% "unknown"
+  stamp <- format(as.POSIXct(entry$timestamp %||% Sys.time()), "%H:%M:%S")
+  body_class <- if (isTRUE(entry$is_moderator) || identical(speaker, moderator_id)) "moderator" else "participant"
+  speaker_type <- if (body_class == "moderator") "Moderator" else "Participant"
+  body_text <- escape_html(entry$text %||% "")
+  body_text <- gsub("\n", "<br/>", body_text, fixed = TRUE)
+
+  cat('<details class="turn-card">\n')
+  cat(
+    '<summary>',
+    "<strong>Turn ", i, " | ", speaker, "</strong>",
+    ' <span class="turn-meta">(',
+    speaker_type, " | ", tools::toTitleCase(phase), " | ", stamp,
+    ')</span></summary>\n',
+    sep = ""
+  )
+  cat('<div class="turn-body ', body_class, '">', body_text, "</div>\n", sep = "")
+  cat("</details>\n\n")
+}
+```
+
+## Conversation Diagnostics
+
+```{r diagnostics}
+speaker_stats <- analysis_core$speaker_stats
+kable(speaker_stats, caption = "Speaker-level participation statistics")
+
+phase_stats <- turn_df |>
+  count(phase, name = "turns") |>
+  mutate(share = round(100 * turns / sum(turns), 1)) |>
+  arrange(desc(turns))
+kable(phase_stats, caption = "Turn distribution by phase")
+
+avg_turn_length <- turn_df |>
+  filter(!is_moderator) |>
+  summarise(
+    avg_words = round(mean(word_count), 1),
+    median_words = round(median(word_count), 1),
+    max_words = max(word_count)
+  )
+kable(avg_turn_length, caption = "Participant turn length diagnostics")
+```
+
+## Education and Party Signal Tables
+
+```{r subgroup-signals}
+turn_with_meta <- turn_df |>
+  filter(!is_moderator) |>
+  left_join(participant_meta, by = c("speaker_id" = "participant_id"))
+
+support_pat <- regex("universal|public option|single payer|coverage guarantee|health care as a right|expand public insurance", ignore_case = TRUE)
+concern_pat <- regex("tax burden|tax increase|wait time|bureaucracy|government inefficien|ration|provider shortage|fiscal risk", ignore_case = TRUE)
+market_pat <- regex("private insurance|competition|consumer choice|market discipline|employer plan", ignore_case = TRUE)
+
+signal_by_party <- turn_with_meta |>
+  mutate(
+    support_hits = str_count(text, support_pat),
+    concern_hits = str_count(text, concern_pat),
+    market_hits = str_count(text, market_pat),
+    net_support = support_hits - concern_hits
+  ) |>
+  group_by(party_group) |>
+  summarise(
+    n_turns = n(),
+    avg_words = round(mean(word_count), 1),
+    support_hits = sum(support_hits),
+    concern_hits = sum(concern_hits),
+    market_hits = sum(market_hits),
+    net_support = sum(net_support),
+    .groups = "drop"
+  ) |>
+  arrange(desc(net_support))
+
+signal_by_education <- turn_with_meta |>
+  mutate(
+    support_hits = str_count(text, support_pat),
+    concern_hits = str_count(text, concern_pat),
+    market_hits = str_count(text, market_pat),
+    net_support = support_hits - concern_hits
+  ) |>
+  group_by(education) |>
+  summarise(
+    n_turns = n(),
+    avg_words = round(mean(word_count), 1),
+    support_hits = sum(support_hits),
+    concern_hits = sum(concern_hits),
+    market_hits = sum(market_hits),
+    net_support = sum(net_support),
+    .groups = "drop"
+  ) |>
+  arrange(desc(net_support))
+
+kable(signal_by_party, caption = "Lexical policy orientation by party group")
+kable(signal_by_education, caption = "Lexical policy orientation by education group")
+```
+
+## Standard FocusGroup Analyses
+
+```{r package-analyses}
+topic_res <- fg$analyze_topics(num_topics = 5, top_n_terms = 10)
+tfidf_res <- fg$analyze_tfidf(top_n_terms = 8)
+readability_res <- fg$analyze_readability(measures = c("Flesch", "Flesch.Kincaid", "ARI"))
+theme_res <- fg$analyze_themes(llm_config = cfg_admin)
+
+print(topic_res)
+kable(tfidf_res, caption = "Top TF-IDF terms by speaker")
+kable(readability_res, caption = "Readability scores by speaker")
+
+cat("### Theme analysis from package method\n\n")
+cat(as.character(theme_res))
+```
+
+## Final DeepSeek Comparative Call with Personas and Transcript
+
+```{r final-deepseek-comparison}
+persona_blocks <- vapply(participant_ids, function(pid) {
+  row <- participant_meta |> filter(participant_id == pid)
+  party <- row$party_group[1] %||% "Unknown"
+  edu <- row$education[1] %||% "Unknown"
+  ideo <- row$ideology[1] %||% "Unknown"
+  persona <- fg$agents[[pid]]$persona_description %||% ""
+  persona <- substr(persona, 1, 2500)
+  paste0(
+    "Participant: ", pid, "\n",
+    "Party group: ", party, "\n",
+    "Education: ", edu, "\n",
+    "Ideology: ", ideo, "\n",
+    "Persona description:\n", persona, "\n"
+  )
+}, character(1))
+
+persona_text <- paste(persona_blocks, collapse = "\n--------------------\n")
+
+analysis_prompt <- paste0(
+  "You are a political behavior analyst. You are given a focus group transcript and persona data.\n",
+  "Task: extract subgroup differences with explicit evidence.\n\n",
+  "Required sections:\n",
+  "1) Party comparison: Democrats vs Republicans vs Independents on publicly funded health insurance.\n",
+  "2) Education comparison: lower vs higher education patterns and whether sophistication changes policy design preferences.\n",
+  "3) Areas of consensus and conflict, including disagreements about taxes, private insurance role, wait times, and governance trust.\n",
+  "4) Detect if support appears artificially uniform; if yes, diagnose why and specify which participants still expressed caution.\n",
+  "5) Evidence table: participant ID, subgroup labels, position summary, and one quote fragment or close paraphrase.\n",
+  "6) Method note: explain limits, including sample size and simulated setting.\n\n",
+  "Write analytically and avoid generic language.\n\n",
+  "<personas>\n", persona_text, "\n</personas>\n\n",
+  "<transcript>\n", full_transcript, "\n</transcript>\n"
+)
+
+cfg <- LLMR::llm_config(
+  provider = "deepseek",
+  model = "deepseek-v4-pro",
+  thinking = "enabled",
+  reasoning_effort = "high"
+)
+
+OUT <- LLMR::call_llm(
+  config = cfg,
+  messages = list(list(role = "user", content = analysis_prompt))
+)
+
+final_text <- OUT$text %||% unwrap_llm_text(OUT)
+
+cat("### Direct DeepSeek synthesis over personas + full transcript\n\n")
+cat(final_text)
+```
+
+## Closing Notes
+
+- This file intentionally requires live API execution.
+- If your provider key is configured, the output should contain both simulated dialogue and LLM-based subgroup interpretation.
+- The final section is the one to cite in presentation when discussing party and education heterogeneity in policy positions.

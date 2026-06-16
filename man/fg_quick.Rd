@@ -34,7 +34,7 @@ fg_quick(
 per moderator question before the moderator advances.}
 }
 \value{
-A list with elements: `transcript` (tibble), `summary` (character), `participants` (list),
+A list with elements: `transcript` (data frame), `summary` (character), `participants` (list),
   `totals` (list), `config_meta` (list), and `focus_group` (the `FocusGroup` object).
 }
 \description{

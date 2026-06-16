@@ -20,8 +20,10 @@ NULL
 #' @field purpose Character. The primary purpose or research objective of conducting the focus group.
 #' @field agents Named list. A list of `FGAgent` objects participating in the simulation, indexed by their IDs.
 #' @field moderator_id Character. The ID of the agent designated as the moderator.
-#' @field conversation_log List. A chronological log of all messages. Each message is a list:
-#'   `turn`, `speaker_id`, `is_moderator`, `text`, `timestamp`, `phase`.
+#' @field conversation_log List. A chronological log of all messages. Each message is a list
+#'   that includes at least `turn`, `speaker_id`, `is_moderator`, `text`, `timestamp`, and
+#'   `phase`, along with call metadata: `response_id`, `finish_reason`, `sent_tokens`,
+#'   `rec_tokens`, `total_tokens`, `duration_s`, `provider`, and `model`.
 #' @field turn_taking_flow A `ConversationFlow` object dictating participant turn-taking.
 #' @field prompt_templates List. Holds prompt templates for agent/moderator actions.
 #' @field question_script List. A structured list defining phases and specific questions/actions for the moderator.
@@ -766,7 +768,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param llm_config An `llm_config` object for the analysis. If `NULL`, uses `self$llm_config_admin`.
     #' @param turns Integer vector. Optional. Specific turns to analyze.
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A list with `themes_summary` (character string from LLM) and `raw_llm_response`.
+    #' @return The thematic summary as a character string, carrying the raw LLM
+    #'   response object in its `raw_llm_response` attribute. `NULL` if there is
+    #'   nothing to analyze.
     analyze_themes = function(llm_config = NULL, turns = NULL, speaker_ids = NULL) {
       active_llm_config <- llm_config %||% self$llm_config_admin
       if (is.null(active_llm_config)) stop("An llm_config is required for thematic analysis.")

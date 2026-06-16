@@ -211,12 +211,16 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
 #' This flow is mainly for choosing which participant responds to the moderator.
 #'
 #' @field last_desire_scores Named numeric vector. Stores the most recent desire scores.
+#' @field last_scoring_mode Character. How the most recent desire scores were
+#'   obtained: "broadcast_shared_config" (one config for all), "broadcast_grouped_config"
+#'   (agents grouped by differing configs), or "per_agent".
 #' @field min_desire_threshold Numeric. Minimum desire score for a participant to be considered.
 #' @export
 DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
   inherit = ConversationFlow,
   public = list(
     last_desire_scores = NULL,
+    last_scoring_mode = NULL,
     min_desire_threshold = 3, # Default minimum desire to speak
 
     #' @description Initialize DesireBasedFlow.
@@ -231,7 +235,9 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 
     #' @description Selects the next participant based on desire to talk.
     #' @param focus_group The `FocusGroup` object, providing context like current question, history.
-    #' @return The selected `FGAgent` (a participant), or `NULL` if no participant meets threshold.
+    #' @return The selected `FGAgent`. When no participant clears the desire
+    #'   threshold the highest-scoring participant is chosen, so this returns
+    #'   `NULL` only when there are no participants.
     select_next_speaker = function(focus_group) {
       if (length(self$participant_ids) == 0) return(NULL)
 
@@ -272,81 +278,97 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         }
       }
 
+      # Broadcast desire scoring within groups of agents that share a model
+      # config. Broadcasting requires ONE config, so agents with different
+      # providers/models/params must be grouped separately -- otherwise every
+      # agent would be scored with the first agent's model. The common case
+      # (all agents share a config) is a single group, i.e. one broadcast, as
+      # before. `self$last_scoring_mode` records which path ran.
+      build_desire_msg <- function(pid) {
+        prompt_values <- list(
+          persona_description = self$agents[[pid]]$persona_description,
+          topic = focus_group$topic,
+          conversation_history = history_string,
+          current_moderator_question = focus_group$current_question_text %||% "N/A",
+          last_speaker_id = last_utterance_info$speaker_id,
+          last_utterance_text = last_utterance_info$text
+        )
+        list(list(role = "user", content = replace_placeholders(
+          focus_group$prompt_templates$participant_desire_to_talk_nuanced,
+          prompt_values)))
+      }
+
+      record_group_usage <- function(out, ids) {
+        row_usage_found <- FALSE
+        for (i in seq_along(ids)) {
+          pid <- ids[[i]]
+          row_obj <- if (is.data.frame(out)) out[i, , drop = FALSE] else
+            lapply(out, function(x) if (length(x) >= i) x[[i]] else NULL)
+          usage <- extract_token_counts(row_obj)
+          if ((usage$sent + usage$rec) > 0) {
+            row_usage_found <- TRUE
+            self$agents[[pid]]$tokens_sent_agent <- self$agents[[pid]]$tokens_sent_agent + usage$sent
+            self$agents[[pid]]$tokens_received_agent <- self$agents[[pid]]$tokens_received_agent + usage$rec
+            if (!is.null(focus_group$record_token_usage)) focus_group$record_token_usage(usage$sent, usage$rec)
+          }
+        }
+        if (!row_usage_found) {
+          usage <- extract_token_counts(out)
+          if ((usage$sent + usage$rec) > 0) {
+            sent_each <- floor(usage$sent / length(ids))
+            rec_each <- floor(usage$rec / length(ids))
+            for (pid in ids) {
+              self$agents[[pid]]$tokens_sent_agent <- self$agents[[pid]]$tokens_sent_agent + sent_each
+              self$agents[[pid]]$tokens_received_agent <- self$agents[[pid]]$tokens_received_agent + rec_each
+            }
+            if (!is.null(focus_group$record_token_usage)) focus_group$record_token_usage(usage$sent, usage$rec)
+          }
+        }
+      }
+
+      # Broadcast one homogeneous group; returns TRUE if it scored them.
+      broadcast_group <- function(ids) {
+        cfg <- self$agents[[ids[1]]]$model_config
+        cfg$model_params$max_tokens <- 16
+        cfg$model_params$temperature <- 0.1
+        out <- tryCatch(
+          LLMR::call_llm_broadcast(config = cfg, messages = lapply(ids, build_desire_msg),
+                                   tries = 5, wait_seconds = 2, backoff_factor = 3,
+                                   progress = FALSE),
+          error = function(...) NULL)
+        if (is.null(out) || is.null(out$success) || is.null(out$response_text)) return(FALSE)
+        for (i in seq_along(ids)) {
+          desire_scores[ids[[i]]] <<- if (isTRUE(out$success[i]))
+            parse_score_0_10(out$response_text[i]) else 0L
+        }
+        record_group_usage(out, ids)
+        TRUE
+      }
+
       if (length(eligible_ids) > 0) {
         used_broadcast <- FALSE
         if (requireNamespace("LLMR", quietly = TRUE) && length(eligible_ids) <= 8) {
-          shared_cfg <- self$agents[[eligible_ids[1]]]$model_config
-          msgs <- lapply(eligible_ids, function(pid) {
-            prompt_values <- list(
-              persona_description = self$agents[[pid]]$persona_description,
-              topic = focus_group$topic,
-              conversation_history = history_string,
-              current_moderator_question = focus_group$current_question_text %||% "N/A",
-              last_speaker_id = last_utterance_info$speaker_id,
-              last_utterance_text = last_utterance_info$text
-            )
-            final_prompt <- replace_placeholders(
-              focus_group$prompt_templates$participant_desire_to_talk_nuanced,
-              prompt_values
-            )
-            list(list(role = "user", content = final_prompt))
-          })
-
-          # Per-call caps for desire scoring
-          shared_cfg$model_params$max_tokens <- 16
-          shared_cfg$model_params$temperature <- 0.1
-
-          out <- tryCatch(
-            LLMR::call_llm_broadcast(
-              config = shared_cfg,
-              messages = msgs,
-              tries = 5,
-              wait_seconds = 2,
-              backoff_factor = 3,
-              progress = FALSE
-            ),
-            error = function(...) NULL
-          )
-
-          if (!is.null(out) && !is.null(out$success) && !is.null(out$response_text)) {
-            used_broadcast <- TRUE
-            row_usage_found <- FALSE
-            for (i in seq_along(eligible_ids)) {
-              pid <- eligible_ids[[i]]
-              sc <- if (isTRUE(out$success[i])) parse_score_0_10(out$response_text[i]) else 0L
-              desire_scores[pid] <- sc
-
-              row_obj <- if (is.data.frame(out)) out[i, , drop = FALSE] else lapply(out, function(x) {
-                if (length(x) >= i) x[[i]] else NULL
-              })
-              usage <- extract_token_counts(row_obj)
-              if ((usage$sent + usage$rec) > 0) {
-                row_usage_found <- TRUE
-                self$agents[[pid]]$tokens_sent_agent <- self$agents[[pid]]$tokens_sent_agent + usage$sent
-                self$agents[[pid]]$tokens_received_agent <- self$agents[[pid]]$tokens_received_agent + usage$rec
-                if (!is.null(focus_group$record_token_usage)) focus_group$record_token_usage(usage$sent, usage$rec)
-              }
-            }
-
-            if (!row_usage_found) {
-              usage <- extract_token_counts(out)
-              if ((usage$sent + usage$rec) > 0) {
-                sent_each <- floor(usage$sent / length(eligible_ids))
-                rec_each <- floor(usage$rec / length(eligible_ids))
-                for (pid in eligible_ids) {
-                  self$agents[[pid]]$tokens_sent_agent <- self$agents[[pid]]$tokens_sent_agent + sent_each
-                  self$agents[[pid]]$tokens_received_agent <- self$agents[[pid]]$tokens_received_agent + rec_each
-                }
-                if (!is.null(focus_group$record_token_usage)) focus_group$record_token_usage(usage$sent, usage$rec)
-              }
-            }
-          }
+          # Group by a content hash of each agent's config so heterogeneous
+          # configs each broadcast under their own model.
+          gkey <- vapply(eligible_ids, function(pid)
+            tryCatch(LLMR::llm_hash(self$agents[[pid]]$model_config),
+                     error = function(...) pid), character(1))
+          groups <- split(eligible_ids, gkey)
+          self$last_scoring_mode <- if (length(groups) == 1L)
+            "broadcast_shared_config" else "broadcast_grouped_config"
+          # A group whose broadcast fails must not leave its agents at the
+          # default score of 0; collect those ids and score them per-agent
+          # below. Only when EVERY group fails do we drop to the full per-agent
+          # path (and relabel the mode accordingly).
+          failed_ids <- character(0)
+          for (g in groups) if (!broadcast_group(g)) failed_ids <- c(failed_ids, g)
+          used_broadcast <- length(failed_ids) < length(eligible_ids)
+          if (used_broadcast && length(failed_ids)) score_per_agent(failed_ids)
         }
 
-        # Fallback only when broadcast did not run or returned nothing parseable.
-        # A degenerate all-zero broadcast is still valid; downstream threshold-lowering
-        # and max-pick logic will select a speaker without a second billable round.
+        # Fallback only when broadcast did not run at all, or every group failed.
         if (!used_broadcast) {
+          self$last_scoring_mode <- "per_agent"
           score_per_agent(eligible_ids)
         }
       }

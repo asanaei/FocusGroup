@@ -4,6 +4,12 @@
 .Ruserdata
 plan.md
 
+# AI tooling
+.claude/
+.gemini/
+.cursor/
+.codex/
+
 # Output files from R CMD build
 /*.tar.gz
 
@@ -11,6 +17,11 @@ plan.md
 /*.Rcheck/
 ..Rcheck/
 *.Rcheck/
+
+# Built vignette outputs do not belong in vignettes/ (R generates them into
+# inst/doc at build time); keeping them there trips an R CMD check WARNING.
+vignettes/*.html
+vignettes/*.R
 
 # Mac files
 .DS_Store

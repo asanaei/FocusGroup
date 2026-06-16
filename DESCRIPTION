@@ -1,9 +1,9 @@
 Package: FocusGroup
 Type: Package
 Title: Focus Group Simulation Using LLM Agents 
-Version: 0.2.4 
-Author: Ali Sanaei <sanaei@uchicago.edu>
-Maintainer: Ali Sanaei <sanaei@uchicago.edu>
+Version: 0.3.0
+Authors@R:
+    person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
 Description: Provides utilities for simulating and analyzing
     focus group discussions using Large Language Models.
     Enables researchers to create virtual focus groups with diverse AI agents
@@ -11,7 +11,7 @@ Description: Provides utilities for simulating and analyzing
     phases, and perform analysis of the resulting conversations.
 License: MIT + file LICENSE
 Encoding: UTF-8
-RoxygenNote: 7.3.2
+RoxygenNote: 7.3.3
 Depends: R (>= 4.0.0)
 Imports: 
     R6,
@@ -20,8 +20,8 @@ Imports:
     rlang,
     haven,
     withr,
-    LLMR (>= 0.6.0)
-Suggests: 
+    LLMR (>= 0.8.6)
+Suggests:
     testthat (>= 3.0.0),
     ggplot2,
     quanteda,
@@ -31,7 +31,11 @@ Suggests:
     readr,
     knitr,
     rmarkdown,
-    pkgdown
+    pkgdown,
+    shiny,
+    bslib,
+    DT,
+    LLMR.shiny
 VignetteBuilder: knitr
 URL: https://github.com/asanaei/FocusGroup, https://asanaei.github.io/FocusGroup/
 BugReports: https://github.com/asanaei/FocusGroup/issues

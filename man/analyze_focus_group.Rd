@@ -21,12 +21,13 @@ analyze_focus_group(
 \item{sentiment_method}{Deprecated. Ignored. Sentiment analysis was removed from package scope.}
 }
 \value{
-List containing various analysis results including topics, sentiment,
-  readability, and visualizations
+A list with `basic_stats`, `topics`, `sentiment` (always `NULL`;
+  sentiment analysis was removed from package scope), `tfidf`, `readability`,
+  `themes`, and (when `include_plots = TRUE`) `plots`.
 }
 \description{
-Performs comprehensive analysis on focus group results, including topic modeling,
-sentiment analysis, and basic statistics.
+Runs topic modeling, term-frequency, readability, and thematic analysis on
+focus group results, with basic conversation statistics.
 }
 \examples{
 \dontrun{
@@ -37,8 +38,8 @@ analysis <- analyze_focus_group(result, num_topics = 4)
 # View topic analysis
 analysis$topics
 
-# View sentiment over time
-analysis$plots$sentiment_timeline
+# View the readability table
+analysis$readability
 }
 
 }

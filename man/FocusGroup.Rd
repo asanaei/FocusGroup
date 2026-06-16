@@ -25,6 +25,10 @@ Useful links:
 }
 
 }
+\author{
+\strong{Maintainer}: Ali Sanaei \email{sanaei@uchicago.edu}
+
+}
 \keyword{internal}
 \section{Public fields}{
 \if{html}{\out{<div class="r6-fields">}}
@@ -37,8 +41,10 @@ Useful links:
 
 \item{\code{moderator_id}}{Character. The ID of the agent designated as the moderator.}
 
-\item{\code{conversation_log}}{List. A chronological log of all messages. Each message is a list:
-`turn`, `speaker_id`, `is_moderator`, `text`, `timestamp`, `phase`.}
+\item{\code{conversation_log}}{List. A chronological log of all messages. Each message is a list
+that includes at least `turn`, `speaker_id`, `is_moderator`, `text`, `timestamp`, and
+`phase`, along with call metadata: `response_id`, `finish_reason`, `sent_tokens`,
+`rec_tokens`, `total_tokens`, `duration_s`, `provider`, and `model`.}
 
 \item{\code{turn_taking_flow}}{A `ConversationFlow` object dictating participant turn-taking.}
 
@@ -388,7 +394,9 @@ Perform LLM-assisted thematic analysis on the transcript.
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-A list with `themes_summary` (character string from LLM) and `raw_llm_response`.
+The thematic summary as a character string, carrying the raw LLM
+  response object in its `raw_llm_response` attribute. `NULL` if there is
+  nothing to analyze.
 }
 }
 \if{html}{\out{<hr>}}
