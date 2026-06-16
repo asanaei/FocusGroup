@@ -25,7 +25,8 @@ jobs:
           use-public-rspm: true
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::pkgdown, local::.
+          extra-packages: any::pkgdown, asanaei/LLMR, asanaei/LLMR.shiny, local::.
+          dependencies: '"hard"'
           needs: website
       - name: Build pkgdown site
         run: Rscript -e 'pkgdown::build_favicons(overwrite=TRUE); pkgdown::build_site()'
