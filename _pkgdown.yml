@@ -46,6 +46,9 @@ reference:
       - fg_quick
       - fg_analyze_quick
       - analyze_focus_group
+  - title: Graphical interface
+    contents:
+      - run_focus_studio
   - title: Agent Creation & Survey
     contents:
       - create_diverse_agents
