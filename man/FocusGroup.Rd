@@ -62,6 +62,10 @@ used for managing context length in prompts.}
 
 \item{\code{final_summary}}{Character. Final LLM-generated summary from the most recent simulation run.}
 
+\item{\code{msg_mode}}{Character. The message construction used by the most recent
+`run_simulation()` ("roleflip" or "flat"), recorded so a saved object can be
+replayed (e.g. in the GUI continuation experiment) with the same construction.}
+
 \item{\code{llm_config_admin}}{An `llm_config` object for group-level LLM tasks (summarization, analysis).}
 
 \item{\code{max_tokens_utterance}}{Integer. Default max tokens for participant utterances.}
@@ -289,6 +293,7 @@ Perform LDA topic modeling on the conversation.
   top_n_terms = 10,
   turns = NULL,
   speaker_ids = NULL,
+  seed = 110,
   ...
 )}\if{html}{\out{</div>}}
 }
@@ -305,6 +310,9 @@ Perform LDA topic modeling on the conversation.
 \item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
+
+\item{\code{seed}}{Integer or NULL. LDA seed for reproducibility (default 110, the
+package convention); `NULL` leaves the LDA control seed unset.}
 
 \item{\code{...}}{Additional arguments to `topicmodels::LDA()`.}
 }

@@ -11,6 +11,7 @@ fg_quick(
   model_config = NULL,
   seed = NULL,
   mode = c("quick", "pro"),
+  msg_mode = c("roleflip", "flat"),
   verbose = TRUE,
   max_participant_responses = NULL
 )
@@ -24,9 +25,16 @@ fg_quick(
 
 \item{model_config}{Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.}
 
-\item{seed}{Optional integer for reproducibility.}
+\item{seed}{Optional integer. Seeds R's RNG (speaker selection and other
+in-package sampling); it does NOT make the LLM output reproducible, since at
+`temperature > 0` the provider samples server-side.}
 
 \item{mode}{Character. Currently informational ("quick" or "pro"). Default "quick".}
+
+\item{msg_mode}{How each agent's turn is presented to the model. `"roleflip"`
+(default) puts the agent's own prior turns in the assistant role and others'
+in labeled user messages (reduces self-repetition); `"flat"` is the legacy
+single-user-message transcript.}
 
 \item{verbose}{Logical. Print progress.}
 

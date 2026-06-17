@@ -19,7 +19,14 @@ NULL
 #' @param conversation_flow Character string specifying turn-taking mechanism:
 #'   "round_robin", "probabilistic", or "desire_based". Default is "desire_based".
 #' @param llm_config List with LLM configuration. If NULL, uses default configuration.
-#' @param seed Optional integer for reproducibility
+#' @param seed Optional integer. Seeds R's RNG, which governs speaker selection
+#'   and other in-package sampling. It does NOT make the LLM output reproducible:
+#'   at `temperature > 0` the provider samples server-side, beyond R's control.
+#' @param msg_mode How each agent's turn is presented to the model. `"roleflip"`
+#'   (default) gives each agent its own prior turns in the assistant role and
+#'   others' turns as labeled user messages, which reduces self-repetition;
+#'   `"flat"` reproduces the legacy single-user-message transcript. Recorded per
+#'   run so the construction is explicit rather than an implicit default.
 #' @param verbose Logical, whether to print progress messages
 #' @param max_participant_responses Optional integer. Maximum participant responses
 #'   per moderator question before the moderator advances.
@@ -59,8 +66,11 @@ run_focus_group <- function(topic,
                            conversation_flow = "desire_based",
                            llm_config = NULL,
                            seed = NULL,
+                           msg_mode = c("roleflip","flat"),
                            verbose = TRUE,
                            max_participant_responses = NULL) {
+
+  msg_mode <- match.arg(msg_mode)
 
   if (!is.null(seed)) {
     if (!requireNamespace("withr", quietly = TRUE)) stop("withr is required for deterministic seeding")
@@ -138,21 +148,21 @@ run_focus_group <- function(topic,
       if (phase_lower == "opening") {
         question_script <- append(question_script, list(list(phase = "opening")))
       } else if (phase_lower == "icebreaker") {
-        for (i in 1:n_turns) {
+        for (i in seq_len(n_turns)) {
           question_script <- append(question_script, list(list(
             phase = "icebreaker_question",
             text = paste("What's your initial reaction or experience with", topic, "?")
           )))
         }
       } else if (phase_lower == "engagement") {
-        for (i in 1:n_turns) {
+        for (i in seq_len(n_turns)) {
           question_script <- append(question_script, list(list(
             phase = "engagement_question",
             text = paste("How does", topic, "affect your daily life or work?")
           )))
         }
       } else if (phase_lower == "exploration") {
-        for (i in 1:n_turns) {
+        for (i in seq_len(n_turns)) {
           question_script <- append(question_script, list(list(
             phase = "exploration_question",
             text = paste("What are your deeper thoughts or concerns about", topic, "?")
@@ -167,7 +177,10 @@ run_focus_group <- function(topic,
 
   # Run simulation
   if (verbose) cat("Running simulation...\n")
-  fg$run_simulation(verbose = verbose)
+  withr::with_options(
+    list(focusgroup.msg_mode = msg_mode),
+    fg$run_simulation(verbose = verbose)
+  )
 
   # Generate summary and basic stats
   if (verbose) cat("Generating summary and statistics...\n")
@@ -210,6 +223,10 @@ run_focus_group <- function(topic,
     conversation = conversation_df,
     summary = summary_result,
     basic_stats = basic_stats,
+    msg_mode = msg_mode,                                  # back-compat top-level
+    config_meta = list(provider = llm_config$provider,    # parity with fg_quick()
+                       model = llm_config$model,
+                       msg_mode = msg_mode),
     participants = lapply(fg$agents, function(agent) {
       list(
         id = agent$id,
@@ -236,8 +253,14 @@ run_focus_group <- function(topic,
 #' @param participants Integer. Number of participants (excluding moderator). Default 6.
 #' @param flow Character. Turn-taking flow: one of "desire_based", "round_robin", "probabilistic".
 #' @param model_config Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.
-#' @param seed Optional integer for reproducibility.
+#' @param seed Optional integer. Seeds R's RNG (speaker selection and other
+#'   in-package sampling); it does NOT make the LLM output reproducible, since at
+#'   `temperature > 0` the provider samples server-side.
 #' @param mode Character. Currently informational ("quick" or "pro"). Default "quick".
+#' @param msg_mode How each agent's turn is presented to the model. `"roleflip"`
+#'   (default) puts the agent's own prior turns in the assistant role and others'
+#'   in labeled user messages (reduces self-repetition); `"flat"` is the legacy
+#'   single-user-message transcript.
 #' @param verbose Logical. Print progress.
 #' @param max_participant_responses Optional integer. Maximum participant responses
 #'   per moderator question before the moderator advances.
@@ -259,11 +282,13 @@ fg_quick <- function(topic,
                      model_config = NULL,
                      seed = NULL,
                      mode = c("quick","pro"),
+                     msg_mode = c("roleflip","flat"),
                      verbose = TRUE,
                      max_participant_responses = NULL) {
 
   flow <- match.arg(flow)
   mode <- match.arg(mode)
+  msg_mode <- match.arg(msg_mode)
 
   if (!is.null(seed)) {
     if (!requireNamespace("withr", quietly = TRUE)) stop("withr is required for deterministic seeding")
@@ -304,7 +329,10 @@ fg_quick <- function(topic,
     max_participant_responses = max_participant_responses
   )
 
-  fg$run_simulation(verbose = verbose)
+  withr::with_options(
+    list(focusgroup.msg_mode = msg_mode),
+    fg$run_simulation(verbose = verbose)
+  )
 
   conversation_df <- if (length(fg$conversation_log)) do.call(rbind, lapply(fg$conversation_log, function(x) {
     data.frame(
@@ -331,7 +359,8 @@ fg_quick <- function(topic,
     summary = fg$final_summary %||% fg$summarize(summary_level = 1),
     participants = lapply(fg$agents, function(a) list(id = a$id, persona = a$persona_description)),
     totals = list(total_tokens_in = fg$total_tokens_sent, total_tokens_out = fg$total_tokens_received, total_turns = length(fg$conversation_log)),
-    config_meta = list(provider = model_config$provider, model = model_config$model),
+    config_meta = list(provider = model_config$provider, model = model_config$model,
+                       msg_mode = msg_mode),
     focus_group = fg
   )
 }
@@ -413,6 +442,12 @@ create_diverse_agents <- function(n_participants,
                                  survey_responses = NULL,
                                  llm_config = NULL) {
 
+  if (!is.numeric(n_participants) || length(n_participants) != 1L ||
+      is.na(n_participants) || n_participants < 1) {
+    stop("`n_participants` must be a single positive integer.", call. = FALSE)
+  }
+  n_participants <- as.integer(n_participants)
+
   # Generate diverse demographics if not provided
   if (is.null(demographics)) {
     demographics <- generate_diverse_demographics(n_participants)
@@ -430,7 +465,7 @@ create_diverse_agents <- function(n_participants,
 
   # Create participants
 
-  for (i in 1:n_participants) {
+  for (i in seq_len(n_participants)) {
     agent_demographics <- if (!is.null(demographics) && is.data.frame(demographics) && nrow(demographics) >= i) {
       # Create proper question:value pairs
       demo_row <- demographics[i, ]
@@ -1004,9 +1039,10 @@ create_agents_from_survey <- function(n_participants,
     }), stringsAsFactors = FALSE)
   } else NULL
 
-  # Sample rows (respect package seed option)
+  # Sample rows (respect package seed option). No seed configured -> leave the
+  # RNG alone; `set.seed(NULL)` is invalid and was the previous bug.
   seed_val <- getOption("focusgroup.seed", NA_integer_)
-  if (!is.na(seed_val)) set.seed(seed_val) else set.seed(NULL)
+  if (!is.null(seed_val) && !is.na(seed_val)) set.seed(seed_val)
   take <- seq_len(min(n_participants, nrow(demo_df)))
   if (nrow(demo_df) > n_participants) take <- sample.int(nrow(demo_df), n_participants)
   

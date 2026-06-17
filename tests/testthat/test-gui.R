@@ -101,9 +101,10 @@ test_that("the run module runs via an injected fake and stores the focus group",
   skip_if_not_installed("LLMR.shiny")
   shared <- fake_shared("live", TRUE)
   fake_quick <- function(topic, participants, flow, model_config, seed, mode,
-                         verbose, max_participant_responses) {
+                         msg_mode = "roleflip", verbose, max_participant_responses) {
     list(
-      focus_group = structure(list(topic = topic), class = "FocusGroup"),
+      focus_group = structure(list(topic = topic, msg_mode = msg_mode),
+                              class = "FocusGroup"),
       transcript = data.frame(turn = 1:2, speaker_id = c("MOD", "P1"),
                               text = c("Welcome.", "Hi."), stringsAsFactors = FALSE),
       totals = list(total_turns = 2L, total_tokens_in = 100L, total_tokens_out = 20L))
@@ -112,7 +113,7 @@ test_that("the run module runs via an injected fake and stores the focus group",
     FocusGroup:::.fg_run_server, args = list(shared = shared, run_fun = fake_quick),
     {
       session$setInputs(topic = "public libraries", participants = 3, flow = "round_robin",
-                        max_resp = 1, seed = 110)
+                        msg_mode = "roleflip", max_resp = 1, seed = 110)
       session$setInputs(run = 1)
       expect_true(inherits(result()$focus_group, "FocusGroup"))
       # real token totals propagate to usage; calls is the estimate

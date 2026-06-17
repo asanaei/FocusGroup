@@ -41,8 +41,10 @@ test_that("the continuation experiment inherits the summary and cut-point phase"
     a$generate_utterance <- function(topic, conversation_history_string,
                                      utterance_prompt_template, max_tokens_utterance,
                                      current_moderator_question,
-                                     conversation_summary_so_far, current_phase) {
-      list(text = paste0("phase=", current_phase, "|summary=", conversation_summary_so_far))
+                                     conversation_summary_so_far, current_phase,
+                                     conversation_log = NULL, ...) {
+      list(text = paste0("phase=", current_phase, "|summary=", conversation_summary_so_far,
+                         "|has_log=", !is.null(conversation_log)))
     }
     class(a) <- c("R6", "environment")
     a
@@ -58,6 +60,9 @@ test_that("the continuation experiment inherits the summary and cut-point phase"
   expect_match(res$control, "summary=earlier: cost and reliability")
   # the phase came from the last (cut-point) log turn
   expect_match(res$control, "phase=exploration_question")
+  # the continuation forwards the conversation_log (role-flip construction),
+  # rather than the old always-flat conversation_log = NULL
+  expect_match(res$control, "has_log=TRUE")
 })
 
 test_that("a failed config group is rescored per agent, not left at zero", {

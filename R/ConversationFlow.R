@@ -267,11 +267,15 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
             agent$get_need_to_talk(
               topic = focus_group$topic,
               conversation_history_string = history_string,
-              desire_prompt_template = focus_group$prompt_templates$participant_desire_to_talk_nuanced,
+              # In roleflip mode use the placeholder-free desire instruction (so
+              # the role-flipped desire path actually runs); in flat mode use the
+              # legacy template (true single-message construction).
+              desire_prompt_template = .fg_pick_template(focus_group$prompt_templates, "desire"),
               max_tokens_desire = focus_group$max_tokens_desire,
               current_moderator_question = focus_group$current_question_text %||% "N/A",
               last_speaker_id = last_utterance_info$speaker_id,
-              last_utterance_text = last_utterance_info$text
+              last_utterance_text = last_utterance_info$text,
+              conversation_log = focus_group$conversation_log
             )
           }, error = function(...) 0)
           desire_scores[pid] <<- as.numeric(sc %||% 0)
@@ -284,6 +288,16 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       # agent would be scored with the first agent's model. The common case
       # (all agents share a config) is a single group, i.e. one broadcast, as
       # before. `self$last_scoring_mode` records which path ran.
+      # Each pid gets a role-flipped message array (own turns -> assistant) so
+      # the broadcast scores novelty from each agent's own perspective. Build the
+      # transcript once and close over it. A legacy/custom desire template that
+      # inlines the transcript keeps the flat single-user message.
+      # Mode-aware template: roleflip -> placeholder-free desire instruction;
+      # flat -> legacy template (true single-message construction). The grepl gate
+      # then routes each correctly.
+      desire_tpl <- .fg_pick_template(focus_group$prompt_templates, "desire")
+      desire_legacy <- grepl("\\{\\{(conversation_history|persona_description)\\}\\}", desire_tpl)
+      desire_transcript <- .fg_log_to_transcript(focus_group$conversation_log)
       build_desire_msg <- function(pid) {
         prompt_values <- list(
           persona_description = self$agents[[pid]]$persona_description,
@@ -293,9 +307,15 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
           last_speaker_id = last_utterance_info$speaker_id,
           last_utterance_text = last_utterance_info$text
         )
-        list(list(role = "user", content = replace_placeholders(
-          focus_group$prompt_templates$participant_desire_to_talk_nuanced,
-          prompt_values)))
+        instruction <- replace_placeholders(desire_tpl, prompt_values)
+        if (desire_legacy) {
+          return(list(list(role = "user", content = instruction)))
+        }
+        sys_text <- paste(c(self$agents[[pid]]$persona_description,
+                            "You are rating your own desire to speak next."),
+                          collapse = "\n")
+        .fg_build_agent_messages(desire_transcript, pid, sys_text,
+                                 instruction = instruction, self_state = NULL)
       }
 
       record_group_usage <- function(out, ids) {

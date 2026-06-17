@@ -151,9 +151,13 @@ run_focus_studio <- function(...) {
             shiny::column(4, shiny::selectInput(ns("flow"), "Turn-taking flow",
               choices = c("round_robin", "desire_based", "probabilistic"),
               selected = "round_robin")),
+            shiny::column(4, shiny::selectInput(ns("msg_mode"), "Message construction",
+              choices = c("roleflip", "flat"), selected = "roleflip")),
             shiny::column(4, shiny::numericInput(ns("max_resp"),
-              "Max responses per participant / question", value = 1, min = 1, max = 3, step = 1)),
-            shiny::column(4, shiny::numericInput(ns("seed"), "Seed", value = 110, step = 1))),
+              "Max responses per participant / question", value = 1, min = 1, max = 3, step = 1))),
+          shiny::fluidRow(
+            shiny::column(4, shiny::numericInput(ns("seed"),
+              "Seed (speaker order only; not LLM output)", value = 110, step = 1))),
           shiny::uiOutput(ns("cost_note")),
           if (identical(shared$mode(), "demo"))
             warn_card("Demo mode shows an example transcript below; running a focus group needs a key. Switch to live mode and set a key to run your own.")
@@ -194,6 +198,7 @@ run_focus_studio <- function(...) {
           model_config = cfg,
           seed = as.integer(input$seed %||% 110L),
           mode = "quick",
+          msg_mode = input$msg_mode %||% "roleflip",
           verbose = FALSE,
           max_participant_responses = as.integer(input$max_resp %||% 1L)),
         shared$provider())
@@ -264,16 +269,19 @@ run_focus_studio <- function(...) {
 }
 
 # Generate one continuation utterance; clone the agent so counters/history do not
-# leak across branches.
+# leak across branches. `conversation_log` (the cut prefix for this branch) is
+# forwarded so the continuation uses the SAME message construction (role-flip by
+# default) as the main run loop, instead of always falling back to flat.
 .fg_generate_once <- function(agent, topic, history_string, template,
                               question = "N/A", summary = "N/A",
-                              phase = "exploration_question", max_tokens = 220L) {
+                              phase = "exploration_question", max_tokens = 220L,
+                              conversation_log = NULL) {
   a <- if (inherits(agent, "R6")) agent$clone(deep = TRUE) else agent
   a$generate_utterance(
     topic = topic, conversation_history_string = history_string,
     utterance_prompt_template = template, max_tokens_utterance = max_tokens,
     current_moderator_question = question, conversation_summary_so_far = summary,
-    current_phase = phase)
+    current_phase = phase, conversation_log = conversation_log)
 }
 
 .fg_utterance_text <- function(x) {
@@ -291,8 +299,15 @@ run_focus_studio <- function(...) {
                                question = "N/A", summary = NULL, phase = NULL) {
   agent <- fg$agents[[speaker_id]]
   if (is.null(agent)) stop("No agent with id '", speaker_id, "'.", call. = FALSE)
-  template <- fg$prompt_templates$participant_utterance_subtle_persona %||%
-    fg$prompt_templates[[1]]
+  # Replay the SAME message construction the saved run used (recorded on the
+  # object as fg$msg_mode), so a saved flat run does not silently replay as
+  # default roleflip. Pin it for the duration of this experiment.
+  saved_mode <- fg$msg_mode %||% getOption("focusgroup.msg_mode", "roleflip")
+  old_mm <- getOption("focusgroup.msg_mode")
+  options(focusgroup.msg_mode = saved_mode)
+  on.exit(options(focusgroup.msg_mode = old_mm), add = TRUE)
+  # Mode-aware template (legacy template in flat mode, turn instruction otherwise).
+  template <- .fg_pick_template(fg$prompt_templates, "utterance", mode = saved_mode)
   max_tokens <- max(fg$max_tokens_utterance %||% 160L, 220L)
   # Inherit the running summary the main loop maintains, and the phase of the
   # turn the conversation was cut at, rather than fixed placeholders.
@@ -302,16 +317,19 @@ run_focus_studio <- function(...) {
              else "exploration_question"
   }
 
+  perturbed_log <- .fg_perturb_log(log, as.integer(perturb_turn), perturb_text)
   control_hist <- .fg_history_string(log)
-  perturbed_hist <- .fg_history_string(.fg_perturb_log(log, as.integer(perturb_turn), perturb_text))
+  perturbed_hist <- .fg_history_string(perturbed_log)
 
   list(
     speaker_id = speaker_id,
     perturb_turn = as.integer(perturb_turn),
     control = .fg_utterance_text(.fg_generate_once(agent, fg$topic, control_hist, template,
-                                                   question, summary, phase, max_tokens)),
+                                                   question, summary, phase, max_tokens,
+                                                   conversation_log = log)),
     perturbed = .fg_utterance_text(.fg_generate_once(agent, fg$topic, perturbed_hist, template,
-                                                     question, summary, phase, max_tokens))
+                                                     question, summary, phase, max_tokens,
+                                                     conversation_log = perturbed_log))
   )
 }
 

@@ -110,7 +110,10 @@ Generate an utterance for the agent.
   max_tokens_utterance = 150,
   current_moderator_question = "N/A",
   conversation_summary_so_far = "N/A",
-  current_phase = "discussion"
+  current_phase = "discussion",
+  conversation_log = NULL,
+  standing_rules = NULL,
+  self_state = TRUE
 )}\if{html}{\out{</div>}}
 }
 
@@ -130,6 +133,20 @@ Generate an utterance for the agent.
 \item{\code{conversation_summary_so_far}}{Character. A summary of earlier parts of the conversation.}
 
 \item{\code{current_phase}}{Character. The current phase of the focus group (e.g., "icebreaker", "exploration").}
+
+\item{\code{conversation_log}}{List or NULL. The structured conversation log. When
+supplied (and the template is not a legacy flat template), the message is
+built role-flipped: this agent's own prior turns become `assistant`
+messages and others' become labeled `user` messages. `NULL` keeps the
+legacy flat single-user-message construction.}
+
+\item{\code{standing_rules}}{Character or NULL. The system-message standing rules
+(persona-anchoring, safety, etc.) for the role-flipped path; `NULL` uses a
+built-in default appropriate to the agent's role.}
+
+\item{\code{self_state}}{Logical. If `TRUE` (default), a compact "points you have
+already made" digest of the agent's own prior turns is added to the system
+message (participants only) to discourage self-repetition.}
 }
 \if{html}{\out{</div>}}
 }
@@ -153,7 +170,8 @@ contribute to the discussion at the current moment.
   max_tokens_desire = 20,
   current_moderator_question = "N/A",
   last_speaker_id = "N/A",
-  last_utterance_text = "N/A"
+  last_utterance_text = "N/A",
+  conversation_log = NULL
 )}\if{html}{\out{</div>}}
 }
 
@@ -173,6 +191,11 @@ contribute to the discussion at the current moment.
 \item{\code{last_speaker_id}}{Character. The ID of the agent who spoke last.}
 
 \item{\code{last_utterance_text}}{Character. The text of the last utterance.}
+
+\item{\code{conversation_log}}{List or NULL. The structured conversation log. When
+supplied (and the template is not a legacy flat template), desire scoring
+is role-flipped so the agent reads its own prior turns as its own voice;
+`NULL` keeps the legacy flat construction.}
 }
 \if{html}{\out{</div>}}
 }

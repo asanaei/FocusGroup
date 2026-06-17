@@ -20,6 +20,25 @@ different phases and actions within the simulation.
 Users can retrieve this list, modify specific templates, and then pass the modified list
 to `FocusGroup$new()` or higher-level wrapper functions to customize the simulation's prompts.
 }
+\section{Participant templates and message construction}{
+
+Two participant templates ship here, and which one is used depends on the
+message construction (see the `msg_mode` argument of [fg_quick()] /
+[run_focus_group()], or `options(focusgroup.msg_mode=)`).
+\itemize{
+  \item `participant_turn_instruction` is the canonical template for the
+    default role-flipped construction. It carries only the current question and
+    the turn cue, because the persona, standing rules, and the transcript are
+    supplied structurally (a system message plus role-separated turns).
+  \item `participant_utterance_subtle_persona` is the legacy flat template,
+    kept for back-compatibility. It inlines the persona and the whole
+    transcript into one user message. A custom template that contains
+    `\{\{conversation_history\}\}` or `\{\{persona_description\}\}` is treated as a
+    legacy flat template and routed through the flat path, so existing
+    customizations keep working unchanged.
+}
+}
+
 \examples{
 default_prompts <- get_default_prompt_templates()
 print(names(default_prompts))

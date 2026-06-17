@@ -20,7 +20,7 @@ Imports:
     rlang,
     haven,
     withr,
-    LLMR (>= 0.8.6)
+    LLMR (>= 0.8.7)
 Suggests:
     testthat (>= 3.0.0),
     ggplot2,

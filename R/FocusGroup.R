@@ -33,6 +33,9 @@ NULL
 #' @field current_conversation_summary Character. An LLM-generated summary of earlier parts of the conversation,
 #'   used for managing context length in prompts.
 #' @field final_summary Character. Final LLM-generated summary from the most recent simulation run.
+#' @field msg_mode Character. The message construction used by the most recent
+#'   `run_simulation()` ("roleflip" or "flat"), recorded so a saved object can be
+#'   replayed (e.g. in the GUI continuation experiment) with the same construction.
 #' @field llm_config_admin An `llm_config` object for group-level LLM tasks (summarization, analysis).
 #' @field max_tokens_utterance Integer. Default max tokens for participant utterances.
 #' @field max_tokens_moderator Integer. Default max tokens for moderator utterances.
@@ -56,6 +59,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     current_question_text = NULL,
     current_conversation_summary = NULL,
     final_summary = NULL,
+    msg_mode = NULL, # message construction of the last run ("roleflip"/"flat")
     llm_config_admin = NULL, # For summarization, LLM-based analysis
     max_tokens_utterance = 160,
     max_tokens_moderator = 400,
@@ -144,6 +148,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param verbose Logical. If `TRUE`, prints progress and utterances to the console.
     #' @return Invisibly returns the `conversation_log`.
     run_simulation = function(num_turns = NULL, verbose = FALSE) {
+      # Record the active message construction so a saved object replays the same
+      # way (e.g. the GUI continuation experiment).
+      self$msg_mode <- .fg_msg_mode()
       if (verbose) {
         cat("Starting focus group simulation...\n")
         cat("Topic:", self$topic, "\n")
@@ -328,7 +335,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
         max_tokens_utterance = mod_tokens,
         current_moderator_question = self$current_question_text, # This is the question *being asked* or *related to*
         conversation_summary_so_far = self$current_conversation_summary,
-        current_phase = current_phase_name
+        current_phase = current_phase_name,
+        conversation_log = self$conversation_log
       )
       mod_text <- if (is.list(mod_res)) mod_res$text else as.character(mod_res)
       mod_meta <- if (is.list(mod_res) && !is.null(mod_res$meta)) mod_res$meta else list()
@@ -375,11 +383,12 @@ FocusGroup <- R6::R6Class("FocusGroup",
               part_res <- next_participant$generate_utterance(
                 topic = self$topic,
                 conversation_history_string = history_for_participant,
-                utterance_prompt_template = self$prompt_templates$participant_utterance_subtle_persona,
+                utterance_prompt_template = .fg_pick_template(self$prompt_templates, "utterance"),
                 max_tokens_utterance = max(self$max_tokens_utterance, 220L),
                 current_moderator_question = self$current_question_text, # The question they are responding to
                 conversation_summary_so_far = self$current_conversation_summary,
-                current_phase = current_phase_name
+                current_phase = current_phase_name,
+                conversation_log = self$conversation_log
               )
               part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
               part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()
@@ -560,9 +569,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param top_n_terms Integer. Number of top terms per topic to return.
     #' @param turns Integer vector. Optional. Specific turns to analyze.
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @param seed Integer or NULL. LDA seed for reproducibility (default 110, the
+    #'   package convention); `NULL` leaves the LDA control seed unset.
     #' @param ... Additional arguments to `topicmodels::LDA()`.
     #' @return A list with LDA model, topic terms, and document-topic proportions. `NULL` on failure.
-    analyze_topics = function(num_topics = 5, min_doc_length = 20, top_n_terms = 10, turns = NULL, speaker_ids = NULL, ...) {
+    analyze_topics = function(num_topics = 5, min_doc_length = 20, top_n_terms = 10, turns = NULL, speaker_ids = NULL, seed = 110, ...) {
       if (!all(sapply(c("topicmodels", "tidytext", "dplyr"), requireNamespace, quietly = TRUE))) {
         stop("Packages topicmodels, tidytext, and dplyr are required for LDA. Please install them.")
       }
@@ -619,7 +630,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
         }
 
         # Run LDA
-        lda_model <- topicmodels::LDA(dtm, k = num_topics, control = list(seed = 1234), ...)
+        lda_control <- if (is.null(seed)) list() else list(seed = as.integer(seed))
+        lda_model <- topicmodels::LDA(dtm, k = num_topics, control = lda_control, ...)
 
         # Extract topic-term probabilities (beta)
         topics_beta <- tidytext::tidy(lda_model, matrix = "beta")

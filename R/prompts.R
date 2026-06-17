@@ -10,6 +10,23 @@
 #' Users can retrieve this list, modify specific templates, and then pass the modified list
 #' to `FocusGroup$new()` or higher-level wrapper functions to customize the simulation's prompts.
 #'
+#' @section Participant templates and message construction:
+#' Two participant templates ship here, and which one is used depends on the
+#' message construction (see the `msg_mode` argument of [fg_quick()] /
+#' [run_focus_group()], or `options(focusgroup.msg_mode=)`).
+#' \itemize{
+#'   \item `participant_turn_instruction` is the canonical template for the
+#'     default role-flipped construction. It carries only the current question and
+#'     the turn cue, because the persona, standing rules, and the transcript are
+#'     supplied structurally (a system message plus role-separated turns).
+#'   \item `participant_utterance_subtle_persona` is the legacy flat template,
+#'     kept for back-compatibility. It inlines the persona and the whole
+#'     transcript into one user message. A custom template that contains
+#'     `\{\{conversation_history\}\}` or `\{\{persona_description\}\}` is treated as a
+#'     legacy flat template and routed through the flat path, so existing
+#'     customizations keep working unchanged.
+#' }
+#'
 #' @return A named list where each element is a character string representing a prompt template.
 #'         Placeholders like `\{\{topic\}\}`, `\{\{persona_description\}\}`, etc., are used within
 #'         the templates and will be filled dynamically during the simulation.
@@ -49,6 +66,34 @@ Instructions for your response (persona-anchored and safe to disagree):
 7.  Never reveal you are an AI model.
 
 Based on all the above, what is your contribution to the discussion now?",
+
+    # The trailing per-turn instruction used by the default (role-flipped) path:
+    # persona, standing rules, and the transcript are supplied structurally (the
+    # system message and the role-separated turns), so this only carries the
+    # current question and the turn cue. It deliberately contains no
+    # {{conversation_history}}/{{persona_description}} placeholders, which is what
+    # routes it through the role-flip path rather than the legacy flat path.
+    participant_turn_instruction =
+"The moderator's current question or point of discussion is: '{{current_moderator_question}}'.
+It is now your turn. Respond now in your own voice: one clear claim with a concrete
+reason or brief example, 2-5 sentences. Advance the discussion and add something
+not already said.",
+
+    # The desire-scoring instruction for the default (role-flipped) path. Like
+    # participant_turn_instruction, it carries ONLY the scoring task and the
+    # current-question/last-speaker context; persona and the transcript are
+    # supplied structurally, so it has no {{conversation_history}}/
+    # {{persona_description}} placeholders (which would otherwise force the flat
+    # fallback and leave the role-flipped desire path unused).
+    participant_desire_instruction =
+"The current question from the moderator is: '{{current_moderator_question}}'.
+The last speaker, {{last_speaker_id}}, said: '{{last_utterance_text}}'.
+Considering your persona and what was just said, how strongly do you feel the need
+to contribute RIGHT NOW? Increase it if you have a distinct perspective not yet
+voiced, a respectful disagreement with a clear reason, or a concrete example;
+decrease it if your contribution would merely repeat what was already said.
+Please respond ONLY with a single integer between 0 (no desire) and 10 (very strong).
+Desire to talk score (0-10):",
 
     participant_desire_to_talk_nuanced =
 "You are a focus group participant.

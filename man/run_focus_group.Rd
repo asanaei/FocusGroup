@@ -14,6 +14,7 @@ run_focus_group(
   conversation_flow = "desire_based",
   llm_config = NULL,
   seed = NULL,
+  msg_mode = c("roleflip", "flat"),
   verbose = TRUE,
   max_participant_responses = NULL
 )
@@ -38,7 +39,15 @@ responses will be automatically generated.}
 
 \item{llm_config}{List with LLM configuration. If NULL, uses default configuration.}
 
-\item{seed}{Optional integer for reproducibility}
+\item{seed}{Optional integer. Seeds R's RNG, which governs speaker selection
+and other in-package sampling. It does NOT make the LLM output reproducible:
+at `temperature > 0` the provider samples server-side, beyond R's control.}
+
+\item{msg_mode}{How each agent's turn is presented to the model. `"roleflip"`
+(default) gives each agent its own prior turns in the assistant role and
+others' turns as labeled user messages, which reduces self-repetition;
+`"flat"` reproduces the legacy single-user-message transcript. Recorded per
+run so the construction is explicit rather than an implicit default.}
 
 \item{verbose}{Logical, whether to print progress messages}
 

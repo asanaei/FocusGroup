@@ -105,6 +105,17 @@ FGAgent <- R6::R6Class("FGAgent",
     #' @param current_moderator_question Character. The current question posed by the moderator.
     #' @param conversation_summary_so_far Character. A summary of earlier parts of the conversation.
     #' @param current_phase Character. The current phase of the focus group (e.g., "icebreaker", "exploration").
+    #' @param conversation_log List or NULL. The structured conversation log. When
+    #'   supplied (and the template is not a legacy flat template), the message is
+    #'   built role-flipped: this agent's own prior turns become `assistant`
+    #'   messages and others' become labeled `user` messages. `NULL` keeps the
+    #'   legacy flat single-user-message construction.
+    #' @param standing_rules Character or NULL. The system-message standing rules
+    #'   (persona-anchoring, safety, etc.) for the role-flipped path; `NULL` uses a
+    #'   built-in default appropriate to the agent's role.
+    #' @param self_state Logical. If `TRUE` (default), a compact "points you have
+    #'   already made" digest of the agent's own prior turns is added to the system
+    #'   message (participants only) to discourage self-repetition.
     #' @return A list with `text` (the generated utterance) and `meta` (a list
     #'   of call metadata: token counts, finish reason, provider, model, timing).
     generate_utterance = function(topic,
@@ -113,7 +124,10 @@ FGAgent <- R6::R6Class("FGAgent",
                                   max_tokens_utterance = 150,
                                   current_moderator_question = "N/A",
                                   conversation_summary_so_far = "N/A",
-                                  current_phase = "discussion") {
+                                  current_phase = "discussion",
+                                  conversation_log = NULL,
+                                  standing_rules = NULL,
+                                  self_state = TRUE) {
 
       prompt_values <- list(
         persona_description = self$persona_description,
@@ -145,9 +159,37 @@ FGAgent <- R6::R6Class("FGAgent",
       current_call_config$model_params$max_tokens <- max_tokens_utterance
       current_call_config$model_params$temperature <- current_call_config$model_params$temperature %||% 0.7
 
+      # Build the messages. A legacy/custom template that inlines the transcript
+      # (via {{conversation_history}}/{{persona_description}}) keeps the old
+      # single-user-message path so user customizations run byte-for-byte. The
+      # default path role-flips: persona+rules -> system, the transcript -> own
+      # turns as assistant and others as labeled user, the current question ->
+      # trailing user instruction.
+      legacy_template <- grepl("\\{\\{(conversation_history|persona_description)\\}\\}",
+                               utterance_prompt_template)
+      if (legacy_template || is.null(conversation_log)) {
+        msgs <- list(list(role = "user", content = final_prompt))
+      } else {
+        transcript <- .fg_log_to_transcript(conversation_log)
+        sys_text <- paste(c(
+          self$persona_description,
+          self$communication_style_instruction %||% "",
+          if (!is.null(conversation_summary_so_far) &&
+              nzchar(conversation_summary_so_far) &&
+              !identical(conversation_summary_so_far, "N/A"))
+            paste0("Summary of earlier discussion: ", conversation_summary_so_far),
+          standing_rules %||% .fg_standing_rules(self$is_moderator)
+        ), collapse = "\n\n")
+        instruction <- final_prompt   # the filled template = this turn's task/question
+        ss <- if (isTRUE(self_state) && !self$is_moderator)
+          .fg_self_state(transcript, self$id) else NULL
+        msgs <- .fg_build_agent_messages(transcript, self$id, sys_text,
+                                         instruction = instruction, self_state = ss)
+      }
+
       response_obj <- LLMR::call_llm_robust(
         config = current_call_config,
-        messages = list(list(role = "user", content = final_prompt)),
+        messages = msgs,
         tries = 5,
         wait_seconds = 2,
         backoff_factor = 3
@@ -163,15 +205,13 @@ FGAgent <- R6::R6Class("FGAgent",
       # meta is built from aggregates after any retry so the caller always has full usage.
       final_response_obj <- response_obj
       
-      # Clean up potential self-references if LLM includes them despite instructions
+      # With role-flip the agent's own voice is in the assistant channel, so the
+      # "As <id>..." leakage the old persona-specific rewrites fought is rare.
+      # Keep one thin guard against a leading role preamble; drop the rest.
       original_text <- utterance_text
       cleaned <- trimws(original_text)
       cleaned <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cleaned, ignore.case = TRUE)
-      cleaned <- sub(paste0("^As (an?|the) ", self$id, ", I (think|feel|believe)"), "I \\2", cleaned, ignore.case = TRUE)
-      cleaned <- sub(paste0("^My name is ", self$id, " and I think"), "I think", cleaned, ignore.case = TRUE)
-      cleaned <- sub("^As a participant with persona.*?:\\s*", "", cleaned, ignore.case = TRUE)
-      cleaned <- sub("^My name is[^\\n.]*([.]|\\n)\\s*", "", cleaned, ignore.case = TRUE)
-      if (!nzchar(cleaned)) cleaned <- "I think the key point is the policy specifics and trade-offs for voters."
+      if (!nzchar(cleaned)) cleaned <- original_text
       # Keep the longer/non-empty between cleaned and original
       if (nchar(cleaned) >= 20 || nchar(original_text) == 0) {
         utterance_text <- cleaned
@@ -182,27 +222,26 @@ FGAgent <- R6::R6Class("FGAgent",
       # Fallback: if the utterance is empty or clearly incomplete, request a complete response once
       is_incomplete <- nchar(utterance_text) < 40 || grepl("\\.\\.\\.$", utterance_text) || !grepl("[.!?]$", utterance_text)
       if (is_incomplete) {
-        completion_prompt <- paste0(
-          final_prompt,
-          "\n\nImportant: Your prior output was incomplete. Now provide a complete, self-contained response of 3-5 sentences.\n",
-          "Do not mention your persona or role. Do not start with 'As a'. Focus on the current question (",
-          current_moderator_question %||% "",
-          ") and the recent discussion."
+        complete_cue <- paste0(
+          "Important: your prior output was incomplete. Now provide a complete, ",
+          "self-contained response of 3-5 sentences. Do not mention your persona ",
+          "or role. Do not start with 'As a'. Focus on the current question (",
+          current_moderator_question %||% "", ") and the recent discussion."
         )
+        # Append the cue as a trailing user turn on the same array and renormalize
+        # so it does not sit adjacent to the prior trailing instruction.
+        retry_msgs <- LLMR::ensure_alternating_messages(
+          c(msgs, list(list(role = "user", content = complete_cue))))
         current_call_config$model_params$max_tokens <- max(max_tokens_utterance, 320L)
         response_obj2 <- LLMR::call_llm_robust(
           config = current_call_config,
-          messages = list(list(role = "user", content = completion_prompt)),
+          messages = retry_msgs,
           tries = 3,
           wait_seconds = 2,
           backoff_factor = 2
         )
-        cand <- as.character(response_obj2)
-        cand <- gsub(paste0("^As (an?|the) ", self$id, ", I (think|feel|believe)"), "I \\2", cand, ignore.case = TRUE)
-        cand <- gsub(paste0("^My name is ", self$id, " and I think"), "I think", cand, ignore.case = TRUE)
-        cand <- gsub(paste0("^As a participant with persona.*?:\\s*"), "", cand, ignore.case = TRUE)
-        cand <- sub("^My name is[^\\n.]*([.]|\\n)\\s*", "", cand, ignore.case = TRUE)
-        cand <- trimws(cand)
+        cand <- trimws(as.character(response_obj2))
+        cand <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cand, ignore.case = TRUE)
         if (nchar(cand) >= max(nchar(utterance_text), 40)) {
           utterance_text <- cand
           u2 <- LLMR::tokens(response_obj2)
@@ -239,6 +278,10 @@ FGAgent <- R6::R6Class("FGAgent",
     #' @param current_moderator_question Character. The current question posed by the moderator.
     #' @param last_speaker_id Character. The ID of the agent who spoke last.
     #' @param last_utterance_text Character. The text of the last utterance.
+    #' @param conversation_log List or NULL. The structured conversation log. When
+    #'   supplied (and the template is not a legacy flat template), desire scoring
+    #'   is role-flipped so the agent reads its own prior turns as its own voice;
+    #'   `NULL` keeps the legacy flat construction.
     #' @return Numeric. A score from 0 (no desire) to 10 (very strong desire).
     get_need_to_talk = function(topic,
                                 conversation_history_string,
@@ -246,7 +289,8 @@ FGAgent <- R6::R6Class("FGAgent",
                                 max_tokens_desire = 20,
                                 current_moderator_question = "N/A",
                                 last_speaker_id = "N/A",
-                                last_utterance_text = "N/A") {
+                                last_utterance_text = "N/A",
+                                conversation_log = NULL) {
       prompt_values <- list(
         persona_description = self$persona_description,
         topic = topic,
@@ -261,9 +305,27 @@ FGAgent <- R6::R6Class("FGAgent",
       current_call_config$model_params$max_tokens <- max_tokens_desire
       current_call_config$model_params$temperature <- 0.1
 
+      # Desire scoring is still an agent-perspective judgment: if it reads its own
+      # prior turns as external "SpeakerID:" text it can misjudge novelty. Role-
+      # flip when the structured log is available; no self-state block (keep it
+      # cheap). A legacy/custom template that inlines the transcript stays flat.
+      legacy_template <- grepl("\\{\\{(conversation_history|persona_description)\\}\\}",
+                               desire_prompt_template)
+      if (legacy_template || is.null(conversation_log)) {
+        desire_msgs <- list(list(role = "user", content = final_prompt))
+      } else {
+        transcript <- .fg_log_to_transcript(conversation_log)
+        sys_text <- paste(c(self$persona_description,
+                            "You are rating your own desire to speak next."),
+                          collapse = "\n")
+        desire_msgs <- .fg_build_agent_messages(transcript, self$id, sys_text,
+                                                instruction = final_prompt,
+                                                self_state = NULL)
+      }
+
       response_obj <- LLMR::call_llm_robust(
         config = current_call_config,
-        messages = list(list(role = "user", content = final_prompt)),
+        messages = desire_msgs,
         tries = 5,
         wait_seconds = 2,
         backoff_factor = 3
