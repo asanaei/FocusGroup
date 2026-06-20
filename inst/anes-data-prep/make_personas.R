@@ -1,28 +1,44 @@
-# make_anes_2024_personas.R -------------------------------------------------
-# Build the shipped example dataset `anes_2024_personas` from the LOCAL public
-# ANES 2024 Time Series .dta. This script is NOT shipped (data-raw/ is
-# Rbuildignored) and the raw .dta is NOT shipped or tracked. Re-run only to
-# regenerate the example data.
+# make_personas.R -----------------------------------------------------------
+# Reproducibility script for the bundled dataset `anes_2024_personas`. It is
+# shipped (under inst/) for transparency, not run at build or install time.
 #
-# What it ships: ~100 REAL ANES respondents, selected by diversity sampling for
-# example coverage (NOT a representative sample), demographics coarsened, each
-# respondent's attitude bundle kept intact, decoded to value labels. No ANES
-# case IDs are retained. Provenance and citation live in R/data.R and inst/.
+# It builds the dataset from the public ANES 2024 Time Series Study Stata file,
+# which is NOT bundled (it is freely available from ANES; see below). Download
+# the Full Release `.dta`, then run this script from the package root with the
+# path to that file, e.g.
 #
-# Owner-confirmed variable selection: data-raw/anes_2024_persona_spec.R
-# Diversity sampling per codex recommendation: block -> Gower distance ->
-# seed required coverage -> greedy maximin (k-center) fill with soft caps.
+#   ANES_DTA=~/Downloads/anes_timeseries_2024_stata.dta \
+#     Rscript inst/anes-data-prep/make_personas.R
+#
+# or set the path inline below. Output: ~100 real ANES respondents, selected by
+# diversity sampling for example coverage (NOT a representative sample),
+# demographics coarsened, each respondent's attitude bundle kept intact, decoded
+# to value labels, no ANES case IDs retained.
+#
+# Data source (please cite):
+#   American National Election Studies. 2025. ANES 2024 Time Series Study Full
+#   Release [dataset and documentation]. August 8, 2025.
+#   https://electionstudies.org/data-center/2024-time-series-study/
+#
+# Variable selection: inst/anes-data-prep/persona_spec.R. Diversity sampling:
+# block -> Gower distance -> seed required coverage -> greedy maximin (k-center).
 
 suppressPackageStartupMessages({
   library(haven)
 })
 
-DTA  <- "inst/examples/anes_2024/anes_timeseries_2024_stata.dta"
-SPEC <- "data-raw/anes_2024_persona_spec.R"
+# Path to the ANES 2024 Time Series Stata file: from $ANES_DTA, else edit here.
+DTA  <- Sys.getenv("ANES_DTA", "")
+SPEC <- file.path("inst", "anes-data-prep", "persona_spec.R")
 N_SHIP <- 100L
 SEED <- 110L   # tie-breaks / stochastic steps only; selection is deterministic given data
 
-stopifnot(file.exists(DTA), file.exists(SPEC))
+if (!nzchar(DTA) || !file.exists(DTA)) {
+  stop("Set ANES_DTA to the ANES 2024 Time Series .dta path ",
+       "(download the Full Release from electionstudies.org). Looked for: ",
+       if (nzchar(DTA)) DTA else "<unset>")
+}
+stopifnot(file.exists(SPEC))
 source(SPEC)
 
 `%||%` <- function(a, b) if (is.null(a) || length(a) == 0) b else a

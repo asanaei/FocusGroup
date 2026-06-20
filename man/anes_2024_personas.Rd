@@ -30,13 +30,13 @@ A data frame with 100 rows and 125 columns. It is an ordinary data
   the question wording, not the handle.
 }
 \source{
-Derived from the American National Election Studies. 2026. *ANES 2024
-  Time Series Study Full Release* \[dataset and documentation\]. May 19, 2026
-  version. \url{https://electionstudies.org/}. This is a derived product of
-  the ANES public release and is distributed for example use; it contains no
-  ANES respondent identifiers and no restricted-use data. Work that uses these
-  personas should cite ANES as above. The ANES bears no responsibility for the
-  analyses or interpretations presented here.
+Derived from the American National Election Studies. 2025. *ANES 2024
+  Time Series Study Full Release* \[dataset and documentation\]. August 8,
+  2025. \url{https://electionstudies.org/data-center/2024-time-series-study/}.
+  This is a derived product of the ANES public release and is distributed for
+  example use; it contains no ANES respondent identifiers and no restricted-use
+  data. Work that uses these personas should cite ANES as above. The ANES bears
+  no responsibility for the analyses or interpretations presented here.
 }
 \usage{
 anes_2024_personas

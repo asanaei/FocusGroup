@@ -1,9 +1,9 @@
-# anes_2024_persona_spec.R --------------------------------------------------
-# Variable specification for the shipped example persona dataset
-# (data/anes_2024_personas.rda). This file is the auditable list of which ANES
-# 2024 Time Series variables become persona fields, how they are grouped (for
-# diversity sampling), and how demographics are coarsened. It is NOT shipped
-# (data-raw/ is Rbuildignored). Owner-confirmed selection, 2026-06-19.
+# persona_spec.R ------------------------------------------------------------
+# Variable specification for the bundled example dataset
+# (data/anes_2024_personas.rda), sourced by make_personas.R. The auditable list
+# of which ANES 2024 Time Series variables become persona fields, how they are
+# grouped (for diversity sampling), and how demographics are coarsened. Shipped
+# under inst/ for transparency; not run at build or install time.
 #
 # Source: ANES 2024 Time Series Study, public release. Items chosen from the
 # public SUMMARY (`x`) recodes where available (clean ordinal scales). No

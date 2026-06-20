@@ -10,10 +10,18 @@ bibentry(
 )
 
 citFooter(
-  "The bundled example data 'anes_2024_personas' is derived from the American",
-  "National Election Studies (ANES) 2024 Time Series Study. Work that uses",
-  "those personas should also cite ANES:\n",
-  "  American National Election Studies. 2026. ANES 2024 Time Series Study",
-  "  Full Release [dataset and documentation]. May 19, 2026 version.",
-  "  https://electionstudies.org/"
+  "The bundled example data 'anes_2024_personas' is derived from the public",
+  "release of the American National Election Studies (ANES) 2024 Time Series",
+  "Study. Work that uses those personas should also cite the source data:"
+)
+
+bibentry(
+  bibtype      = "Misc",
+  key          = "anes2024",
+  author       = person("American National Election Studies"),
+  year         = "2025",
+  title        = "ANES 2024 Time Series Study Full Release",
+  note         = "[dataset and documentation]. August 8, 2025",
+  organization = "University of Michigan and Stanford University",
+  url          = "https://electionstudies.org/data-center/2024-time-series-study/"
 )
