@@ -27,3 +27,7 @@ vignettes/*.R
 .DS_Store
 /doc/
 /Meta/
+
+# ANES raw data (derived sample ships as data/anes_2024_personas.rda; raw file is local only)
+inst/examples/anes_2024/*.dta
+inst/examples/anes_2024/*.pdf

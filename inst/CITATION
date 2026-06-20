@@ -1,0 +1,19 @@
+citHeader("To cite the FocusGroup package in publications use:")
+
+bibentry(
+  bibtype  = "Manual",
+  title    = "FocusGroup: Simulated Moderated Discussion for Research Design",
+  author   = person("Ali", "Sanaei"),
+  year     = "2026",
+  note     = "R package",
+  url      = "https://asanaei.github.io/FocusGroup/"
+)
+
+citFooter(
+  "The bundled example data 'anes_2024_personas' is derived from the American",
+  "National Election Studies (ANES) 2024 Time Series Study. Work that uses",
+  "those personas should also cite ANES:\n",
+  "  American National Election Studies. 2026. ANES 2024 Time Series Study",
+  "  Full Release [dataset and documentation]. May 19, 2026 version.",
+  "  https://electionstudies.org/"
+)

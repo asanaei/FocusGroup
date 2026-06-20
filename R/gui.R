@@ -110,6 +110,71 @@ run_focus_studio <- function(...) {
     stringsAsFactors = FALSE)
 }
 
+# ---- ANES persona helpers (for the Run tab's participant picker) ------------
+
+# A compact, human-readable view of the bundled personas for the selectable
+# table: the ideology score plus a few key fields, looked up via the dictionary
+# so the columns read naturally regardless of the tidy handles.
+.fg_persona_overview <- function(data = NULL) {
+  data <- data %||% get("anes_2024_personas", envir = asNamespace("FocusGroup"))
+  dict <- attr(data, "dictionary")
+  by_q <- function(q) {
+    if (is.null(dict)) return(NULL)
+    h <- dict$handle[match(q, dict$question)]
+    if (length(h) && !is.na(h) && h %in% names(data)) data[[h]] else NULL
+  }
+  out <- data.frame(
+    ideology = data$ideology_score,
+    party    = by_q("Party identification") %||% NA,
+    ideology_self = by_q("Liberal-conservative self-placement") %||% NA,
+    age      = by_q("age") %||% NA,
+    race     = by_q("race/ethnicity") %||% NA,
+    region   = by_q("census region") %||% NA,
+    religion = by_q("religion") %||% NA,
+    stringsAsFactors = FALSE)
+  out
+}
+
+# Build agents from chosen persona rows and run a focus group, returning the same
+# shape fg_quick() does so the Run tab renders it identically. `rows` are row
+# indices into `data` (empty -> a diverse default draw of `participants`).
+.fg_run_from_personas <- function(topic, participants, rows, flow, msg_mode,
+                                   seed, max_participant_responses,
+                                   model_config, data = NULL) {
+  data <- data %||% get("anes_2024_personas", envir = asNamespace("FocusGroup"))
+  chosen <- if (length(rows)) data[rows, , drop = FALSE] else data
+  n <- if (length(rows)) length(rows) else participants
+
+  agents <- create_agents_from_data(chosen, n_participants = n,
+                                     llm_config = model_config)
+  agents <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
+  flow_obj <- create_conversation_flow(flow, agents, "MOD")
+  script <- list(
+    list(phase = "opening"),
+    list(phase = "engagement_question",
+         text = paste0("From your perspective, what matters most about ", topic, "?")),
+    list(phase = "exploration_question",
+         text = paste0("Where do you see common ground or disagreement on ", topic, "?")),
+    list(phase = "closing"))
+  fg <- FocusGroup$new(topic = topic,
+                       purpose = paste("Explore perspectives on", topic),
+                       agents = agents, moderator_id = "MOD",
+                       turn_taking_flow = flow_obj, question_script = script,
+                       max_participant_responses = max_participant_responses)
+  withr::with_options(list(focusgroup.msg_mode = msg_mode, focusgroup.seed = seed),
+                      fg$run_simulation(verbose = FALSE))
+  tr <- if (length(fg$conversation_log))
+    do.call(rbind, lapply(fg$conversation_log, function(x) data.frame(
+      turn = x$turn, speaker_id = x$speaker_id, text = x$text,
+      stringsAsFactors = FALSE))) else data.frame()
+  list(transcript = tr,
+       summary = fg$final_summary %||% fg$summarize(summary_level = 1),
+       totals = list(total_tokens_in = fg$total_tokens_sent,
+                     total_tokens_out = fg$total_tokens_received,
+                     total_turns = length(fg$conversation_log)),
+       focus_group = fg)
+}
+
 # ---- run module (live: run a fresh focus group) -----------------------------
 
 .fg_run_ui <- function(id) {
@@ -120,8 +185,9 @@ run_focus_studio <- function(...) {
 # `run_fun` is an injection seam: defaults to FocusGroup::fg_quick, overridden in
 # tests with a fake so the module can be exercised via shiny::testServer() with
 # no live call.
-.fg_run_server <- function(id, shared, run_fun = NULL) {
+.fg_run_server <- function(id, shared, run_fun = NULL, persona_run_fun = NULL) {
   run_fun <- run_fun %||% FocusGroup::fg_quick
+  persona_run_fun <- persona_run_fun %||% .fg_run_from_personas
   shiny::moduleServer(id, function(input, output, session) {
     ns <- session$ns
     result <- shiny::reactiveVal(NULL); err <- shiny::reactiveVal(NULL)
@@ -147,6 +213,15 @@ run_focus_studio <- function(...) {
               value = "public libraries", width = "100%")),
             shiny::column(4, shiny::numericInput(ns("participants"), "Participants",
               value = 3, min = 2, max = 6, step = 1))),
+          shiny::radioButtons(ns("source"), "Participants drawn from",
+            choices = c("Synthetic personas" = "synthetic",
+                        "ANES 2024 personas" = "anes"),
+            selected = "synthetic", inline = TRUE),
+          shiny::conditionalPanel(
+            condition = sprintf("input['%s'] == 'anes'", ns("source")),
+            shiny::tags$p(class = "text-muted small",
+              "Pick rows to use as participants (click to toggle; the list runs from most liberal at the top to most conservative at the bottom). Select none to draw a diverse sample automatically."),
+            DT::DTOutput(ns("persona_table"))),
           shiny::fluidRow(
             shiny::column(4, shiny::selectInput(ns("flow"), "Turn-taking flow",
               choices = c("round_robin", "desire_based", "probabilistic"),
@@ -169,6 +244,20 @@ run_focus_studio <- function(...) {
 
     output$err <- shiny::renderUI(err())
 
+    # The selectable persona table (ANES source). Rows already run liberal ->
+    # conservative; multi-select with click toggling, keyboard-navigable.
+    output$persona_table <- DT::renderDT({
+      ov <- .fg_persona_overview()
+      ov$ideology <- round(ov$ideology, 2)
+      DT::datatable(
+        ov, selection = "multiple", rownames = TRUE,
+        colnames = c("row" = 1),
+        options = list(pageLength = 8, scrollX = TRUE, scrollY = "240px",
+                       lengthChange = FALSE, searchHighlight = TRUE))
+    }, server = TRUE)
+
+    persona_rows <- shiny::reactive(input$persona_table_rows_selected %||% integer(0))
+
     # A rough live-call estimate so the user is not surprised by the bill.
     output$cost_note <- shiny::renderUI({
       p <- as.integer(input$participants %||% 3L)
@@ -190,18 +279,32 @@ run_focus_studio <- function(...) {
       if (!nzchar(topic)) { err(warn_card("Enter a topic first.")); return() }
       cfg <- LLMR.shiny::build_llm_config(shared$provider(), shared$model(), temperature = 0.7)
       calls_est <- est_calls()
-      res <- LLMR.shiny::safe_llmr_call(
-        run_fun(
-          topic = topic,
-          participants = as.integer(input$participants %||% 3L),
-          flow = input$flow %||% "round_robin",
-          model_config = cfg,
-          seed = as.integer(input$seed %||% 110L),
-          mode = "quick",
-          msg_mode = input$msg_mode %||% "roleflip",
-          verbose = FALSE,
-          max_participant_responses = as.integer(input$max_resp %||% 1L)),
-        shared$provider())
+      res <- if (identical(input$source %||% "synthetic", "anes")) {
+        LLMR.shiny::safe_llmr_call(
+          persona_run_fun(
+            topic = topic,
+            participants = as.integer(input$participants %||% 3L),
+            rows = persona_rows(),
+            flow = input$flow %||% "round_robin",
+            msg_mode = input$msg_mode %||% "roleflip",
+            seed = as.integer(input$seed %||% 110L),
+            max_participant_responses = as.integer(input$max_resp %||% 1L),
+            model_config = cfg),
+          shared$provider())
+      } else {
+        LLMR.shiny::safe_llmr_call(
+          run_fun(
+            topic = topic,
+            participants = as.integer(input$participants %||% 3L),
+            flow = input$flow %||% "round_robin",
+            model_config = cfg,
+            seed = as.integer(input$seed %||% 110L),
+            mode = "quick",
+            msg_mode = input$msg_mode %||% "roleflip",
+            verbose = FALSE,
+            max_participant_responses = as.integer(input$max_resp %||% 1L)),
+          shared$provider())
+      }
       if (!res$ok) { err(res$ui); return() }
       result(res$value)
       # Real token totals; calls is an estimate (fg_quick reports no exact count),

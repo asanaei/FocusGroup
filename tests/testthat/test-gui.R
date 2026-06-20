@@ -138,3 +138,40 @@ test_that("the run module makes NO call in demo mode", {
       expect_null(result())
     })
 })
+
+test_that(".fg_persona_overview summarizes the bundled personas, liberal to conservative", {
+  ov <- FocusGroup:::.fg_persona_overview()
+  expect_equal(nrow(ov), 100L)
+  expect_true(all(c("ideology", "party", "region") %in% names(ov)))
+  expect_false(is.unsorted(ov$ideology))                 # rows run low -> high
+  expect_true(grepl("Democrat", ov$party[1]))            # most liberal at top
+  expect_true(grepl("Republican", ov$party[nrow(ov)]))   # most conservative at bottom
+})
+
+test_that("the run module uses the persona runner when source = anes, with selected rows", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("LLMR.shiny")
+  shared <- fake_shared("live", TRUE)
+  seen <- new.env()
+  fake_persona <- function(topic, participants, rows, flow, msg_mode, seed,
+                           max_participant_responses, model_config, data = NULL) {
+    seen$rows <- rows; seen$topic <- topic
+    list(focus_group = structure(list(topic = topic), class = "FocusGroup"),
+         transcript = data.frame(turn = 1L, speaker_id = "MOD", text = "Hi.",
+                                 stringsAsFactors = FALSE),
+         totals = list(total_turns = 1L, total_tokens_in = 10L, total_tokens_out = 5L))
+  }
+  never <- function(...) stop("synthetic runner must not be called for anes source")
+  shiny::testServer(
+    FocusGroup:::.fg_run_server,
+    args = list(shared = shared, run_fun = never, persona_run_fun = fake_persona),
+    {
+      session$setInputs(topic = "trust", participants = 3, flow = "round_robin",
+                        msg_mode = "roleflip", max_resp = 1, seed = 110,
+                        source = "anes", persona_table_rows_selected = c(1L, 5L, 9L))
+      session$setInputs(run = 1)
+      expect_true(inherits(result()$focus_group, "FocusGroup"))
+      expect_equal(seen$rows, c(1L, 5L, 9L))   # the selected rows reach the runner
+      expect_equal(seen$topic, "trust")
+    })
+})

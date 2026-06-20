@@ -1,4 +1,4 @@
-# FocusGroup: LLM-Powered Focus Group Simulation and Analysis
+# FocusGroup: simulated moderated discussion for research design
 
 <img src="man/figures/logo.png" alt="FocusGroup icon" width="120" class="d-none" />
 
@@ -10,48 +10,64 @@
 
 ## Overview
 
-The `FocusGroup` package provides a comprehensive R6-based framework for simulating and analyzing focus group discussions using Large Language Models (LLMs). It enables researchers to create virtual focus groups with diverse AI agents, conduct structured discussions across multiple phases, and perform sophisticated analysis of the resulting conversations.
+FocusGroup runs a moderated group discussion in which the participants are
+language models. A moderator poses questions, participants take turns according
+to a turn-taking rule, and the package records who said what, in which phase, at
+what token cost. It is built on [LLMR](https://asanaei.github.io/LLMR/).
 
-The package is designed with flexibility in mind, allowing users to define agent personas, manage conversation flow, and customize prompts for LLM interactions. 
+The purpose is design-stage research: piloting a moderator guide, finding the
+questions that confuse people before a study is fielded, comparing turn-taking
+rules, and watching how one turn shapes the next. A transcript is a synthetic
+artifact. It is not public opinion, and a synthetic participant does not stand
+in for a demographic group. Treat the output as material for refining an
+instrument, not as evidence about people, unless you have checked it against
+human data and say so.
+
+The controls run from a one-line wrapper for a first run to direct command of
+the agent and orchestrator classes. Personas, turn-taking, prompts, and the
+analysis are each separable, so a naive user gets a sensible default and a
+careful one can change a single piece without rewriting the rest.
 
 ## Key Features
 
--   **Agent-Based Modeling**: Create diverse AI participants and moderators (`FGAgent` class) with customizable personas derived from demographics, survey responses, or direct descriptions. Each agent can have its own LLM configuration.
--   **Flexible Conversation Flow**: Implement various turn-taking mechanisms using the `ConversationFlow` base class and its implementations:
-    -   `RoundRobinFlow`: Participants take turns in a fixed order.
-    -   `ProbabilisticFlow`: Turn-taking based on dynamically adjusting propensity scores.
-    -   `DesireBasedFlow`: LLM-rated "desire to talk" determines the next speaker.
--   **Phase-Driven Simulations**: The `FocusGroup` class orchestrates discussions through a `question_script` that defines phases (e.g., Opening, Icebreaker, Engagement, Exploration, Closing) and moderator actions.
--   **Comprehensive Analysis**: The `FocusGroup` class includes methods for basic conversation statistics, and the `analyze_focus_group` wrapper provides a higher-level interface for more detailed analyses (topic modeling, TF-IDF, readability, thematic analysis).
--   **Customizable Prompts**: Default prompts are provided (`get_default_prompt_templates()`), but users can supply their own to tailor agent behavior.
--   **LLM Integration**: Leverages the `LLMR` package for robust interaction with various LLM providers.
+-   **Agents**: participants and a moderator (`FGAgent`) built from
+    researcher-supplied demographics, survey responses, or a direct persona
+    description. By default the persona states those facts and lets the model
+    decide what they imply; it draws no scripted dispositions from a demographic
+    label. Each agent can carry its own LLM configuration.
+-   **Turn-taking**: choose how the next speaker is picked through the `ConversationFlow` class:
+    -   `RoundRobinFlow`: a fixed order.
+    -   `ProbabilisticFlow`: propensity scores that adjust as the discussion goes.
+    -   `DesireBasedFlow`: each participant rates its own "desire to talk" and the keenest speaks.
+-   **Phases**: the `FocusGroup` class runs the discussion through a `question_script` of phases (opening, icebreaker, engagement, exploration, closing) and moderator actions.
+-   **Analysis**: the `FocusGroup` class reports participation and conversation statistics; the `analyze_focus_group()` wrapper adds topic modeling, TF-IDF, readability, and thematic analysis over the transcript.
+-   **Prompts**: defaults ship in `get_default_prompt_templates()`. Wording that shapes agent behavior, including how a participant answers if asked whether it is an AI, is exposed through options so you can change it without editing the package.
+-   **Provider layer**: all model calls go through `LLMR`, so any provider, model, sampling, or logging setting LLMR understands works here unchanged.
 -   **Point-and-Click GUI**: `run_focus_studio()` opens a Shiny app with three tabs: Run a focus group (live moderated session), Analyze (load a saved transcript and read its participation and word statistics), and Continuation experiment (extend a saved session under new conditions).
 
-## Note
+## Status
 
-The package is experimental, with some rough edges. The intention is to keep the core of the two classes (`FGAgent` and `FocusGroup`) unchanged, 
-but update the methods and functions that interact with them. 
+The package is experimental. The two classes at its center, `FGAgent` and
+`FocusGroup`, are meant to stay stable; the functions and methods around them
+are still moving.
 
 ## Installation
 
 ```r
-# Install from GitHub (replace with your actual repository if different)
-# remotes::install_github("asanaei/FocusGroup")
-
-# Or, if you have a local tar.gz file:
-# install.packages("path/to/your/FocusGroupPackage_version.tar.gz", repos = NULL, type = "source")
+install.packages("remotes")
+remotes::install_github("asanaei/LLMR")
+remotes::install_github("asanaei/FocusGroup")
 ```
 
-## Dependencies
-
-Ensure the following R packages are installed:
+The analysis helpers draw on a few text-mining packages:
 
 ```r
-install.packages(c("R6", "LLMR", "dplyr", "tidyr", "ggplot2", 
-                   "quanteda", "quanteda.textstats", "topicmodels", "tidytext", "stringr"))
+install.packages(c("ggplot2", "quanteda", "quanteda.textstats",
+                   "topicmodels", "tidytext", "stringr"))
 ```
 
-You will also need to configure API keys for your chosen LLM provider (e.g., set `OPENAI_API_KEY` as an environment variable if using OpenAI via `LLMR`).
+Set the API key for your provider as an environment variable (for OpenAI through
+`LLMR`, `OPENAI_API_KEY`). Do not write keys into package code or the Shiny app.
 
 ## Quick Start
 

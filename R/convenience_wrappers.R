@@ -98,6 +98,12 @@ run_focus_group <- function(topic,
     cat("Conversation flow:", conversation_flow, "\n")
   }
 
+  # Resolve the configuration before agents are built, so the returned
+  # config_meta reports the model actually used even when the caller relied on
+  # the default (create_diverse_agents() would otherwise default internally and
+  # leave config_meta with NULL provider/model).
+  if (is.null(llm_config)) llm_config <- default_llmr_config()
+
   # Create agents
   if (verbose) cat("Creating agents...\n")
   agents <- create_diverse_agents(
@@ -466,16 +472,23 @@ create_diverse_agents <- function(n_participants,
   # Create participants
 
   for (i in seq_len(n_participants)) {
-    agent_demographics <- if (!is.null(demographics) && is.data.frame(demographics) && nrow(demographics) >= i) {
-      # Create proper question:value pairs
-      demo_row <- demographics[i, ]
-      demo_list <- list()
-      for (col in names(demo_row)) {
-        if (!is.na(demo_row[[col]]) && demo_row[[col]] != "" && demo_row[[col]] != "NA") {
-          demo_list[[col]] <- as.character(demo_row[[col]])
+    # data.frame row -> named list of non-missing question:value pairs.
+    # drop = FALSE matters: a single-column frame would otherwise collapse to a
+    # vector and lose the column names.
+    row_to_list <- function(df, i) {
+      row <- df[i, , drop = FALSE]
+      out <- list()
+      for (col in names(row)) {
+        v <- row[[col]]
+        if (length(v) && !is.na(v) && nzchar(v) && !identical(as.character(v), "NA")) {
+          out[[col]] <- as.character(v)
         }
       }
-      demo_list
+      out
+    }
+
+    agent_demographics <- if (!is.null(demographics) && is.data.frame(demographics) && nrow(demographics) >= i) {
+      row_to_list(demographics, i)
     } else if (!is.null(demographics) && is.list(demographics) && length(demographics) >= i) {
       demographics[[i]]
     } else {
@@ -486,15 +499,7 @@ create_diverse_agents <- function(n_participants,
     }
 
     agent_survey <- if (!is.null(survey_responses) && is.data.frame(survey_responses) && nrow(survey_responses) >= i) {
-      # Create proper question:value pairs
-      survey_row <- survey_responses[i, ]
-      survey_list <- list()
-      for (col in names(survey_row)) {
-        if (!is.na(survey_row[[col]]) && survey_row[[col]] != "" && survey_row[[col]] != "NA") {
-          survey_list[[col]] <- as.character(survey_row[[col]])
-        }
-      }
-      survey_list
+      row_to_list(survey_responses, i)
     } else if (!is.null(survey_responses) && is.list(survey_responses) && length(survey_responses) >= i) {
       survey_responses[[i]]
     } else {
@@ -708,205 +713,203 @@ generate_survey_responses <- function(n) {
   )
 }
 
-#' Generate Persona
+#' Generate a participant persona from demographics and survey responses
 #'
-#' Internal function to generate a persona description based on demographics and survey responses.
+#' Renders the persona text for a synthetic participant from the demographics and
+#' survey responses the researcher supplied. It states those facts and nothing
+#' more: what a given age, education, place of residence, or survey answer implies
+#' about a person is left to the model, not decided here. Mapping a demographic
+#' label to a fixed disposition is the essentialism a research instrument should
+#' avoid, so the package does not do it.
 #'
-#' @param demographics List of demographic information
-#' @param survey_responses List of survey responses (optional)
-#' @return Character string with persona description
+#' Both the demographics and the survey responses are rendered in full (every
+#' supplied field), not a fixed subset. Pass survey responses keyed by the
+#' question wording (for survey-file input, the variable label is used as the key)
+#' so the model sees the item, not a code name.
+#'
+#' @param demographics A named list (or single-row data frame coerced to one) of
+#'   demographic fields, e.g. `list(age = 63, education = "High school",
+#'   region = "South")`. Field names are shown to the model as written.
+#' @param survey_responses Optional named list of survey responses, keyed by the
+#'   question text: `list("Party identification" = "Strong Democrat")`.
+#' @param style One of `"labeled"` (default) or `"paragraph"`. `"labeled"` lists
+#'   the demographics and then a Question/Answer block; `"paragraph"` fuses them
+#'   into a single natural paragraph. Defaults to
+#'   `getOption("focusgroup.persona_style", "labeled")`.
+#' @return Character string with the persona description.
 #'
 #' @keywords internal
-generate_persona <- function(demographics, survey_responses = NULL) {
-  # Clean ANES-style values (remove codes like "1. " or "99. ")
-  clean_value <- function(x) {
-    if (is.null(x) || is.na(x)) return("unspecified")
+generate_persona <- function(demographics, survey_responses = NULL,
+                             style = getOption("focusgroup.persona_style", "labeled")) {
+  style <- match.arg(style, c("labeled", "paragraph"))
+
+  # Normalize a one-row data frame to a named list; drop NA/empty fields so they
+  # are simply absent rather than rendered as "NA".
+  to_named_list <- function(x) {
+    if (is.null(x)) return(list())
+    if (is.data.frame(x)) x <- as.list(x[1, , drop = FALSE])
+    if (!is.list(x)) x <- as.list(x)
+    x <- lapply(x, function(v) if (length(v)) v[[1]] else NA)
+    keep <- vapply(x, function(v) {
+      !is.null(v) && length(v) == 1L && !is.na(v) && nzchar(trimws(as.character(v)))
+    }, logical(1))
+    x[keep]
+  }
+
+  # Strip leftover code prefixes/suffixes that some labeled surveys carry on a
+  # value label (e.g. "1. Male", "Male (R volunteered)"). A no-op on plain text.
+  tidy_value <- function(x) {
     x <- as.character(x)
-    # Handle missing/inapplicable values
-    if (grepl("inapplicable|missing|refused|don't know", x, ignore.case = TRUE)) {
-      return("unspecified")
-    }
-    # Remove leading codes like "1. ", "99. ", etc.
-    x <- gsub("^[0-9]+\\.\\s*", "", x)
-    # Remove trailing codes in parentheses
+    x <- gsub("^[0-9-]+\\.\\s*", "", x)
     x <- gsub("\\s*\\([^)]*\\)$", "", x)
-    x <- trimws(x)
-    if (nchar(x) == 0) return("unspecified")
-    return(x)
-  }
-  
-  # Handle demographics as either named list or unnamed list
-  get_demo_value <- function(demos, field) {
-    if (is.null(demos)) return("unspecified")
-    if (is.list(demos)) {
-      # Try named access first
-      if (!is.null(demos[[field]])) {
-        return(clean_value(demos[[field]]))
-      }
-      # Try positional access for unnamed lists
-      if (field == "age" && length(demos) >= 1) return(clean_value(demos[[1]]))
-      if (field == "gender" && length(demos) >= 2) return(clean_value(demos[[2]]))
-      if (field == "education" && length(demos) >= 3) return(clean_value(demos[[3]]))
-    }
-    return("unspecified")
-  }
-  
-  age <- get_demo_value(demographics, "age")
-  age_num <- suppressWarnings(as.numeric(age))
-  if (!is.na(age_num)) age <- age_num
-  gender <- tolower(get_demo_value(demographics, "gender"))
-  education <- tolower(get_demo_value(demographics, "education"))
-
-  base_persona <- sprintf(
-    "You are a %s-year-old %s with %s education.",
-    ifelse(!is.na(age_num), age_num, "unspecified"),
-    ifelse(nzchar(gender), gender, "person"),
-    ifelse(nzchar(education), education, "unspecified")
-  )
-
-  # Add personality traits based on demographics and survey
-  traits <- c()
-
-  # Survey responses are already included verbatim via `format_survey_responses()`.
-  # Do not synthesize political or policy positions automatically.
-
-  # Add age-based traits
-  if (!is.na(age_num)) {
-    if (age_num < 25) {
-      traits <- c(traits, "You represent a younger perspective and are digitally native.")
-    } else if (age_num > 50) {
-      traits <- c(traits, "You bring life experience and may have traditional values.")
-    }
+    trimws(x)
   }
 
-  # Add education-based traits
-  if (!is.null(education)) {
-    if (grepl("PhD|Master", education)) {
-      traits <- c(traits, "You tend to think analytically and ask detailed questions.")
-    } else if (grepl("High School", education)) {
-      traits <- c(traits, "You speak in practical terms and focus on real-world applications.")
-    }
+  demos <- to_named_list(demographics)
+  demos <- lapply(demos, tidy_value)
+  resp  <- to_named_list(survey_responses)
+  resp  <- lapply(resp, tidy_value)
+
+  demo_text <- if (length(demos)) {
+    paste(sprintf("%s: %s", names(demos), unlist(demos, use.names = FALSE)),
+          collapse = "; ")
+  } else NULL
+
+  closing <- paste(
+    "Speak from this background as the conversation gives you reason to.",
+    "Stay engaged without dominating; respond to the moderator and to what others say.")
+
+  if (identical(style, "paragraph")) {
+    bits <- c(
+      "You are a participant in a focus group.",
+      if (!is.null(demo_text)) sprintf("Your background: %s.", demo_text),
+      if (length(resp)) sprintf(
+        "On a pre-session questionnaire you said: %s.",
+        paste(sprintf("%s -- %s", names(resp), unlist(resp, use.names = FALSE)),
+              collapse = "; ")),
+      closing)
+    return(paste(bits, collapse = " "))
   }
 
-  # Add demographic-based traits (gate race-based generalizations)
-  if (!is.null(demographics)) {
-    avoid_group_stereotypes <- TRUE
-    if (!avoid_group_stereotypes) {
-      if (!is.null(demographics$race)) {
-        race <- tolower(demographics$race)
-        if (grepl("white", race)) {
-          traits <- c(traits, "As a white American, you may have different perspectives on racial issues compared to people of color.")
-        } else if (grepl("black|african american", race)) {
-          traits <- c(traits, "As a Black American, you bring important perspectives on racial justice and equality issues.")
-        } else if (grepl("hispanic|latin", race)) {
-          traits <- c(traits, "As a Hispanic/Latino American, you bring important perspectives on immigration and cultural issues.")
-        } else if (grepl("asian", race)) {
-          traits <- c(traits, "As an Asian American, you bring important perspectives on diversity and inclusion issues.")
-        }
-      }
-    }
-    
-    if (!is.null(demographics$income)) {
-      income <- tolower(demographics$income)
-      if (grepl("high|upper", income)) {
-        traits <- c(traits, "Your higher income level gives you a different perspective on economic policies and taxation.")
-      } else if (grepl("low|lower", income)) {
-        traits <- c(traits, "Your lower income level gives you a different perspective on economic policies and social programs.")
-      } else if (grepl("middle", income)) {
-        traits <- c(traits, "As a middle-class American, you are concerned about economic stability and opportunities for your family.")
-      }
-    }
-    
-    if (!is.null(demographics$employment)) {
-      employment <- tolower(demographics$employment)
-      if (grepl("employed|working", employment)) {
-        traits <- c(traits, "As a working person, you are concerned about job security, wages, and workplace policies.")
-      } else if (grepl("unemployed", employment)) {
-        traits <- c(traits, "As someone who is unemployed, you are particularly concerned about job creation and economic recovery.")
-      } else if (grepl("retired", employment)) {
-        traits <- c(traits, "As a retiree, you are concerned about Social Security, Medicare, and retirement security.")
-      }
-    }
-    
-    if (!is.null(demographics$veteran)) {
-      veteran <- tolower(demographics$veteran)
-      if (grepl("yes|veteran", veteran)) {
-        traits <- c(traits, "As a veteran, you have unique perspectives on national security, foreign policy, and veterans' issues.")
-      }
-    }
-    
-    if (!is.null(demographics$union_member)) {
-      union <- tolower(demographics$union_member)
-      if (grepl("yes|member", union)) {
-        traits <- c(traits, "As a union member, you strongly support workers' rights and collective bargaining.")
-      }
-    }
-    
-    if (!is.null(demographics$home_owner)) {
-      home <- tolower(demographics$home_owner)
-      if (grepl("yes|owner", home)) {
-        traits <- c(traits, "As a homeowner, you are concerned about property values, housing policies, and local government.")
-      } else if (grepl("no|renter", home)) {
-        traits <- c(traits, "As a renter, you are concerned about housing affordability and tenant rights.")
-      }
-    }
-    
-    if (!is.null(demographics$children)) {
-      children <- tolower(demographics$children)
-      if (grepl("yes|have", children)) {
-        traits <- c(traits, "As a parent, you are particularly concerned about education, family policies, and the future for your children.")
-      }
-    }
-    
-    if (!is.null(demographics$urban_rural)) {
-      location <- tolower(demographics$urban_rural)
-      if (grepl("urban|city", location)) {
-        traits <- c(traits, "Living in an urban area, you are concerned about city-specific issues like public transportation and urban development.")
-      } else if (grepl("rural|country", location)) {
-        traits <- c(traits, "Living in a rural area, you are concerned about rural-specific issues like agricultural policy and rural infrastructure.")
-      } else if (grepl("suburban", location)) {
-        traits <- c(traits, "Living in a suburban area, you are concerned about suburban-specific issues like school quality and local services.")
-      }
-    }
-  }
-
-  persona <- paste(c(base_persona, traits), collapse = " ")
-
-  # Add general instruction
-  persona <- paste(persona,
-    "Participate authentically in focus group discussions, sharing opinions that align with your background.",
-    "Be engaged but not overly talkative. Respond naturally to other participants and the moderator.")
-
-  return(persona)
+  # "labeled" (default): a structured block, reusing the shared renderers.
+  bits <- c(
+    "You are a participant in a focus group.",
+    if (!is.null(demo_text)) sprintf("Background: %s.", demo_text),
+    if (length(resp)) format_survey_responses(resp),
+    closing)
+  paste(bits, collapse = "\n")
 }
 
-#' Create agents from haven-coded survey data
+# Default missing-value vocabulary for labeled surveys. Configurable per call.
+.fg_default_na_strings <- c("inapplicable", "missing", "refused",
+                            "don't know", "don.t know", "not asked",
+                            "legitimate skip")
+
+# Decode a haven column to its value label (character); leave plain columns as
+# character. NA out values matching `na_strings`.
+.fg_decode_col <- function(col, na_strings) {
+  v <- if (inherits(col, c("haven_labelled", "labelled"))) {
+    as.character(haven::as_factor(col, levels = "labels"))
+  } else as.character(col)
+  if (length(na_strings)) {
+    pat <- paste(na_strings, collapse = "|")
+    v[grepl(pat, v, ignore.case = TRUE)] <- NA
+  }
+  v
+}
+
+# Choose the column key shown to the model: the human variable label (question
+# wording) when present, else the column name. `named` overrides take priority.
+.fg_col_key <- function(raw_lab, code, override = NULL) {
+  if (!is.null(override) && nzchar(override)) return(override)
+  lab <- tryCatch(attr(raw_lab[[code]], "label"), error = function(...) NULL)
+  if (!is.null(lab) && nzchar(lab)) lab else code
+}
+
+# Shared core: given a decoded demographics frame and survey-responses frame
+# (already row-aligned, same nrow), select rows and build agents.
+.fg_agents_from_frames <- function(demo_df, survey_df, n_participants,
+                                   llm_config, rows = NULL, weights = NULL) {
+  N <- nrow(demo_df)
+  idx <- seq_len(N)
+  if (!is.null(rows)) {
+    idx <- if (is.function(rows)) which(rows(demo_df)) else {
+      if (is.logical(rows)) which(rows) else as.integer(rows)
+    }
+    idx <- idx[idx >= 1 & idx <= N]
+    if (!length(idx)) stop("`rows` selected no eligible respondents.")
+  }
+
+  seed_val <- getOption("focusgroup.seed", NA_integer_)
+  if (!is.null(seed_val) && !is.na(seed_val)) set.seed(seed_val)
+
+  prob <- NULL
+  if (!is.null(weights)) {
+    w <- suppressWarnings(as.numeric(weights))[idx]
+    w[is.na(w) | w < 0] <- 0
+    if (sum(w) > 0) prob <- w / sum(w)
+  }
+
+  take <- if (length(idx) > n_participants) {
+    sample(idx, n_participants, prob = prob)
+  } else idx
+
+  demo_sample <- demo_df[take, , drop = FALSE]
+  survey_sample <- if (!is.null(survey_df)) survey_df[take, , drop = FALSE] else NULL
+
+  create_diverse_agents(
+    n_participants = n_participants,
+    demographics = demo_sample,
+    survey_responses = survey_sample,
+    llm_config = llm_config
+  )
+}
+
+#' Create agents from a labeled survey file
 #'
-#' Builds a set of `FGAgent`s by sampling rows from a haven-coded survey file
-#' and turning labeled variables into demographics/survey-responses driven personas.
-#' Works with any Stata (.dta), SPSS (.sav), or SAS files that have variable labels.
+#' Reads a labeled survey file (Stata `.dta`, SPSS `.sav`, or SAS
+#' `.sas7bdat`), decodes the chosen variables from their value labels, and turns
+#' each selected respondent into an `FGAgent` whose persona states that
+#' respondent's demographics and survey answers. Numeric codes are decoded from
+#' the file's own value labels, so the same call works on ANES, GSS, WVS, or any
+#' other labeled file; nothing about a particular dataset is hard-coded.
+#'
+#' The survey answers are keyed by each variable's question wording (its label in
+#' the file) so the model sees the item, not a code name. The persona draws no
+#' inferences from the answers; it states them and lets the model interpret.
 #'
 #' @param n_participants Integer number of participants (excludes the moderator).
-#' @param survey_path Character path to survey file (e.g., .dta, .sav files)
-#' @param demographic_vars Character vector of variable names to use as demographics.
-#'   If NULL, attempts to auto-detect common demographic variables.
-#' @param survey_vars Character vector of variable names to use as survey responses.
-#'   If NULL, auto-detects by variable labels or names. No dataset is hardcoded.
-#' @param llm_config Optional `LLMR::llm_config` for all agents. If `NULL`, a small OpenAI config is created.
+#' @param survey_path Path to the survey file (`.dta`, `.sav`, or `.sas7bdat`).
+#' @param demographic_vars Variable names (codes) to render as demographics.
+#'   May be a named vector, in which case the names are shown as the field
+#'   labels. If `NULL`, common demographic variables are auto-detected by their
+#'   labels.
+#' @param survey_vars Variable names (codes) to render as survey responses. May
+#'   be named (names become the question wording shown). If `NULL`, labeled
+#'   variables that are not demographics are used.
+#' @param rows Optional row selector restricting the eligible respondents before
+#'   sampling: an integer or logical vector, or a predicate
+#'   `function(df) -> logical` over the decoded demographics frame.
+#' @param weights Optional sampling weights: a column name in the file, or a
+#'   numeric vector aligned to the file's rows. Used only to weight which
+#'   respondents are drawn.
+#' @param na_strings Character vector of value-label substrings treated as
+#'   missing (case-insensitive). Defaults to a small common set; pass your own to
+#'   match another file's missing-data vocabulary.
+#' @param llm_config Optional `LLMR::llm_config` for all agents.
 #'
 #' @return A list of `FGAgent` objects (participants + moderator).
+#' @seealso [create_agents_from_data()] for an in-memory data frame, and
+#'   [anes_2024_personas] for a ready-made example.
 #' @examples
 #' \dontrun{
-#' # Use ANES data
-#' anes_path <- "path/to/anes_timeseries_2024_stata.dta"
-#' agents <- create_agents_from_survey(6, anes_path)
-#' 
-#' # Specify particular variables
 #' agents <- create_agents_from_survey(
-#'   n_participants = 4,
-#'   survey_path = anes_path,
-#'   demographic_vars = c("age", "gender", "education", "race"),
-#'   survey_vars = c("party_id", "ideology", "vote_intent")
+#'   n_participants = 6,
+#'   survey_path = "anes_timeseries_2024_stata.dta",
+#'   demographic_vars = c(age = "V241458x", education = "V241465x"),
+#'   survey_vars = c("Party identification" = "V241227x",
+#'                   "Ideology" = "V241177"),
+#'   rows = function(df) df$age != "18-24"   # exclude the youngest band
 #' )
 #' }
 #' @export
@@ -914,14 +917,13 @@ create_agents_from_survey <- function(n_participants,
                                       survey_path,
                                       demographic_vars = NULL,
                                       survey_vars = NULL,
+                                      rows = NULL,
+                                      weights = NULL,
+                                      na_strings = .fg_default_na_strings,
                                       llm_config = NULL) {
-  if (!file.exists(survey_path)) {
-    stop("Survey file not found at: ", survey_path)
-  }
-
+  if (!file.exists(survey_path)) stop("Survey file not found at: ", survey_path)
   if (is.null(llm_config)) llm_config <- default_llmr_config()
 
-  # Read survey data by file type
   ext <- tolower(tools::file_ext(survey_path))
   raw_lab <- switch(ext,
     "dta" = haven::read_dta(survey_path),
@@ -929,135 +931,133 @@ create_agents_from_survey <- function(n_participants,
     "sas7bdat" = haven::read_sas(survey_path),
     stop("Unsupported survey file type: .", ext)
   )
-  raw <- as.data.frame(lapply(raw_lab, function(col) {
-    if (inherits(col, c("haven_labelled","labelled"))) {
-      as.character(haven::as_factor(col, levels = "labels"))
-    } else {
-      col
-    }
-  }), stringsAsFactors = FALSE)
 
-  # Auto-detect demographic variables if not specified
+  label_of <- function(v) tryCatch(attr(raw_lab[[v]], "label") %||% "", error = function(...) "")
+  detect_by_label <- function(patterns) {
+    labs <- vapply(names(raw_lab), label_of, "")
+    names(raw_lab)[which(Reduce(`|`, lapply(patterns, function(p)
+      grepl(p, labs, ignore.case = TRUE))))]
+  }
+
+  # Demographics: explicit, else auto-detect common fields by label.
   if (is.null(demographic_vars)) {
-    label_of <- function(v) tryCatch(attr(raw_lab[[v]], "label") %||% "", error = function(...) "")
-    detect_by_label <- function(key_patterns) {
-      labs <- vapply(names(raw_lab), label_of, "")
-      idx <- which(Reduce(`|`, lapply(key_patterns, function(p) grepl(p, labs, ignore.case = TRUE))))
-      names(raw_lab)[idx]
-    }
-    detect_by_name <- function(key_patterns) {
-      unique(Reduce(union, lapply(key_patterns, function(p) grep(p, names(raw), ignore.case = TRUE, value = TRUE))))
-    }
-
-    vars <- list(
-      age = detect_by_label(c("age")),
-      gender = detect_by_label(c("sex","gender")),
-      education = detect_by_label(c("educ")),
-      race = detect_by_label(c("race")),
-      income = detect_by_label(c("income"))
-    )
-
-    # Fallback to name matching
-    if (!length(vars$age)) vars$age <- detect_by_name(c("^age$","age_?[^a-z]*$","vcf.*age"))
-    if (!length(vars$gender)) vars$gender <- detect_by_name(c("gender","sex","vcf.*sex"))
-    if (!length(vars$education)) vars$education <- detect_by_name(c("educ","education","vcf.*educ"))
-    if (!length(vars$race)) vars$race <- detect_by_name(c("race","vcf.*race"))
-    if (!length(vars$income)) vars$income <- detect_by_name(c("income","hhinc","vcf.*income"))
-
-    # Take first match for each category
-    pick_first <- function(v) if (length(v)) v[[1]] else NA_character_
-    demographic_vars <- vapply(vars, pick_first, character(1))
-    demographic_vars <- demographic_vars[!is.na(demographic_vars) & nzchar(demographic_vars)]
-    
-    if (length(demographic_vars) == 0) {
-      warning("No demographic variables auto-detected. Using fallback demographics.")
-      demographic_vars <- character(0)
-    }
+    pick1 <- function(p) { hit <- detect_by_label(p); if (length(hit)) hit[[1]] else NA_character_ }
+    demographic_vars <- c(age = pick1("age"), gender = pick1(c("sex", "gender")),
+                          education = pick1("educ"), race = pick1("race"),
+                          income = pick1("income"))
+    demographic_vars <- demographic_vars[!is.na(demographic_vars)]
   }
-
-  # Auto-detect survey variables if not specified
+  # Survey vars: explicit, else any labeled var that is not a demographic.
   if (is.null(survey_vars)) {
-    label_of <- function(v) tryCatch(attr(raw_lab[[v]], "label") %||% "", error = function(...) "")
-    detect_by_label <- function(key_patterns) {
-      labs <- vapply(names(raw_lab), label_of, "")
-      idx <- which(Reduce(`|`, lapply(key_patterns, function(p) grepl(p, labs, ignore.case = TRUE))))
-      names(raw_lab)[idx]
-    }
-    detect_by_name <- function(key_patterns) {
-      unique(Reduce(union, lapply(key_patterns, function(p) grep(p, names(raw), ignore.case = TRUE, value = TRUE))))
-    }
-
-    vars <- list(
-      party_id = detect_by_label(c("party")),
-      ideology = detect_by_label(c("ideolog")),
-      vote_intent = detect_by_label(c("vote","house","congress"))
-    )
-
-    # Fallback to name matching
-    if (!length(vars$party_id)) vars$party_id <- detect_by_name(c("party","pid","vcf.*party"))
-    if (!length(vars$ideology)) vars$ideology <- detect_by_name(c("ideo","ideolog"))
-    if (!length(vars$vote_intent)) vars$vote_intent <- detect_by_name(c("vote","house","cong"))
-
-    pick_first <- function(v) if (length(v)) v[[1]] else NA_character_
-    survey_vars <- vapply(vars, pick_first, character(1))
-    survey_vars <- survey_vars[!is.na(survey_vars) & nzchar(survey_vars)]
+    has_label <- vapply(names(raw_lab), function(v) nzchar(label_of(v)), logical(1))
+    survey_vars <- setdiff(names(raw_lab)[has_label], unname(demographic_vars))
   }
 
-  # Build demographic dataframe (preserve canonical names)
-  valid_demo <- demographic_vars[demographic_vars %in% names(raw)]
-  if (length(valid_demo)) {
-    demo_data <- raw[, unname(valid_demo), drop = FALSE]
-    names(demo_data) <- names(valid_demo)
-    demo_df <- as.data.frame(lapply(demo_data, function(col) {
-      if (inherits(col, c("haven_labelled","labelled"))) {
-        v <- as.character(haven::as_factor(col, levels = "labels"))
-      } else v <- as.character(col)
-      v[grepl("inapplicable|missing|refused|don't know", v, ignore.case = TRUE)] <- NA
-      v
-    }), stringsAsFactors = FALSE)
-    demo_df <- demo_df[rowSums(is.na(demo_df)) < ncol(demo_df), , drop = FALSE]
-  } else {
-    demo_df <- data.frame(
-      age = sample(18:80, nrow(raw), replace = TRUE),
-      gender = sample(c("Male","Female"), nrow(raw), replace = TRUE),
-      education = sample(c("High School","Some College","BA","MA+"), nrow(raw), replace = TRUE),
-      stringsAsFactors = FALSE
-    )
-  }
+  demo_codes <- demographic_vars[unname(demographic_vars) %in% names(raw_lab)]
+  svy_codes  <- survey_vars[unname(survey_vars) %in% names(raw_lab)]
+  if (!length(demo_codes)) stop("None of `demographic_vars` are in the file.")
 
-  # Build survey responses dataframe (preserve canonical names)
-  valid_svy <- survey_vars[survey_vars %in% names(raw)]
-  survey_df <- if (length(valid_svy)) {
-    svy <- raw[, unname(valid_svy), drop = FALSE]
-    names(svy) <- names(valid_svy)
-    as.data.frame(lapply(svy, function(col) {
-      if (inherits(col, c("haven_labelled","labelled"))) {
-        v <- as.character(haven::as_factor(col, levels = "labels"))
-      } else v <- as.character(col)
-      v[grepl("inapplicable|missing|refused|don't know", v, ignore.case = TRUE)] <- NA
-      v
-    }), stringsAsFactors = FALSE)
+  demo_keys <- vapply(seq_along(demo_codes), function(i)
+    .fg_col_key(raw_lab, unname(demo_codes)[i], names(demo_codes)[i]), "")
+  svy_keys <- if (length(svy_codes)) vapply(seq_along(svy_codes), function(i)
+    .fg_col_key(raw_lab, unname(svy_codes)[i], names(svy_codes)[i]), "") else character(0)
+
+  demo_df <- as.data.frame(lapply(unname(demo_codes), function(c)
+    .fg_decode_col(raw_lab[[c]], na_strings)), stringsAsFactors = FALSE)
+  names(demo_df) <- demo_keys
+  survey_df <- if (length(svy_codes)) {
+    s <- as.data.frame(lapply(unname(svy_codes), function(c)
+      .fg_decode_col(raw_lab[[c]], na_strings)), stringsAsFactors = FALSE)
+    names(s) <- svy_keys; s
   } else NULL
 
-  # Sample rows (respect package seed option). No seed configured -> leave the
-  # RNG alone; `set.seed(NULL)` is invalid and was the previous bug.
-  seed_val <- getOption("focusgroup.seed", NA_integer_)
-  if (!is.null(seed_val) && !is.na(seed_val)) set.seed(seed_val)
-  take <- seq_len(min(n_participants, nrow(demo_df)))
-  if (nrow(demo_df) > n_participants) take <- sample.int(nrow(demo_df), n_participants)
-  
-  demo_sample <- demo_df[take, , drop = FALSE]
-  survey_sample <- if (!is.null(survey_df)) survey_df[take, , drop = FALSE] else NULL
+  # Keep respondents with at least one demographic; the row filter is applied to
+  # this SAME frame so demographics and survey answers never misalign.
+  keep <- rowSums(!is.na(demo_df)) > 0
+  weights_vec <- if (is.character(weights) && length(weights) == 1L &&
+                     weights %in% names(raw_lab)) {
+    suppressWarnings(as.numeric(haven::zap_labels(raw_lab[[weights]])))
+  } else weights
+  demo_df <- demo_df[keep, , drop = FALSE]
+  if (!is.null(survey_df)) survey_df <- survey_df[keep, , drop = FALSE]
+  if (!is.null(weights_vec) && length(weights_vec) == length(keep)) weights_vec <- weights_vec[keep]
 
-  # Create agents with these demographics
-  agents <- create_diverse_agents(
-    n_participants = n_participants,
-    demographics = demo_sample,
-    survey_responses = survey_sample,
-    llm_config = llm_config
-  )
+  .fg_agents_from_frames(demo_df, survey_df, n_participants, llm_config,
+                         rows = rows, weights = weights_vec)
+}
 
-  agents
+#' Create agents from an in-memory data frame of respondents
+#'
+#' Like [create_agents_from_survey()] but starting from a data frame already in
+#' memory (for example [anes_2024_personas]). Demographic columns are rendered as
+#' background; the remaining columns are rendered as survey responses, keyed by
+#' their column names. Values are taken as-is (decode and clean them first if
+#' they are still coded).
+#'
+#' @param data A data frame, one respondent per row.
+#' @param n_participants Integer number of participants (excludes the moderator).
+#' @param demographic_cols Character vector of columns to render as demographics.
+#'   Defaults to the `data`'s `"demographic_fields"` attribute when present, else
+#'   a small set of common demographic column names found in `data`.
+#' @param rows,weights See [create_agents_from_survey()].
+#' @param llm_config Optional `LLMR::llm_config` for all agents.
+#' @return A list of `FGAgent` objects (participants + moderator).
+#' @examples
+#' \dontrun{
+#' data(anes_2024_personas)
+#' agents <- create_agents_from_data(anes_2024_personas, n_participants = 6)
+#' }
+#' @export
+create_agents_from_data <- function(data, n_participants,
+                                    demographic_cols = NULL,
+                                    rows = NULL, weights = NULL,
+                                    llm_config = NULL) {
+  stopifnot(is.data.frame(data))
+  if (is.null(llm_config)) llm_config <- default_llmr_config()
+
+  if (is.null(demographic_cols)) {
+    demographic_cols <- attr(data, "demographic_fields")
+  }
+  if (is.null(demographic_cols)) {
+    common <- c("age", "sex", "gender", "education", "race/ethnicity", "race",
+                "marital status", "household income", "income", "religion",
+                "census region", "region", "community type", "employment status",
+                "home ownership", "children in household", "union household",
+                "military service", "attention to politics")
+    demographic_cols <- intersect(common, names(data))
+  }
+  demographic_cols <- intersect(demographic_cols, names(data))
+  # a score/sort column is not a persona fact
+  drop_cols <- intersect(c("ideology_score"), names(data))
+  survey_cols <- setdiff(names(data), c(demographic_cols, drop_cols))
+
+  to_char <- function(df) as.data.frame(lapply(df, function(x) {
+    v <- as.character(x); v[!nzchar(v %||% "")] <- NA; v
+  }), stringsAsFactors = FALSE, check.names = FALSE)
+
+  # Render with the human question wording, not the tidy column handle, when the
+  # data carries a dictionary (handle -> question). Handles stay the column names
+  # so dplyr select()/filter() work; the persona text reads naturally.
+  dict <- attr(data, "dictionary")
+  relabel <- function(cols) {
+    if (is.null(dict) || !all(c("handle", "question") %in% names(dict))) return(cols)
+    q <- dict$question[match(cols, dict$handle)]
+    ifelse(is.na(q), cols, q)
+  }
+
+  demo_df <- to_char(data[, demographic_cols, drop = FALSE])
+  names(demo_df) <- relabel(demographic_cols)
+  survey_df <- if (length(survey_cols)) {
+    s <- to_char(data[, survey_cols, drop = FALSE])
+    names(s) <- relabel(survey_cols); s
+  } else NULL
+
+  wv <- if (is.character(weights) && length(weights) == 1L && weights %in% names(data)) {
+    suppressWarnings(as.numeric(data[[weights]]))
+  } else weights
+
+  .fg_agents_from_frames(demo_df, survey_df, n_participants, llm_config,
+                         rows = rows, weights = wv)
 }
 
  

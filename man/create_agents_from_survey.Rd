@@ -2,49 +2,76 @@
 % Please edit documentation in R/convenience_wrappers.R
 \name{create_agents_from_survey}
 \alias{create_agents_from_survey}
-\title{Create agents from haven-coded survey data}
+\title{Create agents from a labeled survey file}
 \usage{
 create_agents_from_survey(
   n_participants,
   survey_path,
   demographic_vars = NULL,
   survey_vars = NULL,
+  rows = NULL,
+  weights = NULL,
+  na_strings = .fg_default_na_strings,
   llm_config = NULL
 )
 }
 \arguments{
 \item{n_participants}{Integer number of participants (excludes the moderator).}
 
-\item{survey_path}{Character path to survey file (e.g., .dta, .sav files)}
+\item{survey_path}{Path to the survey file (`.dta`, `.sav`, or `.sas7bdat`).}
 
-\item{demographic_vars}{Character vector of variable names to use as demographics.
-If NULL, attempts to auto-detect common demographic variables.}
+\item{demographic_vars}{Variable names (codes) to render as demographics.
+May be a named vector, in which case the names are shown as the field
+labels. If `NULL`, common demographic variables are auto-detected by their
+labels.}
 
-\item{survey_vars}{Character vector of variable names to use as survey responses.
-If NULL, auto-detects by variable labels or names. No dataset is hardcoded.}
+\item{survey_vars}{Variable names (codes) to render as survey responses. May
+be named (names become the question wording shown). If `NULL`, labeled
+variables that are not demographics are used.}
 
-\item{llm_config}{Optional `LLMR::llm_config` for all agents. If `NULL`, a small OpenAI config is created.}
+\item{rows}{Optional row selector restricting the eligible respondents before
+sampling: an integer or logical vector, or a predicate
+`function(df) -> logical` over the decoded demographics frame.}
+
+\item{weights}{Optional sampling weights: a column name in the file, or a
+numeric vector aligned to the file's rows. Used only to weight which
+respondents are drawn.}
+
+\item{na_strings}{Character vector of value-label substrings treated as
+missing (case-insensitive). Defaults to a small common set; pass your own to
+match another file's missing-data vocabulary.}
+
+\item{llm_config}{Optional `LLMR::llm_config` for all agents.}
 }
 \value{
 A list of `FGAgent` objects (participants + moderator).
 }
 \description{
-Builds a set of `FGAgent`s by sampling rows from a haven-coded survey file
-and turning labeled variables into demographics/survey-responses driven personas.
-Works with any Stata (.dta), SPSS (.sav), or SAS files that have variable labels.
+Reads a labeled survey file (Stata `.dta`, SPSS `.sav`, or SAS
+`.sas7bdat`), decodes the chosen variables from their value labels, and turns
+each selected respondent into an `FGAgent` whose persona states that
+respondent's demographics and survey answers. Numeric codes are decoded from
+the file's own value labels, so the same call works on ANES, GSS, WVS, or any
+other labeled file; nothing about a particular dataset is hard-coded.
+}
+\details{
+The survey answers are keyed by each variable's question wording (its label in
+the file) so the model sees the item, not a code name. The persona draws no
+inferences from the answers; it states them and lets the model interpret.
 }
 \examples{
 \dontrun{
-# Use ANES data
-anes_path <- "path/to/anes_timeseries_2024_stata.dta"
-agents <- create_agents_from_survey(6, anes_path)
-
-# Specify particular variables
 agents <- create_agents_from_survey(
-  n_participants = 4,
-  survey_path = anes_path,
-  demographic_vars = c("age", "gender", "education", "race"),
-  survey_vars = c("party_id", "ideology", "vote_intent")
+  n_participants = 6,
+  survey_path = "anes_timeseries_2024_stata.dta",
+  demographic_vars = c(age = "V241458x", education = "V241465x"),
+  survey_vars = c("Party identification" = "V241227x",
+                  "Ideology" = "V241177"),
+  rows = function(df) df$age != "18-24"   # exclude the youngest band
 )
 }
+}
+\seealso{
+[create_agents_from_data()] for an in-memory data frame, and
+  [anes_2024_personas] for a ready-made example.
 }

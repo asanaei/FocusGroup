@@ -215,7 +215,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
           if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
         }
       }
-      if (verbose && simulation_active) cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
+      # The loop exits one of two ways: the max_turns branch above breaks with
+      # simulation_active still TRUE (and prints its own line), or advance_turn
+      # returns FALSE and sets simulation_active to FALSE. The latter is the
+      # normal close (script exhausted or moderator ended), so announce it here.
+      if (verbose && !simulation_active) cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
 
       # Final summary of the entire discussion
       if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")

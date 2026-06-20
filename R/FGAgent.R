@@ -219,8 +219,14 @@ FGAgent <- R6::R6Class("FGAgent",
         utterance_text <- trimws(original_text)
       }
 
-      # Fallback: if the utterance is empty or clearly incomplete, request a complete response once
-      is_incomplete <- nchar(utterance_text) < 40 || grepl("\\.\\.\\.$", utterance_text) || !grepl("[.!?]$", utterance_text)
+      # Fallback: retry once only when the model was actually cut off, returned
+      # nothing, or trailed off mid-thought. A short, well-formed answer ("I
+      # agree.") is normal in a discussion and is left alone; padding it would
+      # make the transcript read artificially.
+      first_finish <- LLMR::finish_reason(final_response_obj) %||% NA_character_
+      is_incomplete <- !nzchar(trimws(utterance_text)) ||
+        identical(first_finish, "length") ||
+        grepl("\\.\\.\\.\\s*$", utterance_text)
       if (is_incomplete) {
         complete_cue <- paste0(
           "Important: your prior output was incomplete. Now provide a complete, ",
@@ -242,7 +248,7 @@ FGAgent <- R6::R6Class("FGAgent",
         )
         cand <- trimws(as.character(response_obj2))
         cand <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cand, ignore.case = TRUE)
-        if (nchar(cand) >= max(nchar(utterance_text), 40)) {
+        if (nzchar(cand) && nchar(cand) >= nchar(utterance_text)) {
           utterance_text <- cand
           u2 <- LLMR::tokens(response_obj2)
           agg_sent <- agg_sent + (u2$sent %||% 0L)
