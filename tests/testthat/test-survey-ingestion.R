@@ -76,35 +76,18 @@ test_that("the `rows` predicate restricts the eligible pool", {
   expect_true(all(ages == "55+"))
 })
 
-test_that("create_agents_from_data works on the shipped ANES personas", {
-  skip_if_not(exists("anes_2024_personas"))
-  data(anes_2024_personas, package = "FocusGroup")
+test_that("create_agents_from_data works on the shared LLMR persona dataset", {
+  skip_if_not_installed("LLMR")
+  data(anes_2024_personas, package = "LLMR")
   cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
   ag <- create_agents_from_data(anes_2024_personas, n_participants = 5, llm_config = cfg)
   expect_length(ag, 6L)
   p <- Filter(function(a) !isTRUE(a$is_moderator), ag)[[1]]
-  # the persona carries both demographic background and survey answers
+  # the persona carries both demographic background and survey answers, with the
+  # question wording (from the frame's dictionary), not the tidy handles
   expect_true(nchar(p$persona_description) > 200)
   expect_true(grepl("Background:", p$persona_description))
   expect_true(grepl("Question:", p$persona_description))
 })
 
-test_that("the shipped dataset is well-formed and carries no respondent ids", {
-  skip_if_not(exists("anes_2024_personas"))
-  data(anes_2024_personas, package = "FocusGroup")
-  expect_s3_class(anes_2024_personas, "data.frame")
-  expect_equal(nrow(anes_2024_personas), 100L)
-  expect_false(any(grepl("V240001|case ?id|respondent ?id",
-                         names(anes_2024_personas), ignore.case = TRUE)))
-  expect_true(length(attr(anes_2024_personas, "demographic_fields")) >= 10)
-  # rows are ordered by the ideology score (low = liberal, high = conservative)
-  expect_true("ideology_score" %in% names(anes_2024_personas))
-  expect_false(is.unsorted(anes_2024_personas$ideology_score))
-  # no leftover ANES admin codes survived the decode (the numeric score column,
-  # whose negative values look like "-1.6", is not a label and is excluded)
-  label_cols <- setdiff(names(anes_2024_personas), "ideology_score")
-  vals <- unique(unlist(lapply(anes_2024_personas[label_cols], unique)))
-  vals <- vals[!is.na(vals)]
-  expect_false(any(grepl("^-[0-9]+\\.\\s|inapplicable|refused|dk/rf", vals,
-                         ignore.case = TRUE)))
-})
+# (The dataset's own shape/provenance is tested in LLMR, its home package.)

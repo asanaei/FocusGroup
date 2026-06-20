@@ -900,7 +900,7 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'
 #' @return A list of `FGAgent` objects (participants + moderator).
 #' @seealso [create_agents_from_data()] for an in-memory data frame, and
-#'   [anes_2024_personas] for a ready-made example.
+#'   `LLMR::anes_2024_personas` for a ready-made example.
 #' @examples
 #' \dontrun{
 #' agents <- create_agents_from_survey(
@@ -989,10 +989,11 @@ create_agents_from_survey <- function(n_participants,
 #' Create agents from an in-memory data frame of respondents
 #'
 #' Like [create_agents_from_survey()] but starting from a data frame already in
-#' memory (for example [anes_2024_personas]). Demographic columns are rendered as
-#' background; the remaining columns are rendered as survey responses, keyed by
-#' their column names. Values are taken as-is (decode and clean them first if
-#' they are still coded).
+#' memory (for example `LLMR::anes_2024_personas`). Demographic columns are
+#' rendered as background; the remaining columns are rendered as survey responses,
+#' keyed by their question wording when the frame carries a `dictionary` attribute
+#' (see [LLMR::llm_persona_split()]), else by their column names. Values are taken
+#' as-is (decode and clean them first if they are still coded).
 #'
 #' @param data A data frame, one respondent per row.
 #' @param n_participants Integer number of participants (excludes the moderator).
@@ -1004,7 +1005,7 @@ create_agents_from_survey <- function(n_participants,
 #' @return A list of `FGAgent` objects (participants + moderator).
 #' @examples
 #' \dontrun{
-#' data(anes_2024_personas)
+#' data(anes_2024_personas, package = "LLMR")
 #' agents <- create_agents_from_data(anes_2024_personas, n_participants = 6)
 #' }
 #' @export

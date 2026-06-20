@@ -1,3 +1,13 @@
+# FocusGroup 0.5.0
+
+* The example persona dataset now lives in LLMR (`LLMR::anes_2024_personas`), the
+  shared home for the family, rather than being bundled here. `create_agents_from_data()`
+  reads it via the shared persona-frame contract; examples use
+  `data(anes_2024_personas, package = "LLMR")`. FocusGroup no longer ships the
+  dataset (no functional change to how you build agents from it).
+* The Run tab's persona picker is now the shared `LLMR.shiny` persona selector
+  module, so the same selectable table is used by other family GUIs.
+
 # FocusGroup 0.4.0
 
 * Bundled example data `anes_2024_personas`: 100 participant profiles derived

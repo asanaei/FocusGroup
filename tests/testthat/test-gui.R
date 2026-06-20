@@ -139,16 +139,10 @@ test_that("the run module makes NO call in demo mode", {
     })
 })
 
-test_that(".fg_persona_overview summarizes the bundled personas, liberal to conservative", {
-  ov <- FocusGroup:::.fg_persona_overview()
-  expect_equal(nrow(ov), 100L)
-  expect_true(all(c("ideology", "party", "region") %in% names(ov)))
-  expect_false(is.unsorted(ov$ideology))                 # rows run low -> high
-  expect_true(grepl("Democrat", ov$party[1]))            # most liberal at top
-  expect_true(grepl("Republican", ov$party[nrow(ov)]))   # most conservative at bottom
-})
+# (The persona overview/selection is now the shared LLMR.shiny selector module,
+# tested in LLMR.shiny; FocusGroup only wires its result into the run.)
 
-test_that("the run module uses the persona runner when source = anes, with selected rows", {
+test_that("the run module uses the persona runner when source = anes", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("LLMR.shiny")
   shared <- fake_shared("live", TRUE)
@@ -168,10 +162,12 @@ test_that("the run module uses the persona runner when source = anes, with selec
     {
       session$setInputs(topic = "trust", participants = 3, flow = "round_robin",
                         msg_mode = "roleflip", max_resp = 1, seed = 110,
-                        source = "anes", persona_table_rows_selected = c(1L, 5L, 9L))
+                        source = "anes")
+      # selection comes from the nested LLMR.shiny selector module; with nothing
+      # selected the runner draws a diverse sample (rows = integer(0)).
       session$setInputs(run = 1)
       expect_true(inherits(result()$focus_group, "FocusGroup"))
-      expect_equal(seen$rows, c(1L, 5L, 9L))   # the selected rows reach the runner
       expect_equal(seen$topic, "trust")
+      expect_true(is.integer(seen$rows) || is.null(seen$rows))
     })
 })

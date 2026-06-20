@@ -73,5 +73,5 @@ agents <- create_agents_from_survey(
 }
 \seealso{
 [create_agents_from_data()] for an in-memory data frame, and
-  [anes_2024_personas] for a ready-made example.
+  `LLMR::anes_2024_personas` for a ready-made example.
 }

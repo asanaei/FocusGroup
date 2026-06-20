@@ -31,14 +31,15 @@ A list of `FGAgent` objects (participants + moderator).
 }
 \description{
 Like [create_agents_from_survey()] but starting from a data frame already in
-memory (for example [anes_2024_personas]). Demographic columns are rendered as
-background; the remaining columns are rendered as survey responses, keyed by
-their column names. Values are taken as-is (decode and clean them first if
-they are still coded).
+memory (for example `LLMR::anes_2024_personas`). Demographic columns are
+rendered as background; the remaining columns are rendered as survey responses,
+keyed by their question wording when the frame carries a `dictionary` attribute
+(see [LLMR::llm_persona_split()]), else by their column names. Values are taken
+as-is (decode and clean them first if they are still coded).
 }
 \examples{
 \dontrun{
-data(anes_2024_personas)
+data(anes_2024_personas, package = "LLMR")
 agents <- create_agents_from_data(anes_2024_personas, n_participants = 6)
 }
 }

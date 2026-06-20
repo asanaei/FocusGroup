@@ -7,7 +7,7 @@
 # survey file instead, see create_agents_from_survey().
 
 library(FocusGroup)
-data(anes_2024_personas)
+data(anes_2024_personas, package = "LLMR")
 
 cfg <- LLMR::llm_config("openai", "gpt-4o-mini")   # any LLMR provider works
 

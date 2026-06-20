@@ -112,28 +112,8 @@ run_focus_studio <- function(...) {
 
 # ---- ANES persona helpers (for the Run tab's participant picker) ------------
 
-# A compact, human-readable view of the bundled personas for the selectable
-# table: the ideology score plus a few key fields, looked up via the dictionary
-# so the columns read naturally regardless of the tidy handles.
-.fg_persona_overview <- function(data = NULL) {
-  data <- data %||% get("anes_2024_personas", envir = asNamespace("FocusGroup"))
-  dict <- attr(data, "dictionary")
-  by_q <- function(q) {
-    if (is.null(dict)) return(NULL)
-    h <- dict$handle[match(q, dict$question)]
-    if (length(h) && !is.na(h) && h %in% names(data)) data[[h]] else NULL
-  }
-  out <- data.frame(
-    ideology = data$ideology_score,
-    party    = by_q("Party identification") %||% NA,
-    ideology_self = by_q("Liberal-conservative self-placement") %||% NA,
-    age      = by_q("age") %||% NA,
-    race     = by_q("race/ethnicity") %||% NA,
-    region   = by_q("census region") %||% NA,
-    religion = by_q("religion") %||% NA,
-    stringsAsFactors = FALSE)
-  out
-}
+# The example personas frame, from LLMR (the shared home).
+.fg_personas <- function() LLMR::anes_2024_personas
 
 # Build agents from chosen persona rows and run a focus group, returning the same
 # shape fg_quick() does so the Run tab renders it identically. `rows` are row
@@ -141,7 +121,7 @@ run_focus_studio <- function(...) {
 .fg_run_from_personas <- function(topic, participants, rows, flow, msg_mode,
                                    seed, max_participant_responses,
                                    model_config, data = NULL) {
-  data <- data %||% get("anes_2024_personas", envir = asNamespace("FocusGroup"))
+  data <- data %||% .fg_personas()
   chosen <- if (length(rows)) data[rows, , drop = FALSE] else data
   n <- if (length(rows)) length(rows) else participants
 
@@ -221,7 +201,7 @@ run_focus_studio <- function(...) {
             condition = sprintf("input['%s'] == 'anes'", ns("source")),
             shiny::tags$p(class = "text-muted small",
               "Pick rows to use as participants (click to toggle; the list runs from most liberal at the top to most conservative at the bottom). Select none to draw a diverse sample automatically."),
-            DT::DTOutput(ns("persona_table"))),
+            LLMR.shiny::persona_selector_ui(ns("personas"))),
           shiny::fluidRow(
             shiny::column(4, shiny::selectInput(ns("flow"), "Turn-taking flow",
               choices = c("round_robin", "desire_based", "probabilistic"),
@@ -244,19 +224,9 @@ run_focus_studio <- function(...) {
 
     output$err <- shiny::renderUI(err())
 
-    # The selectable persona table (ANES source). Rows already run liberal ->
-    # conservative; multi-select with click toggling, keyboard-navigable.
-    output$persona_table <- DT::renderDT({
-      ov <- .fg_persona_overview()
-      ov$ideology <- round(ov$ideology, 2)
-      DT::datatable(
-        ov, selection = "multiple", rownames = TRUE,
-        colnames = c("row" = 1),
-        options = list(pageLength = 8, scrollX = TRUE, scrollY = "240px",
-                       lengthChange = FALSE, searchHighlight = TRUE))
-    }, server = TRUE)
-
-    persona_rows <- shiny::reactive(input$persona_table_rows_selected %||% integer(0))
+    # The selectable persona table is the shared LLMR.shiny module: rows run
+    # liberal -> conservative, multi-select, returning the chosen row indices.
+    persona_rows <- LLMR.shiny::persona_selector_server("personas", .fg_personas())
 
     # A rough live-call estimate so the user is not surprised by the bill.
     output$cost_note <- shiny::renderUI({

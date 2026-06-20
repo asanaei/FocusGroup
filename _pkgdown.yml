@@ -55,9 +55,6 @@ reference:
       - create_agents_from_survey
       - create_agents_from_data
       - create_conversation_flow
-  - title: Example data
-    contents:
-      - anes_2024_personas
   - title: Prompts & Utilities
     contents:
       - get_default_prompt_templates
