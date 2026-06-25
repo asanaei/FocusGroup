@@ -163,6 +163,12 @@ format_conversation_history <- function(conversation_log,
 }
 
 
+# Retry budget for desire scoring when the first reply is empty or length-
+# truncated. Reasoning models can exhaust a small budget on hidden reasoning
+# before emitting the single integer; 256 output tokens lets it surface. Used
+# only on the retry, so ordinary models never pay it.
+.fg_desire_retry_tokens <- 256L
+
 # ---- Token & parsing utilities ---------------------------------------------
 
 #' Estimate tokens from text (rough)
@@ -197,19 +203,18 @@ extract_token_counts <- function(response_obj) {
 
   if (!is.list(response_obj)) return(empty_usage)
 
-  sent <- response_obj$sent %||%
-    response_obj$sent_tokens %||%
-    response_obj$prompt_tokens %||%
-    response_obj$input_tokens %||%
-    0L
-  rec <- response_obj$rec %||%
-    response_obj$rec_tokens %||%
-    response_obj$completion_tokens %||%
-    response_obj$output_tokens %||%
-    0L
-  tot <- response_obj$total %||%
-    response_obj$total_tokens %||%
-    NA_integer_
+  # Read a field by name across the candidate aliases, taking the first that is
+  # present. Accessing a missing column with `$` on a tibble warns ("Unknown or
+  # uninitialised column"); checking names() first avoids that for the
+  # broadcast/parallel data-frame path while behaving identically for a plain list.
+  nm <- names(response_obj)
+  pick <- function(aliases, default = 0L) {
+    for (a in aliases) if (a %in% nm) return(response_obj[[a]])
+    default
+  }
+  sent <- pick(c("sent", "sent_tokens", "prompt_tokens", "input_tokens"))
+  rec  <- pick(c("rec", "rec_tokens", "completion_tokens", "output_tokens"))
+  tot  <- pick(c("total", "total_tokens"), NA_integer_)
 
   sent <- sum(suppressWarnings(as.integer(sent)), na.rm = TRUE)
   rec <- sum(suppressWarnings(as.integer(rec)), na.rm = TRUE)
@@ -219,12 +224,18 @@ extract_token_counts <- function(response_obj) {
 }
 
 #' Parse a 0-10 integer score from free text
+#'
+#' Takes the LAST integer in the reply, not the first. Models often echo the
+#' scale label ("Desire to talk score (0-10): 8") or reason before answering, so
+#' the first number is frequently the "0" or "10" of the range rather than the
+#' score. The actual answer comes last.
 #' @keywords internal
 parse_score_0_10 <- function(text) {
   txt <- as.character(text)[1]
-  m <- regexpr("\\b(10|[0-9])\\b", txt, perl = TRUE)
-  if (m[1] == -1) return(0L)
-  val <- as.integer(regmatches(txt, m)[[1]])
+  if (is.na(txt)) return(0L)
+  hits <- regmatches(txt, gregexpr("\\b(10|[0-9])\\b", txt, perl = TRUE))[[1]]
+  if (!length(hits)) return(0L)
+  val <- as.integer(hits[length(hits)])
   if (is.na(val)) return(0L)
   max(0L, min(10L, val))
 }

@@ -309,7 +309,10 @@ FGAgent <- R6::R6Class("FGAgent",
 
       current_call_config <- self$model_config
       current_call_config$model_params$max_tokens <- max_tokens_desire
-      current_call_config$model_params$temperature <- 0.1
+      # Do not inject a temperature for desire scoring: some reasoning models
+      # require their native temperature (e.g. 1) and the score is a single
+      # integer, so the caller's sampling setting is left untouched.
+      current_call_config$model_params$temperature <- NULL
 
       # Desire scoring is still an agent-perspective judgment: if it reads its own
       # prior turns as external "SpeakerID:" text it can misjudge novelty. Role-
@@ -329,17 +332,34 @@ FGAgent <- R6::R6Class("FGAgent",
                                                 self_state = NULL)
       }
 
-      response_obj <- LLMR::call_llm_robust(
-        config = current_call_config,
-        messages = desire_msgs,
-        tries = 5,
-        wait_seconds = 2,
-        backoff_factor = 3
-      )
+      score_once <- function(cfg) {
+        ro <- LLMR::call_llm_robust(
+          config = cfg, messages = desire_msgs,
+          tries = 5, wait_seconds = 2, backoff_factor = 3
+        )
+        u <- LLMR::tokens(ro)
+        self$tokens_sent_agent <- self$tokens_sent_agent + (u$sent %||% 0L)
+        self$tokens_received_agent <- self$tokens_received_agent + (u$rec %||% 0L)
+        ro
+      }
+
+      response_obj <- score_once(current_call_config)
       response_text <- as.character(response_obj)
-      u <- LLMR::tokens(response_obj)
-      self$tokens_sent_agent <- self$tokens_sent_agent + (u$sent %||% 0L)
-      self$tokens_received_agent <- self$tokens_received_agent + (u$rec %||% 0L)
+
+      # A reasoning model can spend the whole token budget on hidden reasoning and
+      # return an empty (or length-truncated) reply, which would silently score 0
+      # and flatten turn selection. When that happens, retry once with a generous
+      # budget so the visible integer can emerge. Costs nothing for ordinary
+      # models, which answer within the default budget on the first call.
+      truncated <- identical(tryCatch(LLMR::finish_reason(response_obj),
+                                       error = function(...) NA_character_), "length")
+      if ((!nzchar(trimws(response_text)) || truncated) &&
+          max_tokens_desire < .fg_desire_retry_tokens) {
+        retry_cfg <- current_call_config
+        retry_cfg$model_params$max_tokens <- .fg_desire_retry_tokens
+        response_obj <- score_once(retry_cfg)
+        response_text <- as.character(response_obj)
+      }
 
       # Try to parse a number from 0-10. More robust parsing.
       sc <- parse_score_0_10(response_text)

@@ -346,23 +346,32 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         }
       }
 
-      # Broadcast one homogeneous group; returns TRUE if it scored them.
+      # Broadcast one homogeneous group. Returns the ids it could NOT score (an
+      # empty character vector means all scored). A reply that is empty or
+      # length-truncated is reported as unscored rather than scored 0, so the
+      # caller re-scores it on the per-agent path (which retries at a larger
+      # budget). The desire budget follows the configured `max_tokens_desire`,
+      # and no temperature is injected (some reasoning models need their native
+      # value; the score is a single integer).
       broadcast_group <- function(ids) {
         cfg <- self$agents[[ids[1]]]$model_config
-        cfg$model_params$max_tokens <- 16
-        cfg$model_params$temperature <- 0.1
+        cfg$model_params$max_tokens <- focus_group$max_tokens_desire
+        cfg$model_params$temperature <- NULL
         out <- tryCatch(
           LLMR::call_llm_broadcast(config = cfg, messages = lapply(ids, build_desire_msg),
                                    tries = 5, wait_seconds = 2, backoff_factor = 3,
                                    progress = FALSE),
           error = function(...) NULL)
-        if (is.null(out) || is.null(out$success) || is.null(out$response_text)) return(FALSE)
+        if (is.null(out) || is.null(out$success) || is.null(out$response_text)) return(ids)
+        unscored <- character(0)
         for (i in seq_along(ids)) {
-          desire_scores[ids[[i]]] <<- if (isTRUE(out$success[i]))
-            parse_score_0_10(out$response_text[i]) else 0L
+          txt <- out$response_text[i]
+          scored <- isTRUE(out$success[i]) && nzchar(trimws(txt %||% ""))
+          if (scored) desire_scores[ids[[i]]] <<- parse_score_0_10(txt)
+          else unscored <- c(unscored, ids[[i]])
         }
         record_group_usage(out, ids)
-        TRUE
+        unscored
       }
 
       if (length(eligible_ids) > 0) {
@@ -381,7 +390,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
           # below. Only when EVERY group fails do we drop to the full per-agent
           # path (and relabel the mode accordingly).
           failed_ids <- character(0)
-          for (g in groups) if (!broadcast_group(g)) failed_ids <- c(failed_ids, g)
+          for (g in groups) failed_ids <- c(failed_ids, broadcast_group(g))
           used_broadcast <- length(failed_ids) < length(eligible_ids)
           if (used_broadcast && length(failed_ids)) score_per_agent(failed_ids)
         }

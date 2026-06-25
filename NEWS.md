@@ -1,3 +1,20 @@
+# FocusGroup 0.5.1
+
+* Desire-based turn-taking is fixed for reasoning models. The score parser took
+  the first integer in a reply, so a model that echoed the scale label ("Desire
+  to talk score (0-10): 8") was read as the leading "0", collapsing every desire
+  score to zero and flattening speaker selection. It now reads the last integer.
+* Desire scoring follows the configured `max_tokens_desire` on the broadcast path
+  (it was a hardcoded 16), and a reply that comes back empty or length-truncated
+  is retried once at a larger budget rather than scored zero. A reasoning model
+  can spend a small budget entirely on hidden reasoning before the visible
+  integer; the retry lets it surface. Ordinary models answer on the first call
+  and are unaffected.
+* No temperature is injected into desire scoring. Some reasoning models expect
+  their native temperature, and the score is a single integer.
+* Token accounting no longer emits spurious "Unknown or uninitialised column"
+  warnings when reading usage from a broadcast result.
+
 # FocusGroup 0.5.0
 
 * The example persona dataset now lives in LLMR (`LLMR::anes_2024_personas`), the
