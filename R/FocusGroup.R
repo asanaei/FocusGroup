@@ -396,7 +396,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
               )
               part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
               part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()
-              private$log_message(next_participant$id, part_text, turn_number = NULL, is_moderator = FALSE, phase = current_phase_name, meta = part_meta)
+              # Participants log under the same round number as the moderator
+              # turn they answer (turn_number = NULL would fall back to the log
+              # position, mixing two numbering schemes in one log).
+              private$log_message(next_participant$id, part_text, turn_number = current_turn_number, is_moderator = FALSE, phase = current_phase_name, meta = part_meta)
               if (verbose) cat(paste0(next_participant$id, ": ", part_text, "\n"))
 
               self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
