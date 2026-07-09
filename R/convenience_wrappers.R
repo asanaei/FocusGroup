@@ -685,27 +685,31 @@ analyze_focus_group <- function(focus_group_result,
 #' @keywords internal
 generate_diverse_demographics <- function(n) {
   seed_val <- getOption("focusgroup.seed", NA_integer_)
-  if (!is.na(seed_val)) set.seed(seed_val)
-  ages <- sample(18:65, n, replace = TRUE)
-  genders <- sample(c("Male", "Female", "Nonbinary"), n, replace = TRUE, prob = c(0.49, 0.49, 0.02))
+  build <- function() {
+    ages <- sample(18:65, n, replace = TRUE)
+    genders <- sample(c("Male", "Female", "Nonbinary"), n, replace = TRUE, prob = c(0.49, 0.49, 0.02))
 
-  education_levels <- c("High School", "Some College", "Bachelor's", "Master's", "PhD")
-  education <- sample(education_levels, n, replace = TRUE, prob = c(0.2, 0.2, 0.35, 0.2, 0.05))
+    education_levels <- c("High School", "Some College", "Bachelor's", "Master's", "PhD")
+    education <- sample(education_levels, n, replace = TRUE, prob = c(0.2, 0.2, 0.35, 0.2, 0.05))
 
-  income_levels <- c("Under $30k", "$30k-$50k", "$50k-$75k", "$75k-$100k", "Over $100k")
-  income <- sample(income_levels, n, replace = TRUE, prob = c(0.15, 0.25, 0.25, 0.20, 0.15))
+    income_levels <- c("Under $30k", "$30k-$50k", "$50k-$75k", "$75k-$100k", "Over $100k")
+    income <- sample(income_levels, n, replace = TRUE, prob = c(0.15, 0.25, 0.25, 0.20, 0.15))
 
-  locations <- c("Urban", "Suburban", "Rural")
-  location <- sample(locations, n, replace = TRUE, prob = c(0.4, 0.4, 0.2))
+    locations <- c("Urban", "Suburban", "Rural")
+    location <- sample(locations, n, replace = TRUE, prob = c(0.4, 0.4, 0.2))
 
-  data.frame(
-    age = ages,
-    gender = genders,
-    education = education,
-    income = income,
-    location = location,
-    stringsAsFactors = FALSE
-  )
+    data.frame(
+      age = ages,
+      gender = genders,
+      education = education,
+      income = income,
+      location = location,
+      stringsAsFactors = FALSE
+    )
+  }
+  # with_seed keeps the seeding contained: the draw is deterministic but the
+  # caller's RNG stream is restored afterwards.
+  if (!is.na(seed_val)) withr::with_seed(as.integer(seed_val), build()) else build()
 }
 
 #' Generate Survey Responses
@@ -860,7 +864,6 @@ generate_persona <- function(demographics, survey_responses = NULL,
   }
 
   seed_val <- getOption("focusgroup.seed", NA_integer_)
-  if (!is.null(seed_val) && !is.na(seed_val)) set.seed(seed_val)
 
   prob <- NULL
   if (!is.null(weights)) {
@@ -870,7 +873,12 @@ generate_persona <- function(demographics, survey_responses = NULL,
   }
 
   take <- if (length(idx) > n_participants) {
-    sample(idx, n_participants, prob = prob)
+    draw <- function() sample(idx, n_participants, prob = prob)
+    # with_seed keeps the seeding contained: the respondent draw is
+    # deterministic but the caller's RNG stream is restored afterwards.
+    if (!is.null(seed_val) && !is.na(seed_val)) {
+      withr::with_seed(as.integer(seed_val), draw())
+    } else draw()
   } else idx
 
   demo_sample <- demo_df[take, , drop = FALSE]
