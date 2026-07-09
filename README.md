@@ -63,7 +63,7 @@ The analysis helpers draw on a few text-mining packages:
 
 ```r
 install.packages(c("ggplot2", "quanteda", "quanteda.textstats",
-                   "topicmodels", "tidytext", "stringr"))
+                   "topicmodels", "tidytext"))
 ```
 
 Set the API key for your provider as an environment variable (for OpenAI through

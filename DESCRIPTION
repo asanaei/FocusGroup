@@ -1,6 +1,6 @@
 Package: FocusGroup
 Type: Package
-Title: Focus Group Simulation Using LLM Agents 
+Title: Focus Group Simulation Using LLM Agents
 Version: 0.5.1
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
