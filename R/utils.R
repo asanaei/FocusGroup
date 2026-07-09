@@ -29,6 +29,15 @@ default_llmr_config <- function() {
   if (is.null(x) || length(x) == 0) y else x
 }
 
+# NA-safe token count for accumulation: NULL, length-0, NA, or non-numeric all
+# collapse to 0 so a provider that reports no usage cannot poison a running
+# total (`NA %||% 0` is NA, which would propagate through every later sum).
+.fg_tok0 <- function(x) {
+  v <- suppressWarnings(as.numeric(x %||% 0))
+  v[is.na(v)] <- 0
+  sum(v)
+}
+
 # --- Formatting Helpers ---
 
 #' Format Demographics List to Text

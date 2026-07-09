@@ -72,8 +72,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param sent Integer. Prompt/input tokens.
     #' @param rec Integer. Completion/output tokens.
     record_token_usage = function(sent = 0L, rec = 0L) {
-      self$total_tokens_sent <- self$total_tokens_sent + (sent %||% 0L)
-      self$total_tokens_received <- self$total_tokens_received + (rec %||% 0L)
+      # NA-safe: unreported usage (NA) accumulates as 0 instead of poisoning
+      # the running totals.
+      self$total_tokens_sent <- self$total_tokens_sent + .fg_tok0(sent)
+      self$total_tokens_received <- self$total_tokens_received + .fg_tok0(rec)
       invisible(list(sent = self$total_tokens_sent, rec = self$total_tokens_received))
     },
 
