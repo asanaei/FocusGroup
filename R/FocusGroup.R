@@ -1155,8 +1155,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Create participation timeline plot showing cumulative turns by participant across phases.
     #' @return ggplot object
     plot_participation_timeline = function() {
+      private$require_ggplot2()
 
-      if (length(self$conversation_log) == 0) {
+      # The shared helper drops the synthetic "System" roster row.
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
         warning("No conversation data available for plotting")
         # Return an empty plot with a message
         return(ggplot2::ggplot() +
@@ -1167,25 +1170,12 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       # Create a data frame from the conversation log
       # Ensure speaker_id and phase are handled if they could be NULL (though phase defaults to "unknown")
-      # REMOVE 'System' participant
-      # Should we remove the moderator as well?
-
-      conv_df <- dplyr::bind_rows(lapply(self$conversation_log, function(x) {
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
         dplyr::tibble(
           agent_id = x$speaker_id %||% NA_character_,
           phase = x$phase %||% "unknown"
         )
-      })) %>%
-        # Filter out "System" messages as they are not typical participant turns
-        dplyr::filter(.data$agent_id != "System")
-
-      # Check if conv_df is empty *after* filtering "System"
-      if (nrow(conv_df) == 0) {
-        warning("Conversation data is empty or only contains 'System' messages after filtering. No plot generated.")
-        return(ggplot2::ggplot() +
-                 ggplot2::labs(title = "Participation Timeline", subtitle = "No valid participant data for plotting") +
-                 ggplot2::theme_void())
-      }
+      }))
 
       actual_phase_order <- unique(conv_df$phase)
       all_participants <- unique(conv_df$agent_id) # Derived from filtered data
@@ -1221,7 +1211,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Create word count distribution plot showing message length patterns.
     #' @return ggplot object
     plot_word_count_distribution = function() {
-      if (length(self$conversation_log) == 0) {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
         warning("No conversation data available for plotting")
         return(ggplot2::ggplot() +
                  ggplot2::labs(title = "Word Count Distribution",
@@ -1229,7 +1222,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
                  ggplot2::theme_void())
       }
 
-      conv_df <- dplyr::bind_rows(lapply(self$conversation_log, function(x) {
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
         dplyr::tibble(
           agent_id = x$speaker_id,
           phase = x$phase,
@@ -1259,7 +1252,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Create participation by agent plot showing total turns per participant.
     #' @return ggplot object
     plot_participation_by_agent = function() {
-      if (length(self$conversation_log) == 0) {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
         warning("No conversation data available for plotting")
         return(ggplot2::ggplot() +
                  ggplot2::labs(title = "Participation by Agent",
@@ -1267,7 +1263,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
                  ggplot2::theme_void())
       }
 
-      conv_df <- dplyr::bind_rows(lapply(self$conversation_log, function(x) {
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
         dplyr::tibble(
           agent_id = x$speaker_id,
           message = x$text
@@ -1297,7 +1293,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Create turn length timeline plot showing message length evolution over time.
     #' @return ggplot object
     plot_turn_length_timeline = function() {
-      if (length(self$conversation_log) == 0) {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
         warning("No conversation data available for plotting")
         return(ggplot2::ggplot() +
                  ggplot2::labs(title = "Turn Length Timeline",
@@ -1305,8 +1304,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
                  ggplot2::theme_void())
       }
 
-      messages <- sapply(self$conversation_log, function(x) x$text)
-      phases <- sapply(self$conversation_log, function(x) x$phase)
+      messages <- sapply(filtered_log, function(x) x$text)
+      phases <- sapply(filtered_log, function(x) x$phase)
 
       word_counts <- sapply(messages, function(x) length(strsplit(x, "\\s+")[[1]]))
       timeline_data <- data.frame(
@@ -1332,6 +1331,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
   ),
 
   private = list(
+    # Guard for the plot_* methods: ggplot2 is a Suggests, not an Import.
+    require_ggplot2 = function() {
+      if (!requireNamespace("ggplot2", quietly = TRUE)) {
+        stop("Package 'ggplot2' is required for plotting. ",
+             "Install it with install.packages(\"ggplot2\").", call. = FALSE)
+      }
+      invisible(TRUE)
+    },
+
     # Helper to get the next phase/question from the script
     get_next_phase_or_question = function() {
       if (is.null(self$question_script) || length(self$question_script) == 0) {

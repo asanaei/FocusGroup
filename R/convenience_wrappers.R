@@ -654,16 +654,21 @@ analyze_focus_group <- function(focus_group_result,
     themes = themes
   )
 
-  # Generate plots if requested
+  # Generate plots if requested (ggplot2 is a Suggests; skip with a message
+  # when it is not installed rather than failing the whole analysis)
   if (include_plots) {
-    cat("Generating visualizations...\n")
-    plots <- list(
-      participation_timeline = fg$plot_participation_timeline(),
-      word_count_distribution = fg$plot_word_count_distribution(),
-      participation_by_agent = fg$plot_participation_by_agent(),
-      turn_length_timeline = fg$plot_turn_length_timeline()
-    )
-    analysis_result$plots <- plots
+    if (requireNamespace("ggplot2", quietly = TRUE)) {
+      cat("Generating visualizations...\n")
+      plots <- list(
+        participation_timeline = fg$plot_participation_timeline(),
+        word_count_distribution = fg$plot_word_count_distribution(),
+        participation_by_agent = fg$plot_participation_by_agent(),
+        turn_length_timeline = fg$plot_turn_length_timeline()
+      )
+      analysis_result$plots <- plots
+    } else {
+      message("Package 'ggplot2' is not installed; skipping plots.")
+    }
   }
 
   cat("Analysis complete!\n")
