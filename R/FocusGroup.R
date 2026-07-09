@@ -551,11 +551,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
         speaker_stats_df <- dplyr::bind_rows(speaker_stats_df, missing_df)
       }
 
-      # Order by original agent order if possible, or alphabetically
+      # Order by original agent order if possible, or alphabetically. Keep any
+      # speaker that is not an agent (e.g. an explicitly requested "System"
+      # row) as a trailing level rather than silently turning it into NA.
       ordered_agent_ids <- intersect(all_agent_ids, speaker_stats_df$speaker_id)
       if(length(ordered_agent_ids) > 0) {
+          all_levels <- union(all_agent_ids, unique(as.character(speaker_stats_df$speaker_id)))
           speaker_stats_df <- speaker_stats_df %>%
-            dplyr::mutate(speaker_id = factor(.data$speaker_id, levels = all_agent_ids)) %>%
+            dplyr::mutate(speaker_id = factor(.data$speaker_id, levels = all_levels)) %>%
             dplyr::arrange(.data$speaker_id)
       }
 
@@ -1365,11 +1368,18 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$conversation_log <- c(self$conversation_log, list(msg))
     },
 
-    # Helper to get filtered log for analysis methods
-    get_filtered_log = function(turns = NULL, speaker_ids = NULL) {
+    # Helper to get filtered log for analysis methods. The synthetic turn-0
+    # "System" roster message is part of the prompt context, not of the
+    # conversation, so it is dropped by default: no analysis or plot should
+    # report "System" as a speaker. Explicitly requesting speaker_ids
+    # containing "System" (or include_system = TRUE) keeps it.
+    get_filtered_log = function(turns = NULL, speaker_ids = NULL, include_system = FALSE) {
       if (length(self$conversation_log) == 0) return(list())
 
       filtered_log <- self$conversation_log
+      if (!include_system && !("System" %in% (speaker_ids %||% character(0)))) {
+        filtered_log <- Filter(function(x) !identical(x$speaker_id, "System"), filtered_log)
+      }
       if (!is.null(turns)) {
         if(!is.numeric(turns)) stop("'turns' must be a numeric vector.")
         filtered_log <- Filter(function(x) x$turn %in% turns, filtered_log)
