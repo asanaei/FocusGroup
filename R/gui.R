@@ -125,24 +125,31 @@ run_focus_studio <- function(...) {
   chosen <- if (length(rows)) data[rows, , drop = FALSE] else data
   n <- if (length(rows)) length(rows) else participants
 
-  agents <- create_agents_from_data(chosen, n_participants = n,
-                                     llm_config = model_config)
-  agents <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
-  flow_obj <- create_conversation_flow(flow, agents, "MOD")
-  script <- list(
-    list(phase = "opening"),
-    list(phase = "engagement_question",
-         text = paste0("From your perspective, what matters most about ", topic, "?")),
-    list(phase = "exploration_question",
-         text = paste0("Where do you see common ground or disagreement on ", topic, "?")),
-    list(phase = "closing"))
-  fg <- FocusGroup$new(topic = topic,
-                       purpose = paste("Explore perspectives on", topic),
-                       agents = agents, moderator_id = "MOD",
-                       turn_taking_flow = flow_obj, question_script = script,
-                       max_participant_responses = max_participant_responses)
-  withr::with_options(list(focusgroup.msg_mode = msg_mode, focusgroup.seed = seed),
-                      fg$run_simulation(verbose = FALSE))
+  # focusgroup.seed must be in place BEFORE the agents are built: the diverse
+  # draw inside create_agents_from_data() reads it. Setting it only around
+  # run_simulation() would leave the seed input inert on this path.
+  fg <- withr::with_options(
+    list(focusgroup.msg_mode = msg_mode, focusgroup.seed = seed),
+    {
+      agents <- create_agents_from_data(chosen, n_participants = n,
+                                        llm_config = model_config)
+      agents <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
+      flow_obj <- create_conversation_flow(flow, agents, "MOD")
+      script <- list(
+        list(phase = "opening"),
+        list(phase = "engagement_question",
+             text = paste0("From your perspective, what matters most about ", topic, "?")),
+        list(phase = "exploration_question",
+             text = paste0("Where do you see common ground or disagreement on ", topic, "?")),
+        list(phase = "closing"))
+      fg <- FocusGroup$new(topic = topic,
+                           purpose = paste("Explore perspectives on", topic),
+                           agents = agents, moderator_id = "MOD",
+                           turn_taking_flow = flow_obj, question_script = script,
+                           max_participant_responses = max_participant_responses)
+      fg$run_simulation(verbose = FALSE)
+      fg
+    })
   tr <- if (length(fg$conversation_log))
     do.call(rbind, lapply(fg$conversation_log, function(x) data.frame(
       turn = x$turn, speaker_id = x$speaker_id, text = x$text,
