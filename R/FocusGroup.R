@@ -767,13 +767,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
         # Calculate readability measures
         readability_stats <- quanteda.textstats::textstat_readability(corpus, measure = measures)
 
-        # Convert to tibble and add speaker_id column
+        # Convert to tibble and add speaker_id column. textstat_readability()
+        # returns the corpus docnames (the speaker ids) in `document`; its
+        # rownames are just "1","2",... and must not be used as ids.
         result <- dplyr::as_tibble(readability_stats)
-        result$speaker_id <- rownames(readability_stats)
+        result$speaker_id <- as.character(result$document)
+        result$document <- NULL
 
         # Reorder columns to put speaker_id first
         result <- result %>%
-          dplyr::select(.data$speaker_id, dplyr::everything()) %>%
+          dplyr::select("speaker_id", dplyr::everything()) %>%
           dplyr::arrange(.data$speaker_id)
 
         return(result)
