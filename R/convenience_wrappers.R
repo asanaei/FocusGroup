@@ -387,12 +387,18 @@ fg_quick <- function(topic,
 fg_analyze_quick <- function(res) {
   fg <- if (inherits(res, "FocusGroup")) res else res$focus_group
   
-  # Basic conversation statistics
+  # Basic conversation statistics. The empty branch mirrors the field names of
+  # the populated branch so callers can index the result either way.
   conv_log <- fg$conversation_log
   if (length(conv_log) == 0) {
     return(list(
-      basic_stats = list(messages = 0, participants = 0, summary = "No conversation data"),
-      summary = "Empty conversation"
+      basic_stats = list(
+        total_messages = 0L,
+        participant_count = 0L,
+        avg_message_length = NA_real_,
+        total_tokens = 0L
+      ),
+      short_summary = "Empty conversation"
     ))
   }
   
