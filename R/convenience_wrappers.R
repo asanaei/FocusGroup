@@ -467,6 +467,20 @@ create_diverse_agents <- function(n_participants,
   # Default LLM config
   if (is.null(llm_config)) llm_config <- default_llmr_config()
 
+  # A data.frame with fewer rows than participants is recycled by row, openly.
+  # (Without this, the is.list() branch below would treat the frame as a list
+  # of COLUMNS and hand agent i a whole column as its persona data.)
+  if (is.data.frame(demographics) && nrow(demographics) > 0 &&
+      nrow(demographics) < n_participants) {
+    warning(sprintf("`demographics` has %d rows for %d participants; rows are recycled in order.",
+                    nrow(demographics), n_participants), call. = FALSE)
+  }
+  if (is.data.frame(survey_responses) && nrow(survey_responses) > 0 &&
+      nrow(survey_responses) < n_participants) {
+    warning(sprintf("`survey_responses` has %d rows for %d participants; rows are recycled in order.",
+                    nrow(survey_responses), n_participants), call. = FALSE)
+  }
+
   agents <- list()
 
   # Create participants
@@ -487,9 +501,9 @@ create_diverse_agents <- function(n_participants,
       out
     }
 
-    agent_demographics <- if (!is.null(demographics) && is.data.frame(demographics) && nrow(demographics) >= i) {
-      row_to_list(demographics, i)
-    } else if (!is.null(demographics) && is.list(demographics) && length(demographics) >= i) {
+    agent_demographics <- if (!is.null(demographics) && is.data.frame(demographics) && nrow(demographics) > 0) {
+      row_to_list(demographics, ((i - 1L) %% nrow(demographics)) + 1L)
+    } else if (!is.null(demographics) && !is.data.frame(demographics) && is.list(demographics) && length(demographics) >= i) {
       demographics[[i]]
     } else {
       list(
@@ -498,9 +512,9 @@ create_diverse_agents <- function(n_participants,
       )
     }
 
-    agent_survey <- if (!is.null(survey_responses) && is.data.frame(survey_responses) && nrow(survey_responses) >= i) {
-      row_to_list(survey_responses, i)
-    } else if (!is.null(survey_responses) && is.list(survey_responses) && length(survey_responses) >= i) {
+    agent_survey <- if (!is.null(survey_responses) && is.data.frame(survey_responses) && nrow(survey_responses) > 0) {
+      row_to_list(survey_responses, ((i - 1L) %% nrow(survey_responses)) + 1L)
+    } else if (!is.null(survey_responses) && !is.data.frame(survey_responses) && is.list(survey_responses) && length(survey_responses) >= i) {
       survey_responses[[i]]
     } else {
       NULL
