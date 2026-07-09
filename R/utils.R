@@ -316,13 +316,15 @@ replace_placeholders <- function(template_string, values_list) {
       placeholder_keys <- unique(gsub("\\{\\{|\\}\\}", "", unlist(placeholder_matches)))
 
       for (key in placeholder_keys) {
-        placeholder_regex <- paste0("\\{\\{", gsub("([.+?^${}()|\\[\\]\\\\])", "\\\\\\1", key, perl=TRUE), "\\}\\}") # Escape key for regex
         replacement_value <- if (key %in% names(values_list) && !is.null(values_list[[key]])) {
           as.character(values_list[[key]])
         } else {
           "" # Replace with empty string if key not in list or value is NULL
         }
-        processed_string <- gsub(placeholder_regex, replacement_value, processed_string)
+        # fixed = TRUE treats both the placeholder and the replacement literally,
+        # so backslashes or regex metacharacters in an utterance survive intact.
+        processed_string <- gsub(paste0("{{", key, "}}"), replacement_value,
+                                 processed_string, fixed = TRUE)
       }
     }
   }
@@ -341,9 +343,11 @@ replace_placeholders_known <- function(template_string, values_list) {
   processed_string <- template_string
   if (length(values_list) > 0) {
     for (key in names(values_list)) {
-      placeholder_regex <- paste0("\\{\\{", gsub("([.+?^${}()|\\[\\]\\\\])", "\\\\\\1", key, perl=TRUE), "\\}\\}")
       replacement_value <- if (!is.null(values_list[[key]])) as.character(values_list[[key]]) else ""
-      processed_string <- gsub(placeholder_regex, replacement_value, processed_string, perl = TRUE)
+      # fixed = TRUE: literal placeholder match, literal replacement (see
+      # replace_placeholders); conversation text with backslashes stays intact.
+      processed_string <- gsub(paste0("{{", key, "}}"), replacement_value,
+                               processed_string, fixed = TRUE)
     }
   }
   return(processed_string)
