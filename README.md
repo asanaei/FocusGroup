@@ -54,8 +54,7 @@ are still moving.
 ## Installation
 
 ```r
-install.packages("remotes")
-remotes::install_github("asanaei/LLMR")
+install.packages("LLMR")   # from CRAN
 remotes::install_github("asanaei/FocusGroup")
 ```
 
@@ -63,7 +62,7 @@ The analysis helpers draw on a few text-mining packages:
 
 ```r
 install.packages(c("ggplot2", "quanteda", "quanteda.textstats",
-                   "topicmodels", "tidytext", "stringr"))
+                   "topicmodels", "tidytext"))
 ```
 
 Set the API key for your provider as an environment variable (for OpenAI through

@@ -29,6 +29,15 @@ default_llmr_config <- function() {
   if (is.null(x) || length(x) == 0) y else x
 }
 
+# NA-safe token count for accumulation: NULL, length-0, NA, or non-numeric all
+# collapse to 0 so a provider that reports no usage cannot poison a running
+# total (`NA %||% 0` is NA, which would propagate through every later sum).
+.fg_tok0 <- function(x) {
+  v <- suppressWarnings(as.numeric(x %||% 0))
+  v[is.na(v)] <- 0
+  sum(v)
+}
+
 # --- Formatting Helpers ---
 
 #' Format Demographics List to Text
@@ -225,19 +234,31 @@ extract_token_counts <- function(response_obj) {
 
 #' Parse a 0-10 integer score from free text
 #'
-#' Takes the LAST integer in the reply, not the first. Models often echo the
-#' scale label ("Desire to talk score (0-10): 8") or reason before answering, so
-#' the first number is frequently the "0" or "10" of the range rather than the
-#' score. The actual answer comes last.
+#' An explicit fraction form ("8/10", "8 out of 10") states the score directly
+#' and wins outright. Otherwise scale-range mentions ("0-10", "0 to 10") are
+#' removed first, and the LAST remaining integer is taken: models often echo
+#' the scale label ("Desire to talk score (0-10): 8") or reason before
+#' answering, so the answer comes last once the range endpoints are gone.
 #' @keywords internal
 parse_score_0_10 <- function(text) {
   txt <- as.character(text)[1]
   if (is.na(txt)) return(0L)
-  hits <- regmatches(txt, gregexpr("\\b(10|[0-9])\\b", txt, perl = TRUE))[[1]]
+  clamp <- function(v) max(0L, min(10L, v))
+  # "X/10" or "X out of 10": the numerator is the score.
+  frac <- regmatches(txt, regexpr("\\b(10|[0-9])\\s*(/|out of)\\s*10\\b",
+                                  txt, ignore.case = TRUE))
+  if (length(frac) && nzchar(frac)) {
+    val <- suppressWarnings(as.integer(sub("^(10|[0-9]).*$", "\\1", frac)))
+    if (!is.na(val)) return(clamp(val))
+  }
+  # Drop scale-range mentions so their endpoints are not mistaken for the score.
+  cleaned <- gsub("\\(?\\b(10|[0-9])\\s*(-|to)\\s*(10|[0-9])\\b\\)?", " ",
+                  txt, ignore.case = TRUE)
+  hits <- regmatches(cleaned, gregexpr("\\b(10|[0-9])\\b", cleaned, perl = TRUE))[[1]]
   if (!length(hits)) return(0L)
   val <- as.integer(hits[length(hits)])
   if (is.na(val)) return(0L)
-  max(0L, min(10L, val))
+  clamp(val)
 }
 
 #' Build prompt history string for role-specific windows
@@ -295,13 +316,15 @@ replace_placeholders <- function(template_string, values_list) {
       placeholder_keys <- unique(gsub("\\{\\{|\\}\\}", "", unlist(placeholder_matches)))
 
       for (key in placeholder_keys) {
-        placeholder_regex <- paste0("\\{\\{", gsub("([.+?^${}()|\\[\\]\\\\])", "\\\\\\1", key, perl=TRUE), "\\}\\}") # Escape key for regex
         replacement_value <- if (key %in% names(values_list) && !is.null(values_list[[key]])) {
           as.character(values_list[[key]])
         } else {
           "" # Replace with empty string if key not in list or value is NULL
         }
-        processed_string <- gsub(placeholder_regex, replacement_value, processed_string)
+        # fixed = TRUE treats both the placeholder and the replacement literally,
+        # so backslashes or regex metacharacters in an utterance survive intact.
+        processed_string <- gsub(paste0("{{", key, "}}"), replacement_value,
+                                 processed_string, fixed = TRUE)
       }
     }
   }
@@ -320,9 +343,11 @@ replace_placeholders_known <- function(template_string, values_list) {
   processed_string <- template_string
   if (length(values_list) > 0) {
     for (key in names(values_list)) {
-      placeholder_regex <- paste0("\\{\\{", gsub("([.+?^${}()|\\[\\]\\\\])", "\\\\\\1", key, perl=TRUE), "\\}\\}")
       replacement_value <- if (!is.null(values_list[[key]])) as.character(values_list[[key]]) else ""
-      processed_string <- gsub(placeholder_regex, replacement_value, processed_string, perl = TRUE)
+      # fixed = TRUE: literal placeholder match, literal replacement (see
+      # replace_placeholders); conversation text with backslashes stays intact.
+      processed_string <- gsub(paste0("{{", key, "}}"), replacement_value,
+                               processed_string, fixed = TRUE)
     }
   }
   return(processed_string)

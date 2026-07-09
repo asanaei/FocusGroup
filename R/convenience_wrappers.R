@@ -387,12 +387,18 @@ fg_quick <- function(topic,
 fg_analyze_quick <- function(res) {
   fg <- if (inherits(res, "FocusGroup")) res else res$focus_group
   
-  # Basic conversation statistics
+  # Basic conversation statistics. The empty branch mirrors the field names of
+  # the populated branch so callers can index the result either way.
   conv_log <- fg$conversation_log
   if (length(conv_log) == 0) {
     return(list(
-      basic_stats = list(messages = 0, participants = 0, summary = "No conversation data"),
-      summary = "Empty conversation"
+      basic_stats = list(
+        total_messages = 0L,
+        participant_count = 0L,
+        avg_message_length = NA_real_,
+        total_tokens = 0L
+      ),
+      short_summary = "Empty conversation"
     ))
   }
   
@@ -467,6 +473,20 @@ create_diverse_agents <- function(n_participants,
   # Default LLM config
   if (is.null(llm_config)) llm_config <- default_llmr_config()
 
+  # A data.frame with fewer rows than participants is recycled by row, openly.
+  # (Without this, the is.list() branch below would treat the frame as a list
+  # of COLUMNS and hand agent i a whole column as its persona data.)
+  if (is.data.frame(demographics) && nrow(demographics) > 0 &&
+      nrow(demographics) < n_participants) {
+    warning(sprintf("`demographics` has %d rows for %d participants; rows are recycled in order.",
+                    nrow(demographics), n_participants), call. = FALSE)
+  }
+  if (is.data.frame(survey_responses) && nrow(survey_responses) > 0 &&
+      nrow(survey_responses) < n_participants) {
+    warning(sprintf("`survey_responses` has %d rows for %d participants; rows are recycled in order.",
+                    nrow(survey_responses), n_participants), call. = FALSE)
+  }
+
   agents <- list()
 
   # Create participants
@@ -487,9 +507,9 @@ create_diverse_agents <- function(n_participants,
       out
     }
 
-    agent_demographics <- if (!is.null(demographics) && is.data.frame(demographics) && nrow(demographics) >= i) {
-      row_to_list(demographics, i)
-    } else if (!is.null(demographics) && is.list(demographics) && length(demographics) >= i) {
+    agent_demographics <- if (!is.null(demographics) && is.data.frame(demographics) && nrow(demographics) > 0) {
+      row_to_list(demographics, ((i - 1L) %% nrow(demographics)) + 1L)
+    } else if (!is.null(demographics) && !is.data.frame(demographics) && is.list(demographics) && length(demographics) >= i) {
       demographics[[i]]
     } else {
       list(
@@ -498,9 +518,9 @@ create_diverse_agents <- function(n_participants,
       )
     }
 
-    agent_survey <- if (!is.null(survey_responses) && is.data.frame(survey_responses) && nrow(survey_responses) >= i) {
-      row_to_list(survey_responses, i)
-    } else if (!is.null(survey_responses) && is.list(survey_responses) && length(survey_responses) >= i) {
+    agent_survey <- if (!is.null(survey_responses) && is.data.frame(survey_responses) && nrow(survey_responses) > 0) {
+      row_to_list(survey_responses, ((i - 1L) %% nrow(survey_responses)) + 1L)
+    } else if (!is.null(survey_responses) && !is.data.frame(survey_responses) && is.list(survey_responses) && length(survey_responses) >= i) {
       survey_responses[[i]]
     } else {
       NULL
@@ -640,16 +660,21 @@ analyze_focus_group <- function(focus_group_result,
     themes = themes
   )
 
-  # Generate plots if requested
+  # Generate plots if requested (ggplot2 is a Suggests; skip with a message
+  # when it is not installed rather than failing the whole analysis)
   if (include_plots) {
-    cat("Generating visualizations...\n")
-    plots <- list(
-      participation_timeline = fg$plot_participation_timeline(),
-      word_count_distribution = fg$plot_word_count_distribution(),
-      participation_by_agent = fg$plot_participation_by_agent(),
-      turn_length_timeline = fg$plot_turn_length_timeline()
-    )
-    analysis_result$plots <- plots
+    if (requireNamespace("ggplot2", quietly = TRUE)) {
+      cat("Generating visualizations...\n")
+      plots <- list(
+        participation_timeline = fg$plot_participation_timeline(),
+        word_count_distribution = fg$plot_word_count_distribution(),
+        participation_by_agent = fg$plot_participation_by_agent(),
+        turn_length_timeline = fg$plot_turn_length_timeline()
+      )
+      analysis_result$plots <- plots
+    } else {
+      message("Package 'ggplot2' is not installed; skipping plots.")
+    }
   }
 
   cat("Analysis complete!\n")
@@ -666,27 +691,31 @@ analyze_focus_group <- function(focus_group_result,
 #' @keywords internal
 generate_diverse_demographics <- function(n) {
   seed_val <- getOption("focusgroup.seed", NA_integer_)
-  if (!is.na(seed_val)) set.seed(seed_val)
-  ages <- sample(18:65, n, replace = TRUE)
-  genders <- sample(c("Male", "Female", "Nonbinary"), n, replace = TRUE, prob = c(0.49, 0.49, 0.02))
+  build <- function() {
+    ages <- sample(18:65, n, replace = TRUE)
+    genders <- sample(c("Male", "Female", "Nonbinary"), n, replace = TRUE, prob = c(0.49, 0.49, 0.02))
 
-  education_levels <- c("High School", "Some College", "Bachelor's", "Master's", "PhD")
-  education <- sample(education_levels, n, replace = TRUE, prob = c(0.2, 0.2, 0.35, 0.2, 0.05))
+    education_levels <- c("High School", "Some College", "Bachelor's", "Master's", "PhD")
+    education <- sample(education_levels, n, replace = TRUE, prob = c(0.2, 0.2, 0.35, 0.2, 0.05))
 
-  income_levels <- c("Under $30k", "$30k-$50k", "$50k-$75k", "$75k-$100k", "Over $100k")
-  income <- sample(income_levels, n, replace = TRUE, prob = c(0.15, 0.25, 0.25, 0.20, 0.15))
+    income_levels <- c("Under $30k", "$30k-$50k", "$50k-$75k", "$75k-$100k", "Over $100k")
+    income <- sample(income_levels, n, replace = TRUE, prob = c(0.15, 0.25, 0.25, 0.20, 0.15))
 
-  locations <- c("Urban", "Suburban", "Rural")
-  location <- sample(locations, n, replace = TRUE, prob = c(0.4, 0.4, 0.2))
+    locations <- c("Urban", "Suburban", "Rural")
+    location <- sample(locations, n, replace = TRUE, prob = c(0.4, 0.4, 0.2))
 
-  data.frame(
-    age = ages,
-    gender = genders,
-    education = education,
-    income = income,
-    location = location,
-    stringsAsFactors = FALSE
-  )
+    data.frame(
+      age = ages,
+      gender = genders,
+      education = education,
+      income = income,
+      location = location,
+      stringsAsFactors = FALSE
+    )
+  }
+  # with_seed keeps the seeding contained: the draw is deterministic but the
+  # caller's RNG stream is restored afterwards.
+  if (!is.na(seed_val)) withr::with_seed(as.integer(seed_val), build()) else build()
 }
 
 #' Generate Survey Responses
@@ -841,7 +870,6 @@ generate_persona <- function(demographics, survey_responses = NULL,
   }
 
   seed_val <- getOption("focusgroup.seed", NA_integer_)
-  if (!is.null(seed_val) && !is.na(seed_val)) set.seed(seed_val)
 
   prob <- NULL
   if (!is.null(weights)) {
@@ -851,7 +879,12 @@ generate_persona <- function(demographics, survey_responses = NULL,
   }
 
   take <- if (length(idx) > n_participants) {
-    sample(idx, n_participants, prob = prob)
+    draw <- function() sample(idx, n_participants, prob = prob)
+    # with_seed keeps the seeding contained: the respondent draw is
+    # deterministic but the caller's RNG stream is restored afterwards.
+    if (!is.null(seed_val) && !is.na(seed_val)) {
+      withr::with_seed(as.integer(seed_val), draw())
+    } else draw()
   } else idx
 
   demo_sample <- demo_df[take, , drop = FALSE]

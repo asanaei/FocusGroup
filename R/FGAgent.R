@@ -197,8 +197,10 @@ FGAgent <- R6::R6Class("FGAgent",
 
       utterance_text <- as.character(response_obj)
       u <- LLMR::tokens(response_obj)
-      agg_sent <- u$sent %||% 0L
-      agg_rec  <- u$rec  %||% 0L
+      # NA-safe: a provider that reports no usage yields NA counts, which must
+      # accumulate as 0, not turn the running totals into NA for good.
+      agg_sent <- .fg_tok0(u$sent)
+      agg_rec  <- .fg_tok0(u$rec)
       self$tokens_sent_agent     <- self$tokens_sent_agent     + agg_sent
       self$tokens_received_agent <- self$tokens_received_agent + agg_rec
 
@@ -251,10 +253,10 @@ FGAgent <- R6::R6Class("FGAgent",
         if (nzchar(cand) && nchar(cand) >= nchar(utterance_text)) {
           utterance_text <- cand
           u2 <- LLMR::tokens(response_obj2)
-          agg_sent <- agg_sent + (u2$sent %||% 0L)
-          agg_rec  <- agg_rec  + (u2$rec  %||% 0L)
-          self$tokens_sent_agent     <- self$tokens_sent_agent     + (u2$sent %||% 0L)
-          self$tokens_received_agent <- self$tokens_received_agent + (u2$rec  %||% 0L)
+          agg_sent <- agg_sent + .fg_tok0(u2$sent)
+          agg_rec  <- agg_rec  + .fg_tok0(u2$rec)
+          self$tokens_sent_agent     <- self$tokens_sent_agent     + .fg_tok0(u2$sent)
+          self$tokens_received_agent <- self$tokens_received_agent + .fg_tok0(u2$rec)
           final_response_obj <- response_obj2
         }
       }
@@ -338,8 +340,8 @@ FGAgent <- R6::R6Class("FGAgent",
           tries = 5, wait_seconds = 2, backoff_factor = 3
         )
         u <- LLMR::tokens(ro)
-        self$tokens_sent_agent <- self$tokens_sent_agent + (u$sent %||% 0L)
-        self$tokens_received_agent <- self$tokens_received_agent + (u$rec %||% 0L)
+        self$tokens_sent_agent <- self$tokens_sent_agent + .fg_tok0(u$sent)
+        self$tokens_received_agent <- self$tokens_received_agent + .fg_tok0(u$rec)
         ro
       }
 

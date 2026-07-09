@@ -72,8 +72,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param sent Integer. Prompt/input tokens.
     #' @param rec Integer. Completion/output tokens.
     record_token_usage = function(sent = 0L, rec = 0L) {
-      self$total_tokens_sent <- self$total_tokens_sent + (sent %||% 0L)
-      self$total_tokens_received <- self$total_tokens_received + (rec %||% 0L)
+      # NA-safe: unreported usage (NA) accumulates as 0 instead of poisoning
+      # the running totals.
+      self$total_tokens_sent <- self$total_tokens_sent + .fg_tok0(sent)
+      self$total_tokens_received <- self$total_tokens_received + .fg_tok0(rec)
       invisible(list(sent = self$total_tokens_sent, rec = self$total_tokens_received))
     },
 
@@ -396,7 +398,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
               )
               part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
               part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()
-              private$log_message(next_participant$id, part_text, turn_number = NULL, is_moderator = FALSE, phase = current_phase_name, meta = part_meta)
+              # Participants log under the same round number as the moderator
+              # turn they answer (turn_number = NULL would fall back to the log
+              # position, mixing two numbering schemes in one log).
+              private$log_message(next_participant$id, part_text, turn_number = current_turn_number, is_moderator = FALSE, phase = current_phase_name, meta = part_meta)
               if (verbose) cat(paste0(next_participant$id, ": ", part_text, "\n"))
 
               self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
@@ -551,11 +556,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
         speaker_stats_df <- dplyr::bind_rows(speaker_stats_df, missing_df)
       }
 
-      # Order by original agent order if possible, or alphabetically
+      # Order by original agent order if possible, or alphabetically. Keep any
+      # speaker that is not an agent (e.g. an explicitly requested "System"
+      # row) as a trailing level rather than silently turning it into NA.
       ordered_agent_ids <- intersect(all_agent_ids, speaker_stats_df$speaker_id)
       if(length(ordered_agent_ids) > 0) {
+          all_levels <- union(all_agent_ids, unique(as.character(speaker_stats_df$speaker_id)))
           speaker_stats_df <- speaker_stats_df %>%
-            dplyr::mutate(speaker_id = factor(.data$speaker_id, levels = all_agent_ids)) %>%
+            dplyr::mutate(speaker_id = factor(.data$speaker_id, levels = all_levels)) %>%
             dplyr::arrange(.data$speaker_id)
       }
 
@@ -764,13 +772,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
         # Calculate readability measures
         readability_stats <- quanteda.textstats::textstat_readability(corpus, measure = measures)
 
-        # Convert to tibble and add speaker_id column
+        # Convert to tibble and add speaker_id column. textstat_readability()
+        # returns the corpus docnames (the speaker ids) in `document`; its
+        # rownames are just "1","2",... and must not be used as ids.
         result <- dplyr::as_tibble(readability_stats)
-        result$speaker_id <- rownames(readability_stats)
+        result$speaker_id <- as.character(result$document)
+        result$document <- NULL
 
         # Reorder columns to put speaker_id first
         result <- result %>%
-          dplyr::select(.data$speaker_id, dplyr::everything()) %>%
+          dplyr::select("speaker_id", dplyr::everything()) %>%
           dplyr::arrange(.data$speaker_id)
 
         return(result)
@@ -1146,8 +1157,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Create participation timeline plot showing cumulative turns by participant across phases.
     #' @return ggplot object
     plot_participation_timeline = function() {
+      private$require_ggplot2()
 
-      if (length(self$conversation_log) == 0) {
+      # The shared helper drops the synthetic "System" roster row.
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
         warning("No conversation data available for plotting")
         # Return an empty plot with a message
         return(ggplot2::ggplot() +
@@ -1158,25 +1172,12 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       # Create a data frame from the conversation log
       # Ensure speaker_id and phase are handled if they could be NULL (though phase defaults to "unknown")
-      # REMOVE 'System' participant
-      # Should we remove the moderator as well?
-
-      conv_df <- dplyr::bind_rows(lapply(self$conversation_log, function(x) {
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
         dplyr::tibble(
           agent_id = x$speaker_id %||% NA_character_,
           phase = x$phase %||% "unknown"
         )
-      })) %>%
-        # Filter out "System" messages as they are not typical participant turns
-        dplyr::filter(.data$agent_id != "System")
-
-      # Check if conv_df is empty *after* filtering "System"
-      if (nrow(conv_df) == 0) {
-        warning("Conversation data is empty or only contains 'System' messages after filtering. No plot generated.")
-        return(ggplot2::ggplot() +
-                 ggplot2::labs(title = "Participation Timeline", subtitle = "No valid participant data for plotting") +
-                 ggplot2::theme_void())
-      }
+      }))
 
       actual_phase_order <- unique(conv_df$phase)
       all_participants <- unique(conv_df$agent_id) # Derived from filtered data
@@ -1212,7 +1213,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Create word count distribution plot showing message length patterns.
     #' @return ggplot object
     plot_word_count_distribution = function() {
-      if (length(self$conversation_log) == 0) {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
         warning("No conversation data available for plotting")
         return(ggplot2::ggplot() +
                  ggplot2::labs(title = "Word Count Distribution",
@@ -1220,7 +1224,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
                  ggplot2::theme_void())
       }
 
-      conv_df <- dplyr::bind_rows(lapply(self$conversation_log, function(x) {
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
         dplyr::tibble(
           agent_id = x$speaker_id,
           phase = x$phase,
@@ -1250,7 +1254,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Create participation by agent plot showing total turns per participant.
     #' @return ggplot object
     plot_participation_by_agent = function() {
-      if (length(self$conversation_log) == 0) {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
         warning("No conversation data available for plotting")
         return(ggplot2::ggplot() +
                  ggplot2::labs(title = "Participation by Agent",
@@ -1258,7 +1265,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
                  ggplot2::theme_void())
       }
 
-      conv_df <- dplyr::bind_rows(lapply(self$conversation_log, function(x) {
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
         dplyr::tibble(
           agent_id = x$speaker_id,
           message = x$text
@@ -1288,7 +1295,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Create turn length timeline plot showing message length evolution over time.
     #' @return ggplot object
     plot_turn_length_timeline = function() {
-      if (length(self$conversation_log) == 0) {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
         warning("No conversation data available for plotting")
         return(ggplot2::ggplot() +
                  ggplot2::labs(title = "Turn Length Timeline",
@@ -1296,8 +1306,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
                  ggplot2::theme_void())
       }
 
-      messages <- sapply(self$conversation_log, function(x) x$text)
-      phases <- sapply(self$conversation_log, function(x) x$phase)
+      messages <- sapply(filtered_log, function(x) x$text)
+      phases <- sapply(filtered_log, function(x) x$phase)
 
       word_counts <- sapply(messages, function(x) length(strsplit(x, "\\s+")[[1]]))
       timeline_data <- data.frame(
@@ -1323,6 +1333,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
   ),
 
   private = list(
+    # Guard for the plot_* methods: ggplot2 is a Suggests, not an Import.
+    require_ggplot2 = function() {
+      if (!requireNamespace("ggplot2", quietly = TRUE)) {
+        stop("Package 'ggplot2' is required for plotting. ",
+             "Install it with install.packages(\"ggplot2\").", call. = FALSE)
+      }
+      invisible(TRUE)
+    },
+
     # Helper to get the next phase/question from the script
     get_next_phase_or_question = function() {
       if (is.null(self$question_script) || length(self$question_script) == 0) {
@@ -1365,11 +1384,18 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$conversation_log <- c(self$conversation_log, list(msg))
     },
 
-    # Helper to get filtered log for analysis methods
-    get_filtered_log = function(turns = NULL, speaker_ids = NULL) {
+    # Helper to get filtered log for analysis methods. The synthetic turn-0
+    # "System" roster message is part of the prompt context, not of the
+    # conversation, so it is dropped by default: no analysis or plot should
+    # report "System" as a speaker. Explicitly requesting speaker_ids
+    # containing "System" (or include_system = TRUE) keeps it.
+    get_filtered_log = function(turns = NULL, speaker_ids = NULL, include_system = FALSE) {
       if (length(self$conversation_log) == 0) return(list())
 
       filtered_log <- self$conversation_log
+      if (!include_system && !("System" %in% (speaker_ids %||% character(0)))) {
+        filtered_log <- Filter(function(x) !identical(x$speaker_id, "System"), filtered_log)
+      }
       if (!is.null(turns)) {
         if(!is.numeric(turns)) stop("'turns' must be a numeric vector.")
         filtered_log <- Filter(function(x) x$turn %in% turns, filtered_log)
