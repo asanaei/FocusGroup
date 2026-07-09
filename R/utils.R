@@ -234,19 +234,31 @@ extract_token_counts <- function(response_obj) {
 
 #' Parse a 0-10 integer score from free text
 #'
-#' Takes the LAST integer in the reply, not the first. Models often echo the
-#' scale label ("Desire to talk score (0-10): 8") or reason before answering, so
-#' the first number is frequently the "0" or "10" of the range rather than the
-#' score. The actual answer comes last.
+#' An explicit fraction form ("8/10", "8 out of 10") states the score directly
+#' and wins outright. Otherwise scale-range mentions ("0-10", "0 to 10") are
+#' removed first, and the LAST remaining integer is taken: models often echo
+#' the scale label ("Desire to talk score (0-10): 8") or reason before
+#' answering, so the answer comes last once the range endpoints are gone.
 #' @keywords internal
 parse_score_0_10 <- function(text) {
   txt <- as.character(text)[1]
   if (is.na(txt)) return(0L)
-  hits <- regmatches(txt, gregexpr("\\b(10|[0-9])\\b", txt, perl = TRUE))[[1]]
+  clamp <- function(v) max(0L, min(10L, v))
+  # "X/10" or "X out of 10": the numerator is the score.
+  frac <- regmatches(txt, regexpr("\\b(10|[0-9])\\s*(/|out of)\\s*10\\b",
+                                  txt, ignore.case = TRUE))
+  if (length(frac) && nzchar(frac)) {
+    val <- suppressWarnings(as.integer(sub("^(10|[0-9]).*$", "\\1", frac)))
+    if (!is.na(val)) return(clamp(val))
+  }
+  # Drop scale-range mentions so their endpoints are not mistaken for the score.
+  cleaned <- gsub("\\(?\\b(10|[0-9])\\s*(-|to)\\s*(10|[0-9])\\b\\)?", " ",
+                  txt, ignore.case = TRUE)
+  hits <- regmatches(cleaned, gregexpr("\\b(10|[0-9])\\b", cleaned, perl = TRUE))[[1]]
   if (!length(hits)) return(0L)
   val <- as.integer(hits[length(hits)])
   if (is.na(val)) return(0L)
-  max(0L, min(10L, val))
+  clamp(val)
 }
 
 #' Build prompt history string for role-specific windows
