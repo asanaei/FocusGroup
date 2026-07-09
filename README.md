@@ -54,8 +54,7 @@ are still moving.
 ## Installation
 
 ```r
-install.packages("remotes")
-remotes::install_github("asanaei/LLMR")
+install.packages("LLMR")   # from CRAN
 remotes::install_github("asanaei/FocusGroup")
 ```
 
