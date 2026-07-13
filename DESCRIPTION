@@ -19,6 +19,7 @@ Description: Researchers can simulate moderated focus group discussions in which
 License: MIT + file LICENSE
 Encoding: UTF-8
 RoxygenNote: 7.3.3
+Config/testthat/edition: 3
 Depends: R (>= 4.0.0)
 Imports: 
     R6,

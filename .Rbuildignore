@@ -31,3 +31,5 @@
 ^[.]cursor/
 ^[.]codex$
 ^[.]codex/
+(^|/)\.DS_Store$
+^check$
