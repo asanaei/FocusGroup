@@ -26,8 +26,9 @@ NULL
 #' @section Customizing Agents:
 #' `FGAgent` is designed to be flexible:
 #' \itemize{
-#'   \item **Per-Agent LLM Configuration**: Each agent is initialized with its own `model_config`.
-#'     This allows different agents to use different LLMs, temperatures, or even providers.
+#'   \item **Per-Agent LLM Configuration**: Each agent is initialized with its own
+#'     `llm_config` (stored in the `model_config` field). This allows different
+#'     agents to use different LLMs, temperatures, or even providers.
 #'   \item **Persona Definition**: The `agent_details` (containing `demographics`,
 #'     `survey_responses`, `direct_persona_description`, and/or `communication_style`)
 #'     are used to construct the `persona_description` and `communication_style_instruction`.
@@ -64,21 +65,21 @@ FGAgent <- R6::R6Class("FGAgent",
     #'     \item `communication_style`: A character string describing the agent's communication style (e.g., "analytical and direct", "empathetic and story-driven").
     #'   }
     #'   If `is_moderator` is `TRUE` and no specific details are provided, a default moderator persona is used.
-    #' @param model_config An `llm_config` object from `LLMR::llm_config()`.
+    #' @param llm_config An `llm_config` object from `LLMR::llm_config()`.
     #' @param is_moderator Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.
-    initialize = function(id, agent_details, model_config, is_moderator = FALSE) {
+    initialize = function(id, agent_details, llm_config, is_moderator = FALSE) {
       if (!is.character(id) || length(id) != 1 || nchar(id) == 0) {
         stop("Agent 'id' must be a non-empty character string.")
       }
       if (!is.list(agent_details)) {
         stop("'agent_details' must be a list.")
       }
-      if (!inherits(model_config, "llm_config")) {
-        stop("'model_config' must be an 'llm_config' object from LLMR::llm_config().")
+      if (!inherits(llm_config, "llm_config")) {
+        stop("'llm_config' must be an 'llm_config' object from LLMR::llm_config().")
       }
 
       self$id <- id
-      self$model_config <- model_config
+      self$model_config <- llm_config
       self$is_moderator <- is_moderator
       self$role <- if (is_moderator) "moderator" else "participant"
       # Expose raw inputs for reporting/analysis convenience

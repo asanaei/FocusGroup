@@ -135,7 +135,7 @@ This section lists classes and functions, their inputs/outputs, and behavior. "E
 
 #### FGAgent
 - Fields: `id`, `persona_description`, `communication_style_instruction`, `model_config`, `role`, `demographics` (list), `survey_responses` (list), `is_moderator`, `history` (list), `tokens_sent_agent`, `tokens_received_agent`.
-- initialize(id, agent_details, model_config, is_moderator = FALSE)
+- initialize(id, agent_details, llm_config, is_moderator = FALSE)
   - agent_details: list with optional `demographics`, `survey_responses`, `direct_persona_description`, `communication_style`.
   - Validates and constructs persona and style (moderator has sensible defaults).
 - generate_utterance(topic, conversation_history_string, utterance_prompt_template, max_tokens_utterance = 150, current_moderator_question = "N/A", conversation_summary_so_far = "N/A", current_phase = "discussion") -> list(text, meta)
@@ -207,7 +207,7 @@ Private helpers: `get_next_phase_or_question()`, `log_message(...)`, `get_filter
   - basic_stats: from `FocusGroup$analyze()`
   - participants: list with id, moderator flag, persona, and input data
 
-#### fg_quick(topic, participants = 6, flow = c("desire_based","round_robin","probabilistic"), model_config = NULL, seed = NULL, mode = c("quick","pro"), verbose = TRUE) -> list
+#### fg_quick(topic, participants = 6, flow = c("desire_based","round_robin","probabilistic"), llm_config = NULL, seed = NULL, mode = c("quick","pro"), verbose = TRUE) -> list
 - Returns: transcript tibble, summary character, participants list, totals (tokens and turns), config_meta, and the `focus_group`.
 
 #### fg_analyze_quick(res) -> list

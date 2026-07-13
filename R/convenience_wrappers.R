@@ -258,7 +258,7 @@ run_focus_group <- function(topic,
 #' @param topic Character. Focus group topic.
 #' @param participants Integer. Number of participants (excluding moderator). Default 6.
 #' @param flow Character. Turn-taking flow: one of "desire_based", "round_robin", "probabilistic".
-#' @param model_config Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.
+#' @param llm_config Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.
 #' @param seed Optional integer. Seeds R's RNG (speaker selection and other
 #'   in-package sampling); it does NOT make the LLM output reproducible, since at
 #'   `temperature > 0` the provider samples server-side.
@@ -285,7 +285,7 @@ run_focus_group <- function(topic,
 fg_quick <- function(topic,
                      participants = 6,
                      flow = c("desire_based","round_robin","probabilistic"),
-                     model_config = NULL,
+                     llm_config = NULL,
                      seed = NULL,
                      mode = c("quick","pro"),
                      msg_mode = c("roleflip","flat"),
@@ -301,13 +301,13 @@ fg_quick <- function(topic,
     withr::local_seed(as.integer(seed))
   }
 
-  if (is.null(model_config)) model_config <- default_llmr_config()
+  if (is.null(llm_config)) llm_config <- default_llmr_config()
 
   agents <- create_diverse_agents(
     n_participants = participants,
     demographics = NULL,
     survey_responses = NULL,
-    llm_config = model_config
+    llm_config = llm_config
   )
   agents_named <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
   moderator_id <- "MOD"
@@ -365,7 +365,7 @@ fg_quick <- function(topic,
     summary = fg$final_summary %||% fg$summarize(summary_level = 1),
     participants = lapply(fg$agents, function(a) list(id = a$id, persona = a$persona_description)),
     totals = list(total_tokens_in = fg$total_tokens_sent, total_tokens_out = fg$total_tokens_received, total_turns = length(fg$conversation_log)),
-    config_meta = list(provider = model_config$provider, model = model_config$model,
+    config_meta = list(provider = llm_config$provider, model = llm_config$model,
                        msg_mode = msg_mode),
     focus_group = fg
   )
@@ -535,7 +535,7 @@ create_diverse_agents <- function(n_participants,
         demographics = agent_demographics,
         survey_responses = agent_survey
       ),
-      model_config = llm_config,
+      llm_config = llm_config,
       is_moderator = FALSE
     )
   }
@@ -549,7 +549,7 @@ create_diverse_agents <- function(n_participants,
       direct_persona_description = moderator_persona,
       demographics = list(role = "professional_moderator")
     ),
-    model_config = llm_config,
+    llm_config = llm_config,
     is_moderator = TRUE
   )
 

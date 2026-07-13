@@ -17,8 +17,9 @@ generate utterances and express a desire to speak.
 
 `FGAgent` is designed to be flexible:
 \itemize{
-  \item **Per-Agent LLM Configuration**: Each agent is initialized with its own `model_config`.
-    This allows different agents to use different LLMs, temperatures, or even providers.
+  \item **Per-Agent LLM Configuration**: Each agent is initialized with its own
+    `llm_config` (stored in the `model_config` field). This allows different
+    agents to use different LLMs, temperatures, or even providers.
   \item **Persona Definition**: The `agent_details` (containing `demographics`,
     `survey_responses`, `direct_persona_description`, and/or `communication_style`)
     are used to construct the `persona_description` and `communication_style_instruction`.
@@ -72,7 +73,7 @@ LLM provider, model, API key, and other parameters for this agent.}
 \subsection{Method \code{new()}}{
 Initialize a new FGAgent.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FGAgent$new(id, agent_details, model_config, is_moderator = FALSE)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FGAgent$new(id, agent_details, llm_config, is_moderator = FALSE)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
@@ -90,7 +91,7 @@ Can include:
 }
 If `is_moderator` is `TRUE` and no specific details are provided, a default moderator persona is used.}
 
-\item{\code{model_config}}{An `llm_config` object from `LLMR::llm_config()`.}
+\item{\code{llm_config}}{An `llm_config` object from `LLMR::llm_config()`.}
 
 \item{\code{is_moderator}}{Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.}
 }

@@ -14,7 +14,7 @@ visualization of the conversation.
 
 \if{html}{\figure{logo.png}{options: style='float: right' alt='logo' width='120'}}
 
-Provides utilities for simulating and analyzing focus group discussions using Large Language Models. Enables researchers to create virtual focus groups with diverse AI agents with detailed personas, conduct structured discussions across multiple phases, and perform analysis of the resulting conversations.
+Researchers can simulate moderated focus group discussions in which large language model (LLM) agents speak from supplied personas. Personas may be written directly or assembled from demographic records, with survey responses added when available. Configurable turn-taking rules govern participant selection, while phased scripts guide moderator prompts and participant exchanges. The resulting transcripts are intended for piloting moderator guides and discussion protocols rather than estimating human attitudes. Transcript tools examine participation and conversational patterns through descriptive statistics and optional text analysis. The simulation and its model-dependent analyses call configured providers through the 'LLMR' package. An optional 'Shiny' interface runs sessions and examines saved transcripts.
 }
 \seealso{
 Useful links:

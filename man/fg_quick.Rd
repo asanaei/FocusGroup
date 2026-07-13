@@ -8,7 +8,7 @@ fg_quick(
   topic,
   participants = 6,
   flow = c("desire_based", "round_robin", "probabilistic"),
-  model_config = NULL,
+  llm_config = NULL,
   seed = NULL,
   mode = c("quick", "pro"),
   msg_mode = c("roleflip", "flat"),
@@ -23,7 +23,7 @@ fg_quick(
 
 \item{flow}{Character. Turn-taking flow: one of "desire_based", "round_robin", "probabilistic".}
 
-\item{model_config}{Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.}
+\item{llm_config}{Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.}
 
 \item{seed}{Optional integer. Seeds R's RNG (speaker selection and other
 in-package sampling); it does NOT make the LLM output reproducible, since at

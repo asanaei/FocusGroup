@@ -203,7 +203,7 @@ cat("\nSummary from manual setup:\n", summary_manual, "\n")
 Represents an individual participant or moderator.
 -   **Key Fields**: `id`, `persona_description`, `communication_style_instruction`, `model_config`, `is_moderator`.
 -   **Key Methods**:
-    -   `initialize(id, agent_details, model_config, is_moderator)`: Creates an agent. `agent_details` can include `direct_persona_description`, `demographics`, `survey_responses`, `communication_style`.
+    -   `initialize(id, agent_details, llm_config, is_moderator)`: Creates an agent. `agent_details` can include `direct_persona_description`, `demographics`, `survey_responses`, `communication_style`.
     -   `generate_utterance(...)`: Generates text based on context and prompts.
     -   `get_need_to_talk(...)`: (Used by `DesireBasedFlow`) Queries LLM for agent's desire to speak.
 
@@ -215,7 +215,7 @@ participant_details <- list(
   demographics = list(age = 35, occupation = "Software Engineer")
 )
 # llm_conf defined earlier
-agent1 <- FGAgent$new(id = "P1", agent_details = participant_details, model_config = llm_conf)
+agent1 <- FGAgent$new(id = "P1", agent_details = participant_details, llm_config = llm_conf)
 ```
 
 ### `FocusGroup`

@@ -120,7 +120,7 @@ run_focus_studio <- function(...) {
 # indices into `data` (empty -> a diverse default draw of `participants`).
 .fg_run_from_personas <- function(topic, participants, rows, flow, msg_mode,
                                    seed, max_participant_responses,
-                                   model_config, data = NULL) {
+                                   llm_config, data = NULL) {
   data <- data %||% .fg_personas()
   chosen <- if (length(rows)) data[rows, , drop = FALSE] else data
   n <- if (length(rows)) length(rows) else participants
@@ -132,7 +132,7 @@ run_focus_studio <- function(...) {
     list(focusgroup.msg_mode = msg_mode, focusgroup.seed = seed),
     {
       agents <- create_agents_from_data(chosen, n_participants = n,
-                                        llm_config = model_config)
+                                        llm_config = llm_config)
       agents <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
       flow_obj <- create_conversation_flow(flow, agents, "MOD")
       script <- list(
@@ -266,7 +266,7 @@ run_focus_studio <- function(...) {
             msg_mode = input$msg_mode %||% "roleflip",
             seed = as.integer(input$seed %||% 110L),
             max_participant_responses = as.integer(input$max_resp %||% 1L),
-            model_config = cfg),
+            llm_config = cfg),
           shared$provider())
       } else {
         LLMR.shiny::safe_llmr_call(
@@ -274,7 +274,7 @@ run_focus_studio <- function(...) {
             topic = topic,
             participants = as.integer(input$participants %||% 3L),
             flow = input$flow %||% "round_robin",
-            model_config = cfg,
+            llm_config = cfg,
             seed = as.integer(input$seed %||% 110L),
             mode = "quick",
             msg_mode = input$msg_mode %||% "roleflip",
