@@ -85,9 +85,13 @@ and reads its participation and word statistics without an API key.
 **Continuation experiment** loads a saved session and extends it under new
 conditions.
 
-### 1. Simple Focus Group Simulation using `run_focus_group`
+### 1. Focus group simulation with `run_focus_group`
 
-The `run_focus_group` function is a high-level wrapper to quickly set up and run a simulation.
+The `run_focus_group` wrapper assembles agents, a moderator guide, and a
+turn-taking rule. Numeric values in `turns_per_phase` select distinct defaults
+from each phase's script bank. A named list of character vectors supplies the
+moderator's exact ordered scripts, with one turn per string. Supplied phases
+must follow the order Opening, Icebreaker, Engagement, Exploration, Closing.
 
 ```r
 library(FocusGroup)
@@ -107,13 +111,24 @@ llm_config_agents <- LLMR::llm_config(
   max_tokens = 200
 )
 
-# Run a basic focus group
-# `turns_per_phase` will generate a generic script structure.
-# The moderator prompts will adapt to the topic and phase.
+moderator_guide <- list(
+  Opening = "Welcome the group and state the ground rules.",
+  Icebreaker = c(
+    "What first comes to mind when you think about remote work?",
+    "What experience has shaped that impression?"
+  ),
+  Engagement = "Where does remote work enter your daily routine?",
+  Exploration = c(
+    "What tensions arise between flexibility and coordination?",
+    "Whose perspective has received too little attention?"
+  ),
+  Closing = "Thank the participants and close the session."
+)
+
 result <- run_focus_group(
   topic = "The impact of remote work on team collaboration",
   participants = 4,
-  turns_per_phase = c(Opening = 1, Icebreaker = 2, Engagement = 5, Exploration = 6, Closing = 1),
+  turns_per_phase = moderator_guide,
   llm_config = llm_config_agents, # Used for all agents and admin tasks if not specified otherwise
   seed = 110,
   verbose = TRUE
@@ -132,7 +147,34 @@ print("Focus group summary:")
 cat(result$summary)
 ```
 
-### 2. More Detailed Simulation Setup (using R6 classes directly)
+### 2. Offline scripted run
+
+The optional `runner` receives the active LLMR configuration and message list.
+It permits a test or demonstration to exercise the full session without a
+provider request. A fixed response is sufficient when the object lifecycle and
+analysis path, rather than model behavior, is under examination.
+
+```r
+scripted_runner <- function(config, messages) {
+  paste(
+    "This scripted response states one position on library funding and gives",
+    "a concrete reason that another participant could examine."
+  )
+}
+
+offline_result <- fg_quick(
+  topic = "Library funding priorities",
+  participants = 2,
+  flow = "round_robin",
+  runner = scripted_runner,
+  max_participant_responses = 1,
+  verbose = FALSE
+)
+
+offline_result$focus_group$analyze()$speaker_stats
+```
+
+### 3. More detailed simulation setup using R6 classes
 
 For more control, you can instantiate the R6 classes directly.
 
@@ -201,9 +243,9 @@ cat("\nSummary from manual setup:\n", summary_manual, "\n")
 
 ### `FGAgent`
 Represents an individual participant or moderator.
--   **Key Fields**: `id`, `persona_description`, `communication_style_instruction`, `model_config`, `is_moderator`.
+-   **Key Fields**: `id`, `persona_description`, `communication_style_instruction`, `model_config`, `runner`, `is_moderator`.
 -   **Key Methods**:
-    -   `initialize(id, agent_details, llm_config, is_moderator)`: Creates an agent. `agent_details` can include `direct_persona_description`, `demographics`, `survey_responses`, `communication_style`.
+    -   `initialize(id, agent_details, llm_config, is_moderator, runner)`: Creates an agent. `agent_details` can include `direct_persona_description`, `demographics`, `survey_responses`, `communication_style`.
     -   `generate_utterance(...)`: Generates text based on context and prompts.
     -   `get_need_to_talk(...)`: (Used by `DesireBasedFlow`) Queries LLM for agent's desire to speak.
 
@@ -238,6 +280,45 @@ Defines how the next speaker is chosen.
     -   `ProbabilisticFlow`: Uses weighted probabilities based on speaking history and base propensities.
     -   `DesireBasedFlow`: Uses LLM to assess each participant's "desire to talk".
 -   Created via `create_conversation_flow(mode, agents, moderator_id, flow_params)` or by direct instantiation.
+
+## From a silicon panel to a focus group
+
+`create_agents_from_data()` recognizes an LLMRpanel persona frame by its
+`silicon_panel` class or by the joint presence of `persona` and `persona_id`.
+It passes the rendered `persona` text to each agent directly and does not treat
+those two columns as survey answers. FocusGroup does not import LLMRpanel.
+
+```r
+# panel is an LLMRpanel persona frame with class "silicon_panel"
+panel_agents <- create_agents_from_data(
+  panel,
+  n_participants = nrow(panel),
+  llm_config = llm_conf
+)
+panel_agents <- setNames(
+  panel_agents,
+  vapply(panel_agents, function(agent) agent$id, character(1))
+)
+
+panel_flow <- RoundRobinFlow$new(panel_agents, moderator_id = "MOD")
+panel_session <- FocusGroup$new(
+  topic = "Public transit priorities",
+  purpose = "Examine points of agreement and disagreement.",
+  agents = panel_agents,
+  moderator_id = "MOD",
+  turn_taking_flow = panel_flow,
+  question_script = list(
+    list(phase = "opening"),
+    list(phase = "exploration_question",
+         text = "Which transit priority should receive attention first?"),
+    list(phase = "closing")
+  )
+)
+panel_session$run_simulation()
+```
+
+`LLMR::anes_2024_personas` is the persona substrate shared across the package
+family. FocusGroup can consume that frame through `create_agents_from_data()`.
 
 ## Advanced Usage: Working with Survey Data (e.g., ANES)
 
