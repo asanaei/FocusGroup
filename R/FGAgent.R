@@ -18,6 +18,9 @@ NULL
 #'   communication style, to be included in prompts.
 #' @field model_config An `llm_config` object (from the `LLMR` package) specifying the
 #'   LLM provider, model, API key, and other parameters for this agent.
+#' @field runner `NULL` or a function with arguments `(config, messages)` that
+#'   returns a character scalar or an `llmr_response`. A function provides an
+#'   offline or otherwise caller-controlled execution path.
 #' @field is_moderator Logical. `TRUE` if the agent is the moderator, `FALSE` otherwise.
 #' @field history List. A log of utterances made by this agent during the simulation.
 #' @field tokens_sent_agent Numeric. Total tokens sent by this agent.
@@ -43,6 +46,7 @@ FGAgent <- R6::R6Class("FGAgent",
     persona_description = NULL,
     communication_style_instruction = NULL,
     model_config = NULL,
+    runner = NULL,
     #' @field role Character. "moderator" or "participant" for convenience in reports.
     role = NULL,
     #' @field demographics Named list. Raw demographics used to build persona.
@@ -67,7 +71,10 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   If `is_moderator` is `TRUE` and no specific details are provided, a default moderator persona is used.
     #' @param llm_config An `llm_config` object from `LLMR::llm_config()`.
     #' @param is_moderator Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.
-    initialize = function(id, agent_details, llm_config, is_moderator = FALSE) {
+    #' @param runner `NULL` or a function `(config, messages)` returning a
+    #'   character scalar or an `llmr_response`. `NULL` uses live LLMR calls.
+    initialize = function(id, agent_details, llm_config, is_moderator = FALSE,
+                          runner = NULL) {
       if (!is.character(id) || length(id) != 1 || nchar(id) == 0) {
         stop("Agent 'id' must be a non-empty character string.")
       }
@@ -77,9 +84,13 @@ FGAgent <- R6::R6Class("FGAgent",
       if (!inherits(llm_config, "llm_config")) {
         stop("'llm_config' must be an 'llm_config' object from LLMR::llm_config().")
       }
+      if (!is.null(runner) && !is.function(runner)) {
+        stop("'runner' must be NULL or a function with arguments (config, messages).")
+      }
 
       self$id <- id
       self$model_config <- llm_config
+      self$runner <- runner
       self$is_moderator <- is_moderator
       self$role <- if (is_moderator) "moderator" else "participant"
       # Expose raw inputs for reporting/analysis convenience
@@ -188,16 +199,17 @@ FGAgent <- R6::R6Class("FGAgent",
                                          instruction = instruction, self_state = ss)
       }
 
-      response_obj <- LLMR::call_llm_robust(
+      response_obj <- .fg_call_llm(
         config = current_call_config,
         messages = msgs,
+        runner = self$runner,
         tries = 5,
         wait_seconds = 2,
         backoff_factor = 3
       )
 
-      utterance_text <- as.character(response_obj)
-      u <- LLMR::tokens(response_obj)
+      utterance_text <- .fg_response_text(response_obj)
+      u <- extract_token_counts(response_obj)
       # NA-safe: a provider that reports no usage yields NA counts, which must
       # accumulate as 0, not turn the running totals into NA for good.
       agg_sent <- .fg_tok0(u$sent)
@@ -226,7 +238,7 @@ FGAgent <- R6::R6Class("FGAgent",
       # nothing, or trailed off mid-thought. A short, well-formed answer ("I
       # agree.") is normal in a discussion and is left alone; padding it would
       # make the transcript read artificially.
-      first_finish <- LLMR::finish_reason(final_response_obj) %||% NA_character_
+      first_finish <- .fg_response_finish(final_response_obj)
       is_incomplete <- !nzchar(trimws(utterance_text)) ||
         identical(first_finish, "length") ||
         grepl("\\.\\.\\.\\s*$", utterance_text)
@@ -242,18 +254,19 @@ FGAgent <- R6::R6Class("FGAgent",
         retry_msgs <- LLMR::ensure_alternating_messages(
           c(msgs, list(list(role = "user", content = complete_cue))))
         current_call_config$model_params$max_tokens <- max(max_tokens_utterance, 320L)
-        response_obj2 <- LLMR::call_llm_robust(
+        response_obj2 <- .fg_call_llm(
           config = current_call_config,
           messages = retry_msgs,
+          runner = self$runner,
           tries = 3,
           wait_seconds = 2,
           backoff_factor = 2
         )
-        cand <- trimws(as.character(response_obj2))
+        cand <- trimws(.fg_response_text(response_obj2))
         cand <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cand, ignore.case = TRUE)
         if (nzchar(cand) && nchar(cand) >= nchar(utterance_text)) {
           utterance_text <- cand
-          u2 <- LLMR::tokens(response_obj2)
+          u2 <- extract_token_counts(response_obj2)
           agg_sent <- agg_sent + .fg_tok0(u2$sent)
           agg_rec  <- agg_rec  + .fg_tok0(u2$rec)
           self$tokens_sent_agent     <- self$tokens_sent_agent     + .fg_tok0(u2$sent)
@@ -263,12 +276,12 @@ FGAgent <- R6::R6Class("FGAgent",
       }
 
       meta <- list(
-        response_id   = final_response_obj$response_id %||% NA_character_,
-        finish_reason = LLMR::finish_reason(final_response_obj) %||% NA_character_,
+        response_id   = .fg_response_field(final_response_obj, "response_id", NA_character_),
+        finish_reason = .fg_response_finish(final_response_obj),
         sent_tokens   = as.integer(agg_sent),
         rec_tokens    = as.integer(agg_rec),
         total_tokens  = as.integer(agg_sent + agg_rec),
-        duration_s    = final_response_obj$duration_s %||% NA_real_,
+        duration_s    = .fg_response_field(final_response_obj, "duration_s", NA_real_),
         provider      = self$model_config$provider %||% NA_character_,
         model         = self$model_config$model %||% NA_character_
       )
@@ -336,32 +349,32 @@ FGAgent <- R6::R6Class("FGAgent",
       }
 
       score_once <- function(cfg) {
-        ro <- LLMR::call_llm_robust(
+        ro <- .fg_call_llm(
           config = cfg, messages = desire_msgs,
+          runner = self$runner,
           tries = 5, wait_seconds = 2, backoff_factor = 3
         )
-        u <- LLMR::tokens(ro)
+        u <- extract_token_counts(ro)
         self$tokens_sent_agent <- self$tokens_sent_agent + .fg_tok0(u$sent)
         self$tokens_received_agent <- self$tokens_received_agent + .fg_tok0(u$rec)
         ro
       }
 
       response_obj <- score_once(current_call_config)
-      response_text <- as.character(response_obj)
+      response_text <- .fg_response_text(response_obj)
 
       # A reasoning model can spend the whole token budget on hidden reasoning and
       # return an empty (or length-truncated) reply, which would silently score 0
       # and flatten turn selection. When that happens, retry once with a generous
       # budget so the visible integer can emerge. Costs nothing for ordinary
       # models, which answer within the default budget on the first call.
-      truncated <- identical(tryCatch(LLMR::finish_reason(response_obj),
-                                       error = function(...) NA_character_), "length")
+      truncated <- identical(.fg_response_finish(response_obj), "length")
       if ((!nzchar(trimws(response_text)) || truncated) &&
           max_tokens_desire < .fg_desire_retry_tokens) {
         retry_cfg <- current_call_config
         retry_cfg$model_params$max_tokens <- .fg_desire_retry_tokens
         response_obj <- score_once(retry_cfg)
-        response_text <- as.character(response_obj)
+        response_text <- .fg_response_text(response_obj)
       }
 
       # Try to parse a number from 0-10. More robust parsing.
@@ -412,4 +425,4 @@ FGAgent <- R6::R6Class("FGAgent",
       return(list(description = trimws(final_description), style_instruction = trimws(style_instr)))
     }
   )
-) 
+)

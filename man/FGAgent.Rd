@@ -42,6 +42,10 @@ communication style, to be included in prompts.}
 \item{\code{model_config}}{An `llm_config` object (from the `LLMR` package) specifying the
 LLM provider, model, API key, and other parameters for this agent.}
 
+\item{\code{runner}}{`NULL` or a function with arguments `(config, messages)` that
+returns a character scalar or an `llmr_response`. A function provides an
+offline or otherwise caller-controlled execution path.}
+
 \item{\code{is_moderator}}{Logical. `TRUE` if the agent is the moderator, `FALSE` otherwise.}
 
 \item{\code{history}}{List. A log of utterances made by this agent during the simulation.}
@@ -73,7 +77,7 @@ LLM provider, model, API key, and other parameters for this agent.}
 \subsection{Method \code{new()}}{
 Initialize a new FGAgent.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FGAgent$new(id, agent_details, llm_config, is_moderator = FALSE)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FGAgent$new(id, agent_details, llm_config, is_moderator = FALSE, runner = NULL)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
@@ -94,6 +98,9 @@ If `is_moderator` is `TRUE` and no specific details are provided, a default mode
 \item{\code{llm_config}}{An `llm_config` object from `LLMR::llm_config()`.}
 
 \item{\code{is_moderator}}{Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.}
+
+\item{\code{runner}}{`NULL` or a function `(config, messages)` returning a
+character scalar or an `llmr_response`. `NULL` uses live LLMR calls.}
 }
 \if{html}{\out{</div>}}
 }

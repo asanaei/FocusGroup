@@ -12,7 +12,8 @@ create_agents_from_survey(
   rows = NULL,
   weights = NULL,
   na_strings = .fg_default_na_strings,
-  llm_config = NULL
+  llm_config = NULL,
+  runner = NULL
 )
 }
 \arguments{
@@ -42,6 +43,9 @@ missing (case-insensitive). Defaults to a small common set; pass your own to
 match another file's missing-data vocabulary.}
 
 \item{llm_config}{Optional `LLMR::llm_config` for all agents.}
+
+\item{runner}{`NULL` or a function `(config, messages)` returning a character
+scalar or an `llmr_response`. The function is stored on every agent.}
 }
 \value{
 A list of `FGAgent` objects (participants + moderator).

@@ -1,6 +1,153 @@
 #' 
 NULL
 
+# Default moderator scripts used when turns_per_phase supplies numeric counts.
+# Each public default count fits within its phase bank, so the standard session
+# does not repeat a question.
+.fg_phase_script_banks <- function(topic) {
+  list(
+    Opening = c(
+      paste0("Welcome the participants, state the purpose of the discussion on ",
+             topic, ", and explain the ground rules."),
+      paste0("Explain how the discussion of ", topic,
+             " will proceed, affirm the moderator's neutrality, and state that respectful disagreement is welcome.")
+    ),
+    Icebreaker = c(
+      paste0("What first comes to mind when you think about ", topic, "?"),
+      paste0("What recent experience has shaped your first impression of ", topic, "?"),
+      paste0("How would you describe your connection to ", topic, " to someone new to it?")
+    ),
+    Engagement = c(
+      paste0("Where does ", topic, " enter your daily life or work?"),
+      paste0("Which part of ", topic, " matters most to you at present?"),
+      paste0("What has changed most in your experience of ", topic, "?"),
+      paste0("Who benefits most from current approaches to ", topic, "?"),
+      paste0("Who bears the greatest costs associated with ", topic, "?"),
+      paste0("What practical obstacle shapes how people respond to ", topic, "?"),
+      paste0("Where do your own experiences differ from common accounts of ", topic, "?"),
+      paste0("What aspect of ", topic, " deserves more public attention?")
+    ),
+    Exploration = c(
+      paste0("What tensions or trade-offs are central to ", topic, "?"),
+      paste0("Where does the group appear to agree about ", topic, "?"),
+      paste0("Where do the sharpest differences about ", topic, " remain?"),
+      paste0("What evidence would change your view of ", topic, "?"),
+      paste0("Which proposed response to ", topic, " seems most credible, and why?"),
+      paste0("What unintended consequence should be considered in decisions about ", topic, "?"),
+      paste0("How do institutions shape people's options concerning ", topic, "?"),
+      paste0("What important perspective on ", topic, " has not yet been heard?"),
+      paste0("What would a fair outcome concerning ", topic, " look like?"),
+      paste0("What question about ", topic, " should future research examine?")
+    ),
+    Closing = c(
+      paste0("Summarize the central areas of agreement and disagreement about ",
+             topic, " without adding a judgment."),
+      "Thank the participants, state that the discussion is complete, and close the session."
+    )
+  )
+}
+
+.fg_extend_script_bank <- function(bank, n, phase, topic) {
+  if (n == 0L) return(character(0))
+  if (phase == "Closing") {
+    final_close <- bank[[length(bank)]]
+    if (n == 1L) return(final_close)
+    pre_close <- bank[-length(bank)]
+    if ((n - 1L) > length(pre_close)) {
+      extra <- vapply(seq.int(length(pre_close) + 1L, n - 1L), function(i) {
+        paste0("Synthesize one additional unresolved point about ", topic,
+               " that has not appeared in the preceding closing remarks (point ",
+               i, ").")
+      }, character(1))
+      pre_close <- c(pre_close, extra)
+    }
+    return(c(pre_close[seq_len(n - 1L)], final_close))
+  }
+  if (n <= length(bank)) return(bank[seq_len(n)])
+  extra <- vapply(seq.int(length(bank) + 1L, n), function(i) {
+    if (phase %in% c("Opening", "Closing")) {
+      paste0("Add a distinct ", tolower(phase), " instruction for moderator turn ", i,
+             " concerning ", topic, ".")
+    } else {
+      paste0("What additional ", tolower(phase), " perspective on ", topic,
+             " has not yet been discussed? Focus on prompt ", i, ".")
+    }
+  }, character(1))
+  c(bank, extra)
+}
+
+# Convert numeric phase counts or user-supplied phase scripts to the structure
+# consumed by FocusGroup. Numeric values select distinct defaults; character
+# vectors supply the exact ordered moderator questions or instructions.
+.fg_build_question_script <- function(turns_per_phase, topic) {
+  if (is.null(turns_per_phase)) return(list())
+  if (!(is.atomic(turns_per_phase) || is.list(turns_per_phase)) ||
+      is.data.frame(turns_per_phase)) {
+    stop("`turns_per_phase` must be a named numeric vector or named list.",
+         call. = FALSE)
+  }
+  phase_names <- names(turns_per_phase)
+  if (is.null(phase_names) || anyNA(phase_names) || any(!nzchar(phase_names))) {
+    stop("`turns_per_phase` must have non-empty phase names.", call. = FALSE)
+  }
+
+  supported <- c("Opening", "Icebreaker", "Engagement", "Exploration", "Closing")
+  matched <- match(tolower(phase_names), tolower(supported))
+  if (anyNA(matched)) {
+    stop("Unknown phase name(s): ", paste(phase_names[is.na(matched)], collapse = ", "),
+         ". Supported phases are ", paste(supported, collapse = ", "), ".",
+         call. = FALSE)
+  }
+  canonical <- supported[matched]
+  if (anyDuplicated(canonical)) {
+    stop("Each phase may appear only once in `turns_per_phase`.", call. = FALSE)
+  }
+  if (is.unsorted(matched)) {
+    stop("Phases in `turns_per_phase` must follow the order Opening, Icebreaker, Engagement, Exploration, Closing.",
+         call. = FALSE)
+  }
+
+  phase_codes <- c(
+    Opening = "opening",
+    Icebreaker = "icebreaker_question",
+    Engagement = "engagement_question",
+    Exploration = "exploration_question",
+    Closing = "closing"
+  )
+  banks <- .fg_phase_script_banks(topic)
+  out <- list()
+
+  for (i in seq_along(turns_per_phase)) {
+    value <- turns_per_phase[[i]]
+    phase <- canonical[[i]]
+    scripts <- if (is.character(value)) {
+      if (anyNA(value) || any(!nzchar(trimws(value)))) {
+        stop("Character scripts for phase '", phase,
+             "' must be non-missing and non-empty.", call. = FALSE)
+      }
+      unname(value)
+    } else {
+      if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
+          !is.finite(value) || value < 0 || value != floor(value)) {
+        stop("The numeric count for phase '", phase,
+             "' must be one non-negative whole number.", call. = FALSE)
+      }
+      .fg_extend_script_bank(banks[[phase]], as.integer(value), phase, topic)
+    }
+    if (length(scripts)) {
+      out <- c(out, lapply(scripts, function(script) {
+        list(phase = unname(phase_codes[[phase]]), text = script)
+      }))
+    }
+  }
+
+  if (!length(out)) {
+    stop("`turns_per_phase` must specify at least one moderator turn.",
+         call. = FALSE)
+  }
+  out
+}
+
 #' Run a Simple Focus Group Simulation
 #'
 #' This is the main high-level wrapper function for running focus group simulations.
@@ -9,9 +156,14 @@ NULL
 #'
 #' @param topic Character string describing the focus group topic
 #' @param participants Integer number of participants (excluding moderator)
-#' @param turns_per_phase Named list or vector specifying turns for each phase.
-#'   Can be a named vector like c(Opening = 2, Icebreaker = 3, Engagement = 8,
-#'   Exploration = 10, Closing = 2) or a named list.
+#' @param turns_per_phase A named numeric vector or named list for the moderator
+#'   turns in each phase. Numeric values set the number of moderator turns and
+#'   draw distinct questions or instructions from the package's phase banks. In
+#'   a named list, character vectors supply the ordered scripts directly, and
+#'   their lengths set the counts. Supported names are Opening, Icebreaker,
+#'   Engagement, Exploration, and Closing, matched without regard to case.
+#'   When several phases are supplied, they must appear in that order.
+#'   Question turns may elicit several participant responses.
 #' @param demographics Optional data frame with participant demographics. If NULL,
 #'   diverse demographics will be automatically generated.
 #' @param survey_responses Optional data frame with survey responses. If NULL,
@@ -19,6 +171,9 @@ NULL
 #' @param conversation_flow Character string specifying turn-taking mechanism:
 #'   "round_robin", "probabilistic", or "desire_based". Default is "desire_based".
 #' @param llm_config List with LLM configuration. If NULL, uses default configuration.
+#' @param runner `NULL` or a function `(config, messages)` returning a character
+#'   scalar or an `llmr_response`. When supplied, all participant, moderator,
+#'   desire-scoring, and summary calls use this function instead of a provider.
 #' @param seed Optional integer. Seeds R's RNG, which governs speaker selection
 #'   and other in-package sampling. It does NOT make the LLM output reproducible:
 #'   at `temperature > 0` the provider samples server-side, beyond R's control.
@@ -44,8 +199,14 @@ NULL
 #' result <- run_focus_group(
 #'   topic = "Social media impact on mental health",
 #'   participants = 6,
-#'   turns_per_phase = c(Opening = 2, Icebreaker = 3,
-#'                       Engagement = 8, Exploration = 10, Closing = 2)
+#'   turns_per_phase = list(
+#'     Opening = "Welcome the group and state the ground rules.",
+#'     Icebreaker = c("What first comes to mind when you think about social media?",
+#'                    "What has your own experience been?"),
+#'     Engagement = "Where does social media enter your daily life?",
+#'     Exploration = "What trade-offs deserve closer attention?",
+#'     Closing = "Thank the participants and close the session."
+#'   )
 #' )
 #'
 #' # Access the conversation
@@ -65,6 +226,7 @@ run_focus_group <- function(topic,
                            survey_responses = NULL,
                            conversation_flow = "desire_based",
                            llm_config = NULL,
+                           runner = NULL,
                            seed = NULL,
                            msg_mode = c("roleflip","flat"),
                            verbose = TRUE,
@@ -110,7 +272,8 @@ run_focus_group <- function(topic,
     n_participants = participants,
     demographics = demographics,
     survey_responses = survey_responses,
-    llm_config = llm_config
+    llm_config = llm_config,
+    runner = runner
   )
 
   # Need to convert the list to a named list with agent IDs as names
@@ -132,6 +295,12 @@ run_focus_group <- function(topic,
   # Create conversation flow via factory
   flow_obj <- create_conversation_flow(conversation_flow, agents_named, moderator_id)
 
+  question_script <- if (is.null(turns_per_phase)) {
+    list()
+  } else {
+    .fg_build_question_script(turns_per_phase, topic)
+  }
+
   # Create focus group with purpose
   if (verbose) cat("Setting up focus group...\n")
   fg <- FocusGroup$new(
@@ -140,46 +309,9 @@ run_focus_group <- function(topic,
     agents = agents_named,
     moderator_id = moderator_id,
     turn_taking_flow = flow_obj,
+    question_script = question_script,
     max_participant_responses = max_participant_responses
   )
-
-  # Convert turns_per_phase to question script if needed
-  if (!is.null(turns_per_phase)) {
-    question_script <- list()
-    for (phase in names(turns_per_phase)) {
-      n_turns <- turns_per_phase[[phase]]
-      phase_lower <- tolower(phase)
-
-      # Map phase names to script entries
-      if (phase_lower == "opening") {
-        question_script <- append(question_script, list(list(phase = "opening")))
-      } else if (phase_lower == "icebreaker") {
-        for (i in seq_len(n_turns)) {
-          question_script <- append(question_script, list(list(
-            phase = "icebreaker_question",
-            text = paste("What's your initial reaction or experience with", topic, "?")
-          )))
-        }
-      } else if (phase_lower == "engagement") {
-        for (i in seq_len(n_turns)) {
-          question_script <- append(question_script, list(list(
-            phase = "engagement_question",
-            text = paste("How does", topic, "affect your daily life or work?")
-          )))
-        }
-      } else if (phase_lower == "exploration") {
-        for (i in seq_len(n_turns)) {
-          question_script <- append(question_script, list(list(
-            phase = "exploration_question",
-            text = paste("What are your deeper thoughts or concerns about", topic, "?")
-          )))
-        }
-      } else if (phase_lower == "closing") {
-        question_script <- append(question_script, list(list(phase = "closing")))
-      }
-    }
-    fg$question_script <- question_script
-  }
 
   # Run simulation
   if (verbose) cat("Running simulation...\n")
@@ -259,6 +391,9 @@ run_focus_group <- function(topic,
 #' @param participants Integer. Number of participants (excluding moderator). Default 6.
 #' @param flow Character. Turn-taking flow: one of "desire_based", "round_robin", "probabilistic".
 #' @param llm_config Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.
+#' @param runner `NULL` or a function `(config, messages)` returning a character
+#'   scalar or an `llmr_response`. When supplied, the session runs without live
+#'   provider calls.
 #' @param seed Optional integer. Seeds R's RNG (speaker selection and other
 #'   in-package sampling); it does NOT make the LLM output reproducible, since at
 #'   `temperature > 0` the provider samples server-side.
@@ -275,6 +410,22 @@ run_focus_group <- function(topic,
 #'   `totals` (list), `config_meta` (list), and `focus_group` (the `FocusGroup` object).
 #'
 #' @examples
+#' scripted_runner <- function(config, messages) {
+#'   paste(
+#'     "This scripted response records a concrete position on library funding",
+#'     "and gives a reason that the group can examine."
+#'   )
+#' }
+#' offline <- fg_quick(
+#'   "Library funding priorities",
+#'   participants = 1,
+#'   flow = "round_robin",
+#'   runner = scripted_runner,
+#'   max_participant_responses = 1,
+#'   verbose = FALSE
+#' )
+#' offline$focus_group$analyze()$speaker_stats
+#'
 #' \dontrun{
 #' Sys.setenv(OPENAI_API_KEY = "...")
 #' res <- fg_quick("Library funding priorities", participants = 4)
@@ -286,6 +437,7 @@ fg_quick <- function(topic,
                      participants = 6,
                      flow = c("desire_based","round_robin","probabilistic"),
                      llm_config = NULL,
+                     runner = NULL,
                      seed = NULL,
                      mode = c("quick","pro"),
                      msg_mode = c("roleflip","flat"),
@@ -307,7 +459,8 @@ fg_quick <- function(topic,
     n_participants = participants,
     demographics = NULL,
     survey_responses = NULL,
-    llm_config = llm_config
+    llm_config = llm_config,
+    runner = runner
   )
   agents_named <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
   moderator_id <- "MOD"
@@ -431,6 +584,12 @@ fg_analyze_quick <- function(res) {
 #' @param demographics Optional data frame with demographics. If NULL, generates diverse demographics.
 #' @param survey_responses Optional data frame with survey responses. If NULL, generates responses.
 #' @param llm_config List with LLM configuration parameters
+#' @param runner `NULL` or a function `(config, messages)` returning a character
+#'   scalar or an `llmr_response`. The function is stored on every agent.
+#' @param direct_persona_descriptions Optional character vector of pre-rendered
+#'   participant personas. When supplied, these descriptions are used directly
+#'   and are recycled in order if necessary. Demographics and survey responses
+#'   remain attached as raw reporting fields.
 #'
 #' @return List of FGAgent objects (participants + 1 moderator)
 #'
@@ -452,7 +611,9 @@ fg_analyze_quick <- function(res) {
 create_diverse_agents <- function(n_participants,
                                  demographics = NULL,
                                  survey_responses = NULL,
-                                 llm_config = NULL) {
+                                 llm_config = NULL,
+                                 runner = NULL,
+                                 direct_persona_descriptions = NULL) {
 
   if (!is.numeric(n_participants) || length(n_participants) != 1L ||
       is.na(n_participants) || n_participants < 1) {
@@ -465,8 +626,18 @@ create_diverse_agents <- function(n_participants,
     demographics <- generate_diverse_demographics(n_participants)
   }
 
-  # Generate survey responses if not provided
-  if (is.null(survey_responses)) {
+  if (!is.null(direct_persona_descriptions)) {
+    if (!is.character(direct_persona_descriptions) ||
+        !length(direct_persona_descriptions) ||
+        anyNA(direct_persona_descriptions) ||
+        any(!nzchar(trimws(direct_persona_descriptions)))) {
+      stop("`direct_persona_descriptions` must contain non-empty character strings.",
+           call. = FALSE)
+    }
+  }
+
+  # Direct personas do not need synthetic survey answers.
+  if (is.null(survey_responses) && is.null(direct_persona_descriptions)) {
     survey_responses <- generate_survey_responses(n_participants)
   }
 
@@ -526,7 +697,13 @@ create_diverse_agents <- function(n_participants,
       NULL
     }
 
-    persona <- generate_persona(agent_demographics, agent_survey)
+    persona <- if (!is.null(direct_persona_descriptions)) {
+      direct_persona_descriptions[
+        ((i - 1L) %% length(direct_persona_descriptions)) + 1L
+      ]
+    } else {
+      generate_persona(agent_demographics, agent_survey)
+    }
 
     agents[[i]] <- FGAgent$new(
       id = paste0("P", i),
@@ -536,7 +713,8 @@ create_diverse_agents <- function(n_participants,
         survey_responses = agent_survey
       ),
       llm_config = llm_config,
-      is_moderator = FALSE
+      is_moderator = FALSE,
+      runner = runner
     )
   }
 
@@ -550,7 +728,8 @@ create_diverse_agents <- function(n_participants,
       demographics = list(role = "professional_moderator")
     ),
     llm_config = llm_config,
-    is_moderator = TRUE
+    is_moderator = TRUE,
+    runner = runner
   )
 
   return(agents)
@@ -858,8 +1037,15 @@ generate_persona <- function(demographics, survey_responses = NULL,
 # Shared core: given a decoded demographics frame and survey-responses frame
 # (already row-aligned, same nrow), select rows and build agents.
 .fg_agents_from_frames <- function(demo_df, survey_df, n_participants,
-                                   llm_config, rows = NULL, weights = NULL) {
+                                   llm_config, rows = NULL, weights = NULL,
+                                   runner = NULL,
+                                   direct_persona_descriptions = NULL) {
   N <- nrow(demo_df)
+  if (!is.null(direct_persona_descriptions) &&
+      length(direct_persona_descriptions) != N) {
+    stop("Direct persona descriptions must align with the respondent rows.",
+         call. = FALSE)
+  }
   idx <- seq_len(N)
   if (!is.null(rows)) {
     idx <- if (is.function(rows)) which(rows(demo_df)) else {
@@ -889,12 +1075,19 @@ generate_persona <- function(demographics, survey_responses = NULL,
 
   demo_sample <- demo_df[take, , drop = FALSE]
   survey_sample <- if (!is.null(survey_df)) survey_df[take, , drop = FALSE] else NULL
+  persona_sample <- if (!is.null(direct_persona_descriptions)) {
+    direct_persona_descriptions[take]
+  } else {
+    NULL
+  }
 
   create_diverse_agents(
     n_participants = n_participants,
     demographics = demo_sample,
     survey_responses = survey_sample,
-    llm_config = llm_config
+    llm_config = llm_config,
+    runner = runner,
+    direct_persona_descriptions = persona_sample
   )
 }
 
@@ -930,6 +1123,8 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'   missing (case-insensitive). Defaults to a small common set; pass your own to
 #'   match another file's missing-data vocabulary.
 #' @param llm_config Optional `LLMR::llm_config` for all agents.
+#' @param runner `NULL` or a function `(config, messages)` returning a character
+#'   scalar or an `llmr_response`. The function is stored on every agent.
 #'
 #' @return A list of `FGAgent` objects (participants + moderator).
 #' @seealso [create_agents_from_data()] for an in-memory data frame, and
@@ -953,7 +1148,8 @@ create_agents_from_survey <- function(n_participants,
                                       rows = NULL,
                                       weights = NULL,
                                       na_strings = .fg_default_na_strings,
-                                      llm_config = NULL) {
+                                      llm_config = NULL,
+                                      runner = NULL) {
   if (!file.exists(survey_path)) stop("Survey file not found at: ", survey_path)
   if (is.null(llm_config)) llm_config <- default_llmr_config()
 
@@ -1016,7 +1212,7 @@ create_agents_from_survey <- function(n_participants,
   if (!is.null(weights_vec) && length(weights_vec) == length(keep)) weights_vec <- weights_vec[keep]
 
   .fg_agents_from_frames(demo_df, survey_df, n_participants, llm_config,
-                         rows = rows, weights = weights_vec)
+                         rows = rows, weights = weights_vec, runner = runner)
 }
 
 #' Create agents from an in-memory data frame of respondents
@@ -1028,6 +1224,12 @@ create_agents_from_survey <- function(n_participants,
 #' (see [LLMR::llm_persona_split()]), else by their column names. Values are taken
 #' as-is (decode and clean them first if they are still coded).
 #'
+#' A frame of class `silicon_panel`, or a frame with both `persona` and
+#' `persona_id` columns, is treated as a pre-rendered persona panel. Its
+#' `persona` text becomes each participant's direct persona description;
+#' `persona` and `persona_id` are not rendered as survey answers. This bridge
+#' uses the frame's structure and does not require LLMRpanel.
+#'
 #' @param data A data frame, one respondent per row.
 #' @param n_participants Integer number of participants (excludes the moderator).
 #' @param demographic_cols Character vector of columns to render as demographics.
@@ -1035,6 +1237,8 @@ create_agents_from_survey <- function(n_participants,
 #'   a small set of common demographic column names found in `data`.
 #' @param rows,weights See [create_agents_from_survey()].
 #' @param llm_config Optional `LLMR::llm_config` for all agents.
+#' @param runner `NULL` or a function `(config, messages)` returning a character
+#'   scalar or an `llmr_response`. The function is stored on every agent.
 #' @return A list of `FGAgent` objects (participants + moderator).
 #' @examples
 #' \dontrun{
@@ -1045,9 +1249,23 @@ create_agents_from_survey <- function(n_participants,
 create_agents_from_data <- function(data, n_participants,
                                     demographic_cols = NULL,
                                     rows = NULL, weights = NULL,
-                                    llm_config = NULL) {
+                                    llm_config = NULL,
+                                    runner = NULL) {
   stopifnot(is.data.frame(data))
   if (is.null(llm_config)) llm_config <- default_llmr_config()
+
+  is_silicon_panel <- inherits(data, "silicon_panel") ||
+    all(c("persona", "persona_id") %in% names(data))
+  if (is_silicon_panel && !"persona" %in% names(data)) {
+    stop("A `silicon_panel` frame must contain a `persona` column.", call. = FALSE)
+  }
+  direct_personas <- if (is_silicon_panel) as.character(data$persona) else NULL
+  if (!is.null(direct_personas) &&
+      (anyNA(direct_personas) || any(!nzchar(trimws(direct_personas))))) {
+    stop("The `persona` column must contain non-empty text for every row.",
+         call. = FALSE)
+  }
+  reserved_panel_cols <- if (is_silicon_panel) c("persona", "persona_id") else character()
 
   if (is.null(demographic_cols)) {
     demographic_cols <- attr(data, "demographic_fields")
@@ -1060,14 +1278,19 @@ create_agents_from_data <- function(data, n_participants,
                 "military service", "attention to politics")
     demographic_cols <- intersect(common, names(data))
   }
-  demographic_cols <- intersect(demographic_cols, names(data))
+  demographic_cols <- setdiff(intersect(demographic_cols, names(data)),
+                              reserved_panel_cols)
   # a score/sort column is not a persona fact
   drop_cols <- intersect(c("ideology_score"), names(data))
-  survey_cols <- setdiff(names(data), c(demographic_cols, drop_cols))
+  survey_cols <- setdiff(names(data), c(demographic_cols, drop_cols,
+                                        reserved_panel_cols))
 
-  to_char <- function(df) as.data.frame(lapply(df, function(x) {
-    v <- as.character(x); v[!nzchar(v %||% "")] <- NA; v
-  }), stringsAsFactors = FALSE, check.names = FALSE)
+  to_char <- function(df) {
+    if (!ncol(df)) return(data.frame(row.names = seq_len(nrow(df))))
+    as.data.frame(lapply(df, function(x) {
+      v <- as.character(x); v[!nzchar(v %||% "")] <- NA; v
+    }), stringsAsFactors = FALSE, check.names = FALSE)
+  }
 
   # Render with the human question wording, not the tidy column handle, when the
   # data carries a dictionary (handle -> question). Handles stay the column names
@@ -1091,7 +1314,8 @@ create_agents_from_data <- function(data, n_participants,
   } else weights
 
   .fg_agents_from_frames(demo_df, survey_df, n_participants, llm_config,
-                         rows = rows, weights = wv)
+                         rows = rows, weights = wv, runner = runner,
+                         direct_persona_descriptions = direct_personas)
 }
 
  

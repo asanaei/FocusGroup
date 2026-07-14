@@ -13,6 +13,7 @@ run_focus_group(
   survey_responses = NULL,
   conversation_flow = "desire_based",
   llm_config = NULL,
+  runner = NULL,
   seed = NULL,
   msg_mode = c("roleflip", "flat"),
   verbose = TRUE,
@@ -24,9 +25,14 @@ run_focus_group(
 
 \item{participants}{Integer number of participants (excluding moderator)}
 
-\item{turns_per_phase}{Named list or vector specifying turns for each phase.
-Can be a named vector like c(Opening = 2, Icebreaker = 3, Engagement = 8,
-Exploration = 10, Closing = 2) or a named list.}
+\item{turns_per_phase}{A named numeric vector or named list for the moderator
+turns in each phase. Numeric values set the number of moderator turns and
+draw distinct questions or instructions from the package's phase banks. In
+a named list, character vectors supply the ordered scripts directly, and
+their lengths set the counts. Supported names are Opening, Icebreaker,
+Engagement, Exploration, and Closing, matched without regard to case.
+When several phases are supplied, they must appear in that order.
+Question turns may elicit several participant responses.}
 
 \item{demographics}{Optional data frame with participant demographics. If NULL,
 diverse demographics will be automatically generated.}
@@ -38,6 +44,10 @@ responses will be automatically generated.}
 "round_robin", "probabilistic", or "desire_based". Default is "desire_based".}
 
 \item{llm_config}{List with LLM configuration. If NULL, uses default configuration.}
+
+\item{runner}{`NULL` or a function `(config, messages)` returning a character
+scalar or an `llmr_response`. When supplied, all participant, moderator,
+desire-scoring, and summary calls use this function instead of a provider.}
 
 \item{seed}{Optional integer. Seeds R's RNG, which governs speaker selection
 and other in-package sampling. It does NOT make the LLM output reproducible:
@@ -73,8 +83,14 @@ a comprehensive result object.
 result <- run_focus_group(
   topic = "Social media impact on mental health",
   participants = 6,
-  turns_per_phase = c(Opening = 2, Icebreaker = 3,
-                      Engagement = 8, Exploration = 10, Closing = 2)
+  turns_per_phase = list(
+    Opening = "Welcome the group and state the ground rules.",
+    Icebreaker = c("What first comes to mind when you think about social media?",
+                   "What has your own experience been?"),
+    Engagement = "Where does social media enter your daily life?",
+    Exploration = "What trade-offs deserve closer attention?",
+    Closing = "Thank the participants and close the session."
+  )
 )
 
 # Access the conversation
