@@ -90,4 +90,59 @@ test_that("create_agents_from_data works on the shared LLMR persona dataset", {
   expect_true(grepl("Question:", p$persona_description))
 })
 
+test_that("silicon panel personas pass through as direct descriptions", {
+  panel <- data.frame(
+    persona_id = c("persona-1", "persona-2"),
+    persona = c(
+      "A renter who depends on the evening bus and tracks monthly fares.",
+      "A retired driver who favors frequent service over route expansion."
+    ),
+    age = c("34", "68"),
+    stringsAsFactors = FALSE
+  )
+  class(panel) <- c("silicon_panel", class(panel))
+  cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+
+  agents <- create_agents_from_data(
+    panel,
+    n_participants = 2,
+    demographic_cols = "age",
+    rows = c(2, 1),
+    llm_config = cfg
+  )
+
+  expect_identical(
+    vapply(agents[1:2], function(agent) agent$persona_description, character(1)),
+    rev(panel$persona)
+  )
+  for (agent in agents[1:2]) {
+    expect_false(any(c("persona", "persona_id") %in% names(agent$survey_responses)))
+  }
+
+  unclassed <- panel
+  class(unclassed) <- "data.frame"
+  duck_typed <- create_agents_from_data(
+    unclassed,
+    n_participants = 2,
+    demographic_cols = "age",
+    llm_config = cfg
+  )
+  expect_identical(
+    vapply(duck_typed[1:2], function(agent) agent$persona_description, character(1)),
+    panel$persona
+  )
+
+  minimal <- unclassed[c("persona_id", "persona")]
+  minimal_agents <- create_agents_from_data(
+    minimal,
+    n_participants = 2,
+    llm_config = cfg
+  )
+  expect_identical(
+    vapply(minimal_agents[1:2], function(agent) agent$persona_description,
+           character(1)),
+    panel$persona
+  )
+})
+
 # (The dataset's own shape/provenance is tested in LLMR, its home package.)

@@ -184,7 +184,7 @@ test_that("the GUI persona path applies the seed to the respondent draw", {
   run_once <- function() FocusGroup:::.fg_run_from_personas(
     topic = "topic", participants = 3, rows = integer(0), flow = "round_robin",
     msg_mode = "roleflip", seed = 110L, max_participant_responses = 1L,
-    model_config = cfg, data = personas)
+    llm_config = cfg, data = personas)
   p1 <- vapply(run_once()$focus_group$agents, function(a) a$persona_description, "")
   p2 <- vapply(run_once()$focus_group$agents, function(a) a$persona_description, "")
   # the same seed draws the same respondents, so agent creation saw the seed

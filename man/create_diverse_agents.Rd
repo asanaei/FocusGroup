@@ -8,7 +8,9 @@ create_diverse_agents(
   n_participants,
   demographics = NULL,
   survey_responses = NULL,
-  llm_config = NULL
+  llm_config = NULL,
+  runner = NULL,
+  direct_persona_descriptions = NULL
 )
 }
 \arguments{
@@ -19,6 +21,14 @@ create_diverse_agents(
 \item{survey_responses}{Optional data frame with survey responses. If NULL, generates responses.}
 
 \item{llm_config}{List with LLM configuration parameters}
+
+\item{runner}{`NULL` or a function `(config, messages)` returning a character
+scalar or an `llmr_response`. The function is stored on every agent.}
+
+\item{direct_persona_descriptions}{Optional character vector of pre-rendered
+participant personas. When supplied, these descriptions are used directly
+and are recycled in order if necessary. Demographics and survey responses
+remain attached as raw reporting fields.}
 }
 \value{
 List of FGAgent objects (participants + 1 moderator)

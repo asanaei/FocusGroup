@@ -10,7 +10,8 @@ create_agents_from_data(
   demographic_cols = NULL,
   rows = NULL,
   weights = NULL,
-  llm_config = NULL
+  llm_config = NULL,
+  runner = NULL
 )
 }
 \arguments{
@@ -25,6 +26,9 @@ a small set of common demographic column names found in `data`.}
 \item{rows, weights}{See [create_agents_from_survey()].}
 
 \item{llm_config}{Optional `LLMR::llm_config` for all agents.}
+
+\item{runner}{`NULL` or a function `(config, messages)` returning a character
+scalar or an `llmr_response`. The function is stored on every agent.}
 }
 \value{
 A list of `FGAgent` objects (participants + moderator).
@@ -36,6 +40,13 @@ rendered as background; the remaining columns are rendered as survey responses,
 keyed by their question wording when the frame carries a `dictionary` attribute
 (see [LLMR::llm_persona_split()]), else by their column names. Values are taken
 as-is (decode and clean them first if they are still coded).
+}
+\details{
+A frame of class `silicon_panel`, or a frame with both `persona` and
+`persona_id` columns, is treated as a pre-rendered persona panel. Its
+`persona` text becomes each participant's direct persona description;
+`persona` and `persona_id` are not rendered as survey answers. This bridge
+uses the frame's structure and does not require LLMRpanel.
 }
 \examples{
 \dontrun{

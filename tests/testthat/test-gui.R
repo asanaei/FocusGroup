@@ -100,7 +100,7 @@ test_that("the run module runs via an injected fake and stores the focus group",
   skip_if_not_installed("shiny")
   skip_if_not_installed("LLMR.shiny")
   shared <- fake_shared("live", TRUE)
-  fake_quick <- function(topic, participants, flow, model_config, seed, mode,
+  fake_quick <- function(topic, participants, flow, llm_config, seed, mode,
                          msg_mode = "roleflip", verbose, max_participant_responses) {
     list(
       focus_group = structure(list(topic = topic, msg_mode = msg_mode),
@@ -148,7 +148,7 @@ test_that("the run module uses the persona runner when source = anes", {
   shared <- fake_shared("live", TRUE)
   seen <- new.env()
   fake_persona <- function(topic, participants, rows, flow, msg_mode, seed,
-                           max_participant_responses, model_config, data = NULL) {
+                           max_participant_responses, llm_config, data = NULL) {
     seen$rows <- rows; seen$topic <- topic
     list(focus_group = structure(list(topic = topic), class = "FocusGroup"),
          transcript = data.frame(turn = 1L, speaker_id = "MOD", text = "Hi.",

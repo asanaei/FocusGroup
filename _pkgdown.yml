@@ -43,6 +43,7 @@ reference:
   - title: High-level Wrappers
     contents:
       - run_focus_group
+      - focus_group_from_transcript
       - fg_quick
       - fg_analyze_quick
       - analyze_focus_group

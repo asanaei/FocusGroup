@@ -274,6 +274,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
       }
       moderator_template <- self$prompt_templates[[moderator_prompt_key]]
 
+      scripted_boundary_phase <- current_phase_name %in% c("opening", "closing") &&
+        !is.null(current_phase_details$text) &&
+        nzchar(current_phase_details$text)
+      if (scripted_boundary_phase) {
+        moderator_template <- paste(
+          "You are the MODERATOR of a focus group.",
+          "The focus group topic is: '{{topic}}'.",
+          "The purpose of the focus group is: '{{focus_group_purpose}}'.",
+          "Carry out only the following instruction for this moderator turn:",
+          current_phase_details$text,
+          "Do not repeat earlier opening or closing tasks, and do not advance to a later task unless this instruction calls for it.",
+          sep = "\n"
+        )
+      }
+
       # Pre-fill moderator template placeholders to avoid unresolved tokens in outputs
       last_msg <- if (length(self$conversation_log) > 0) {
         self$conversation_log[[length(self$conversation_log)]]
@@ -307,6 +322,17 @@ FocusGroup <- R6::R6Class("FocusGroup",
           next_focus_group_question = self$current_question_text %||% ""
         )
       )
+
+      if (!scripted_boundary_phase &&
+          !current_phase_name %in% question_phases &&
+          !is.null(current_phase_details$text) &&
+          nzchar(current_phase_details$text)) {
+        moderator_template_filled <- paste(
+          moderator_template_filled,
+          "\n\nScript for this moderator turn:\n",
+          current_phase_details$text
+        )
+      }
 
       # Force-inject the scripted question into moderator prompt only for question-type phases
       if (current_phase_name %in% question_phases && !is.null(self$current_question_text) && nzchar(self$current_question_text)) {
@@ -353,10 +379,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$record_token_usage(mod_meta$sent_tokens %||% 0L, mod_meta$rec_tokens %||% 0L)
 
 
-      # If moderator's action was closing, end simulation
+      # A script may contain several closing turns. End after the final closing
+      # entry; otherwise continue through the remaining scripted instructions.
       if (current_phase_name == "closing") {
-        if (verbose) cat("Moderator initiated closing. Ending simulation.\n")
-        return(FALSE)
+        if (self$current_phase_index >= length(self$question_script)) {
+          if (verbose) cat("Moderator completed the closing. Ending simulation.\n")
+          return(FALSE)
+        }
+        return(TRUE)
       }
 
             # 3. Participant(s) Respond (if applicable for the phase)
@@ -489,14 +519,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
         current_call_config$model_params$max_tokens <- estimated_tokens
       }
 
-      response_obj <- LLMR::call_llm_robust(
+      response_obj <- .fg_call_llm(
         config = current_call_config,
         messages = list(list(role = "user", content = full_prompt)),
+        runner = self$agents[[self$moderator_id]]$runner,
         tries = 5,
         wait_seconds = 2,
         backoff_factor = 3
       )
-      summary_text <- as.character(response_obj)
+      summary_text <- .fg_response_text(response_obj)
 
       if (!internal_call) { # Only add to group totals if it's an "external" summarization request
           u <- extract_token_counts(response_obj)
@@ -722,7 +753,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
           dplyr::group_by(.data$speaker_id) %>%
           dplyr::slice_max(.data$tf_idf, n = top_n_terms, with_ties = FALSE) %>%
           dplyr::ungroup() %>%
-          dplyr::select(.data$speaker_id, term = .data$word, .data$tf_idf) %>%
+          dplyr::transmute(
+            speaker_id = .data$speaker_id,
+            term = .data$word,
+            tf_idf = .data$tf_idf
+          ) %>%
           dplyr::arrange(.data$speaker_id, dplyr::desc(.data$tf_idf))
 
         return(tfidf_results)
@@ -822,13 +857,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
         current_call_config <- active_llm_config
         current_call_config$model_params$max_tokens <- 800
 
-        response_obj <- LLMR::call_llm_robust(
+        response_obj <- .fg_call_llm(
           config = current_call_config,
           messages = list(list(role = "user", content = theme_prompt)),
+          runner = self$agents[[self$moderator_id]]$runner,
           tries = 5
         )
 
-        themes_summary = as.character(response_obj)
+        themes_summary = .fg_response_text(response_obj)
         attr(themes_summary , 'raw_llm_response') <- response_obj
         u <- extract_token_counts(response_obj)
         self$record_token_usage(u$sent, u$rec)

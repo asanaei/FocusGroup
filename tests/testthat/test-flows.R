@@ -6,7 +6,7 @@
 make_agent <- function(id, config) {
   FGAgent$new(id = id,
               agent_details = list(persona = paste("Persona", id)),
-              model_config = config)
+              llm_config = config)
 }
 
 test_that("config grouping key separates agents by their model config", {

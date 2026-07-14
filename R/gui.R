@@ -82,9 +82,9 @@ run_focus_studio <- function(...) {
 }
 
 # A live focus-group action is allowed only in live mode WITH a key. The shared
-# substrate's can_run() is TRUE in demo mode by design, but FocusGroup has no
-# offline runner -- every utterance is a live call -- so demo mode must never
-# start a run. Use this everywhere a live FG call is gated.
+# substrate's can_run() is TRUE in demo mode by design, but the GUI does not
+# accept a programmatic runner, so demo mode must never start a run. Use this
+# everywhere a live focus-group call is gated.
 .fg_live_ok <- function(shared) {
   identical(shared$mode(), "live") && isTRUE(shared$can_run())
 }
@@ -120,7 +120,7 @@ run_focus_studio <- function(...) {
 # indices into `data` (empty -> a diverse default draw of `participants`).
 .fg_run_from_personas <- function(topic, participants, rows, flow, msg_mode,
                                    seed, max_participant_responses,
-                                   model_config, data = NULL) {
+                                   llm_config, data = NULL) {
   data <- data %||% .fg_personas()
   chosen <- if (length(rows)) data[rows, , drop = FALSE] else data
   n <- if (length(rows)) length(rows) else participants
@@ -132,7 +132,7 @@ run_focus_studio <- function(...) {
     list(focusgroup.msg_mode = msg_mode, focusgroup.seed = seed),
     {
       agents <- create_agents_from_data(chosen, n_participants = n,
-                                        llm_config = model_config)
+                                        llm_config = llm_config)
       agents <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
       flow_obj <- create_conversation_flow(flow, agents, "MOD")
       script <- list(
@@ -266,7 +266,7 @@ run_focus_studio <- function(...) {
             msg_mode = input$msg_mode %||% "roleflip",
             seed = as.integer(input$seed %||% 110L),
             max_participant_responses = as.integer(input$max_resp %||% 1L),
-            model_config = cfg),
+            llm_config = cfg),
           shared$provider())
       } else {
         LLMR.shiny::safe_llmr_call(
@@ -274,7 +274,7 @@ run_focus_studio <- function(...) {
             topic = topic,
             participants = as.integer(input$participants %||% 3L),
             flow = input$flow %||% "round_robin",
-            model_config = cfg,
+            llm_config = cfg,
             seed = as.integer(input$seed %||% 110L),
             mode = "quick",
             msg_mode = input$msg_mode %||% "roleflip",
@@ -413,23 +413,9 @@ run_focus_studio <- function(...) {
   )
 }
 
-# ---- transcript coercion (analyze mode) -------------------------------------
-
-.fg_as_log <- function(obj, speaker_col = NULL, text_col = NULL) {
-  if (inherits(obj, "FocusGroup")) return(obj$conversation_log)
-  if (is.list(obj) && !is.data.frame(obj) && length(obj) &&
-      is.list(obj[[1]]) && !is.null(obj[[1]]$text)) return(obj)
-  if (is.data.frame(obj)) {
-    sc <- speaker_col %||% intersect(c("speaker_id","speaker","agent","role"), names(obj))[1]
-    tc <- text_col %||% intersect(c("text","utterance","message","content"), names(obj))[1]
-    if (is.na(sc) || is.na(tc)) stop("Could not find speaker and text columns.", call. = FALSE)
-    return(lapply(seq_len(nrow(obj)), function(i)
-      list(turn = i, speaker_id = as.character(obj[[sc]][i]),
-           text = as.character(obj[[tc]][i]),
-           is_moderator = grepl("mod", tolower(as.character(obj[[sc]][i]))))))
-  }
-  stop("Unrecognized transcript format.", call. = FALSE)
-}
+# ---- transcript display (analyze mode) ---------------------------------------
+# (.fg_as_log, the transcript coercion shared with focus_group_from_transcript(),
+# lives in R/utils.R.)
 
 .fg_log_to_df <- function(log) {
   data.frame(

@@ -9,6 +9,7 @@ plan.md
 .gemini/
 .cursor/
 .codex/
+.agents/
 
 # Output files from R CMD build
 /*.tar.gz

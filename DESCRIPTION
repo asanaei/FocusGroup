@@ -4,18 +4,9 @@ Title: Focus Group Simulation Using LLM Agents
 Version: 0.5.1
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
-Description: Researchers can simulate moderated focus group discussions in which
-    large language model (LLM) agents speak from supplied personas. Personas may
-    be written directly or assembled from demographic records, with survey
-    responses added when available. Configurable turn-taking rules govern
-    participant selection, while phased scripts guide moderator prompts and
-    participant exchanges. The resulting transcripts are intended for piloting
-    moderator guides and discussion protocols rather than estimating human
-    attitudes. Transcript tools examine participation and conversational patterns
-    through descriptive statistics and optional text analysis. The simulation and
-    its model-dependent analyses call configured providers through the 'LLMR'
-    package. An optional 'Shiny' interface runs sessions and examines saved
-    transcripts.
+Description: Moderated focus group discussions simulated with large language
+    model personas, for piloting moderator guides and discussion protocols
+    before fieldwork.
 License: MIT + file LICENSE
 Encoding: UTF-8
 RoxygenNote: 7.3.3

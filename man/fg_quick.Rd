@@ -8,7 +8,8 @@ fg_quick(
   topic,
   participants = 6,
   flow = c("desire_based", "round_robin", "probabilistic"),
-  model_config = NULL,
+  llm_config = NULL,
+  runner = NULL,
   seed = NULL,
   mode = c("quick", "pro"),
   msg_mode = c("roleflip", "flat"),
@@ -23,7 +24,11 @@ fg_quick(
 
 \item{flow}{Character. Turn-taking flow: one of "desire_based", "round_robin", "probabilistic".}
 
-\item{model_config}{Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.}
+\item{llm_config}{Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.}
+
+\item{runner}{`NULL` or a function `(config, messages)` returning a character
+scalar or an `llmr_response`. When supplied, the session runs without live
+provider calls.}
 
 \item{seed}{Optional integer. Seeds R's RNG (speaker selection and other
 in-package sampling); it does NOT make the LLM output reproducible, since at
@@ -52,6 +57,22 @@ Quick focus group runner with safe defaults and cost controls
 Creates agents, a compact script, runs the simulation, and returns a structured result.
 }
 \examples{
+scripted_runner <- function(config, messages) {
+  paste(
+    "This scripted response records a concrete position on library funding",
+    "and gives a reason that the group can examine."
+  )
+}
+offline <- fg_quick(
+  "Library funding priorities",
+  participants = 1,
+  flow = "round_robin",
+  runner = scripted_runner,
+  max_participant_responses = 1,
+  verbose = FALSE
+)
+offline$focus_group$analyze()$speaker_stats
+
 \dontrun{
 Sys.setenv(OPENAI_API_KEY = "...")
 res <- fg_quick("Library funding priorities", participants = 4)

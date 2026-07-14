@@ -134,12 +134,12 @@ This section lists classes and functions, their inputs/outputs, and behavior. "E
 ### R6 Classes (Exported)
 
 #### FGAgent
-- Fields: `id`, `persona_description`, `communication_style_instruction`, `model_config`, `role`, `demographics` (list), `survey_responses` (list), `is_moderator`, `history` (list), `tokens_sent_agent`, `tokens_received_agent`.
-- initialize(id, agent_details, model_config, is_moderator = FALSE)
+- Fields: `id`, `persona_description`, `communication_style_instruction`, `model_config`, `runner`, `role`, `demographics` (list), `survey_responses` (list), `is_moderator`, `history` (list), `tokens_sent_agent`, `tokens_received_agent`.
+- initialize(id, agent_details, llm_config, is_moderator = FALSE, runner = NULL)
   - agent_details: list with optional `demographics`, `survey_responses`, `direct_persona_description`, `communication_style`.
   - Validates and constructs persona and style (moderator has sensible defaults).
 - generate_utterance(topic, conversation_history_string, utterance_prompt_template, max_tokens_utterance = 150, current_moderator_question = "N/A", conversation_summary_so_far = "N/A", current_phase = "discussion") -> list(text, meta)
-  - Calls LLM, cleans self-referential openings, retries if incomplete, updates tokens and `history`.
+  - Calls LLMR when `runner` is `NULL`; otherwise calls `runner(config, messages)`. It cleans self-referential openings, retries if incomplete, and updates tokens and `history`.
 - get_need_to_talk(topic, conversation_history_string, desire_prompt_template, max_tokens_desire = 20, current_moderator_question = "N/A", last_speaker_id = "N/A", last_utterance_text = "N/A") -> numeric score 0--10
 
 Private helper: construct_persona_elements(details, is_moderator_flag) -> list(description, style_instruction)
@@ -154,11 +154,13 @@ Private helper: construct_persona_elements(details, is_moderator_flag) -> list(d
   - Executes one moderator step plus a small participant response round (up to 3) if phase expects responses.
 - summarize(llm_config = NULL, summary_level = 1, max_tokens = NULL, internal_call = FALSE, transcript_override = NULL) -> character
   - Levels: 1 (prose overview), 2 (detailed bullets), 3 (short bullets).
+  - Uses the moderator agent's runner when one is set; otherwise calls LLMR.
 - analyze(turns = NULL, speaker_ids = NULL) -> list(speaker_stats tibble, full_transcript character)
 - analyze_topics(num_topics = 5, min_doc_length = 20, top_n_terms = 10, turns = NULL, speaker_ids = NULL, ...) -> list or NULL
 - analyze_tfidf(top_n_terms = 10, turns = NULL, speaker_ids = NULL, ...) -> tibble(speaker_id, term, tf_idf)
 - analyze_readability(measures = "Flesch", turns = NULL, speaker_ids = NULL) -> tibble(measures..., speaker_id)
 - analyze_themes(llm_config = NULL, turns = NULL, speaker_ids = NULL) -> character (themes summary; raw response in attribute)
+  - Uses the moderator agent's runner when one is set; otherwise calls LLMR.
 - analyze_statistics(turns = NULL, speaker_ids = NULL) -> list(word_count_anova, phase_participation tibble, turns_words_correlation test)
 - analyze_participation_balance(turns = NULL, speaker_ids = NULL) -> list(participation_stats tibble, balance_metrics list)
 - analyze_response_patterns(turns = NULL, speaker_ids = NULL) -> list(response_metrics tibble, interaction_metrics tibble)
@@ -190,7 +192,7 @@ Private helpers: `get_next_phase_or_question()`, `log_message(...)`, `get_filter
 #### DesireBasedFlow
 - Fields: `last_desire_scores` (named numeric), `last_scoring_mode` (character: "broadcast_shared_config", "broadcast_grouped_config", or "per_agent"), `min_desire_threshold`.
 - initialize(agents, moderator_id, min_desire_threshold = 3)
-- select_next_speaker(focus_group) -> FGAgent (participant); falls back to the maximum-scored participant when none clears the threshold, returning `NULL` only when there are no participants.
+- select_next_speaker(focus_group) -> FGAgent (participant); falls back to the maximum-scored participant when none clears the threshold, returning `NULL` only when there are no participants. Injected runners use per-agent scoring rather than LLMR broadcast.
 - get_last_desire_scores() -> named numeric
 
 ### Factories and Wrappers (Exported)
@@ -199,7 +201,7 @@ Private helpers: `get_next_phase_or_question()`, `log_message(...)`, `get_filter
 - mode: "round_robin" | "probabilistic" | "desire_based".
 - flow_params: `initial_propensities`, `recovery_increment`, `min_desire_threshold` as applicable.
 
-#### run_focus_group(topic, participants = 6, turns_per_phase = c(Opening = 2, Icebreaker = 3, Engagement = 8, Exploration = 10, Closing = 2), demographics = NULL, survey_responses = NULL, conversation_flow = "desire_based", llm_config = NULL, seed = NULL, verbose = TRUE) -> list
+#### run_focus_group(topic, participants = 6, turns_per_phase = c(Opening = 2, Icebreaker = 3, Engagement = 8, Exploration = 10, Closing = 2), demographics = NULL, survey_responses = NULL, conversation_flow = "desire_based", llm_config = NULL, runner = NULL, seed = NULL, msg_mode = c("roleflip", "flat"), verbose = TRUE) -> list
 - Returns:
   - focus_group: FocusGroup object
   - conversation: data.frame transcript extracted from `conversation_log`
@@ -207,7 +209,7 @@ Private helpers: `get_next_phase_or_question()`, `log_message(...)`, `get_filter
   - basic_stats: from `FocusGroup$analyze()`
   - participants: list with id, moderator flag, persona, and input data
 
-#### fg_quick(topic, participants = 6, flow = c("desire_based","round_robin","probabilistic"), model_config = NULL, seed = NULL, mode = c("quick","pro"), verbose = TRUE) -> list
+#### fg_quick(topic, participants = 6, flow = c("desire_based","round_robin","probabilistic"), llm_config = NULL, runner = NULL, seed = NULL, mode = c("quick","pro"), verbose = TRUE) -> list
 - Returns: transcript tibble, summary character, participants list, totals (tokens and turns), config_meta, and the `focus_group`.
 
 #### fg_analyze_quick(res) -> list
@@ -220,15 +222,19 @@ Private helpers: `get_next_phase_or_question()`, `log_message(...)`, `get_filter
 
 ### Agent Creation and Survey Integration
 
-#### create_diverse_agents(n_participants, demographics = NULL, survey_responses = NULL, llm_config = NULL) -> list of FGAgent
+#### create_diverse_agents(n_participants, demographics = NULL, survey_responses = NULL, llm_config = NULL, runner = NULL, direct_persona_descriptions = NULL) -> list of FGAgent
 - Creates `n_participants` participants plus one moderator (`MOD`).
 - If `demographics`/`survey_responses` are missing, uses generators below.
 - Each participant's persona is built via `generate_persona()`.
 
-#### create_agents_from_survey(n_participants, survey_path, demographic_vars = NULL, survey_vars = NULL, llm_config = NULL) -> list of FGAgent
+#### create_agents_from_survey(n_participants, survey_path, demographic_vars = NULL, survey_vars = NULL, llm_config = NULL, runner = NULL) -> list of FGAgent
 - Loads haven-labeled survey files (`.dta`, `.sav`, `.sas7bdat`) and converts value labels to characters.
 - Auto-detects common demographics and survey variables (with ANES 2024-specific mappings).
 - Samples rows to create agent inputs and delegates to `create_diverse_agents()`.
+
+#### create_agents_from_data(data, n_participants, demographic_cols = NULL, rows = NULL, weights = NULL, llm_config = NULL, runner = NULL) -> list of FGAgent
+- Builds agents from an in-memory respondent frame.
+- Uses pre-rendered `persona` text directly when the frame has class `silicon_panel` or contains both `persona` and `persona_id`.
 
 #### generate_diverse_demographics(n) -> data.frame (internal)
 - Columns: `age`, `gender`, `education`, `income`, `location`.
@@ -364,5 +370,3 @@ Internals documented but not exported: `generate_diverse_demographics`, `generat
 ---
 
 This blueprint should be kept in sync with Roxygen documentation and `NAMESPACE`. Update when classes, flows, prompts, or analysis capabilities change.
-
-

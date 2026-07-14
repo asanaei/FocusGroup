@@ -376,7 +376,11 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 
       if (length(eligible_ids) > 0) {
         used_broadcast <- FALSE
-        if (requireNamespace("LLMR", quietly = TRUE) && length(eligible_ids) <= 8) {
+        has_runner <- vapply(eligible_ids, function(pid) {
+          !is.null(self$agents[[pid]]$runner)
+        }, logical(1))
+        if (!any(has_runner) && requireNamespace("LLMR", quietly = TRUE) &&
+            length(eligible_ids) <= 8) {
           # Group by a content hash of each agent's config so heterogeneous
           # configs each broadcast under their own model.
           gkey <- vapply(eligible_ids, function(pid)
@@ -489,4 +493,4 @@ create_conversation_flow <- function(mode, agents, moderator_id, flow_params = l
     stop(paste0("Unknown conversation flow mode: '", mode,
                 "'. Supported modes are 'round_robin', 'probabilistic', 'desire_based'."))
   )
-} 
+}

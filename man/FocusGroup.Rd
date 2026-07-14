@@ -14,7 +14,7 @@ visualization of the conversation.
 
 \if{html}{\figure{logo.png}{options: style='float: right' alt='logo' width='120'}}
 
-Provides utilities for simulating and analyzing focus group discussions using Large Language Models. Enables researchers to create virtual focus groups with diverse AI agents with detailed personas, conduct structured discussions across multiple phases, and perform analysis of the resulting conversations.
+Moderated focus group discussions simulated with large language model personas, for piloting moderator guides and discussion protocols before fieldwork.
 }
 \seealso{
 Useful links:
