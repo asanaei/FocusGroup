@@ -35,7 +35,7 @@ after a question.
 For direct construction, create `FGAgent` objects, place them in a named list,
 create a `ConversationFlow`, and pass both to `FocusGroup$new()`.
 `create_diverse_agents()`, `create_agents_from_data()`, and
-`create_agents_from_survey()` construct participant agents and add the
+`create_agents_from_survey()` return agent-ID-keyed lists that include the
 moderator `MOD`.
 
 The high-level wrappers and agent constructors accept a `runner` function.
@@ -105,8 +105,7 @@ ggplot2 is installed.
 `analyze_themes()` and `summarize()` make model calls. The descriptive and text
 analysis methods operate on the stored transcript.
 
-`analyze_focus_group()` runs several analyses and can add plots. Its
-`sentiment` element is `NULL`; sentiment analysis is not implemented.
+`analyze_focus_group()` runs several analyses and can add plots.
 
 ## Extending the package
 

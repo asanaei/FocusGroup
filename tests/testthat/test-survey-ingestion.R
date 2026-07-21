@@ -112,7 +112,8 @@ test_that("silicon panel personas pass through as direct descriptions", {
   )
 
   expect_identical(
-    vapply(agents[1:2], function(agent) agent$persona_description, character(1)),
+    unname(vapply(agents[1:2], function(agent) agent$persona_description,
+                  character(1))),
     rev(panel$persona)
   )
   for (agent in agents[1:2]) {
@@ -128,7 +129,8 @@ test_that("silicon panel personas pass through as direct descriptions", {
     llm_config = cfg
   )
   expect_identical(
-    vapply(duck_typed[1:2], function(agent) agent$persona_description, character(1)),
+    unname(vapply(duck_typed[1:2], function(agent) agent$persona_description,
+                  character(1))),
     panel$persona
   )
 
@@ -139,8 +141,8 @@ test_that("silicon panel personas pass through as direct descriptions", {
     llm_config = cfg
   )
   expect_identical(
-    vapply(minimal_agents[1:2], function(agent) agent$persona_description,
-           character(1)),
+    unname(vapply(minimal_agents[1:2], function(agent) agent$persona_description,
+                  character(1))),
     panel$persona
   )
 })

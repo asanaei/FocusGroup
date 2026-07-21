@@ -100,7 +100,7 @@ test_that("the run module runs via an injected fake and stores the focus group",
   skip_if_not_installed("shiny")
   skip_if_not_installed("LLMR.shiny")
   shared <- fake_shared("live", TRUE)
-  fake_quick <- function(topic, participants, flow, llm_config, seed, mode,
+  fake_quick <- function(topic, participants, flow, llm_config, seed,
                          msg_mode = "roleflip", verbose, max_participant_responses) {
     list(
       focus_group = structure(list(topic = topic, msg_mode = msg_mode),

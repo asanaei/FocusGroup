@@ -31,7 +31,8 @@ and are recycled in order if necessary. Demographics and survey responses
 remain attached as raw reporting fields.}
 }
 \value{
-List of FGAgent objects (participants + 1 moderator)
+A named list of FGAgent objects (participants + 1 moderator), keyed
+  by agent ID.
 }
 \description{
 Creates a diverse set of AI agents with varied demographics and personas

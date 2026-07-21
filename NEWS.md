@@ -7,7 +7,8 @@ Initial CRAN release.
   closing turns. `turns_per_phase` accepts phase counts or exact instructions.
 * `create_diverse_agents()`, `create_agents_from_survey()`, and
   `create_agents_from_data()` construct agents from data frames, labeled survey
-  files, and pre-rendered persona panels.
+  files, and pre-rendered persona panels. Their returned lists are keyed by
+  agent ID and pass directly to the flow constructors.
 * `RoundRobinFlow`, `ProbabilisticFlow`, and `DesireBasedFlow` select speakers
   by order, propensity, or model-produced desire scores.
 * The `runner` argument routes moderator, participant, desire-scoring, summary,
@@ -16,6 +17,8 @@ Initial CRAN release.
 * `focus_group_from_transcript()` imports an existing transcript into a
   `FocusGroup` object for descriptive and text analysis.
 * `analyze_focus_group()` runs participation, topic, TF-IDF, readability,
-  key-phrase, and thematic analyses. It can also return ggplot2 plots.
+  key-phrase, and thematic analyses. It can also return ggplot2 plots. The
+  unused `sentiment_method` argument and placeholder sentiment result were
+  removed, as was the unused `mode` argument from `fg_quick()`.
 * `run_focus_studio()` starts the optional Shiny interface for running sessions,
   reading saved transcripts, and comparing continuations from edited histories.

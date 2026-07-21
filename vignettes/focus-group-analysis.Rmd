@@ -117,8 +117,8 @@ print(result$focus_group$analyze_readability())
 # Construct the objects directly
 
 The R6 interface exposes the same parts assembled by `run_focus_group()`. Create
-the agents, name the list by agent identifier, construct a conversation flow,
-and pass both objects to `FocusGroup$new()`.
+the agents, construct a conversation flow, and pass both objects to
+`FocusGroup$new()`.
 
 ```{r custom_agents, eval = FALSE}
 # Set your OpenAI API key (or set it in your environment)
@@ -136,20 +136,17 @@ agents <- create_diverse_agents(
   )
 )
 
-# Name the agents by their IDs
-agents_named <- setNames(agents, sapply(agents, function(a) a$id))
-
 # Find moderator ID (create_diverse_agents adds a moderator with ID "MOD")
 moderator_id <- "MOD"
 
 # Create a conversation flow object
-flow_obj <- DesireBasedFlow$new(agents_named, moderator_id)
+flow_obj <- DesireBasedFlow$new(agents, moderator_id)
 
 # Create the FocusGroup object
 fg <- FocusGroup$new(
   topic = "Impact of Social Media on Mental Health",
   purpose = "To explore perspectives and experiences related to social media.",
-  agents = agents_named,
+  agents = agents,
   moderator_id = moderator_id,
   turn_taking_flow = flow_obj
 )

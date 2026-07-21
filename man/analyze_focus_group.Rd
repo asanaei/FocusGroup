@@ -4,12 +4,7 @@
 \alias{analyze_focus_group}
 \title{Analyze Focus Group Results}
 \usage{
-analyze_focus_group(
-  focus_group_result,
-  num_topics = 5,
-  include_plots = TRUE,
-  sentiment_method = "afinn"
-)
+analyze_focus_group(focus_group_result, num_topics = 5, include_plots = TRUE)
 }
 \arguments{
 \item{focus_group_result}{Either a FocusGroup object or the result from run_focus_group()}
@@ -17,13 +12,10 @@ analyze_focus_group(
 \item{num_topics}{Integer number of topics for topic modeling (default: 5)}
 
 \item{include_plots}{Logical, whether to generate plots (default: TRUE)}
-
-\item{sentiment_method}{Deprecated. Ignored. Sentiment analysis was removed from package scope.}
 }
 \value{
-A list with `basic_stats`, `topics`, `sentiment` (always `NULL`;
-  sentiment analysis was removed from package scope), `tfidf`, `readability`,
-  `themes`, and (when `include_plots = TRUE`) `plots`.
+A list with `basic_stats`, `topics`, `tfidf`, `readability`, `themes`,
+  and (when `include_plots = TRUE`) `plots`.
 }
 \description{
 Runs topic modeling, term-frequency, readability, and thematic analysis on

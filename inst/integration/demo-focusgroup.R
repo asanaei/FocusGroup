@@ -26,7 +26,6 @@ run_focusgroup_demo <- function(provider = Sys.getenv("LLMR_DEMO_PROVIDER", "gro
     flow = "round_robin",          # cheapest, deterministic turn-taking
     model_config = cfg,
     seed = 110,
-    mode = "quick",
     verbose = FALSE,
     max_participant_responses = 1L  # one utterance per participant per question
   )

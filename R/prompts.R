@@ -349,20 +349,6 @@ Theme 2: [Name of Theme 2]
   Quote: ...
 etc.
 
-Focus on capturing the essence of the participants' perspectives and experiences as represented in the text. Be objective in your interpretation.",
-
-    sentiment_analysis_prompt =
-"Analyze the sentiment expressed in the following text snippet from a focus group discussion.
-The overall topic of the discussion was: '{{topic}}'.
-The text snippet is:
-'{{text_snippet}}' (spoken by {{speaker_id}})
-
-Considering the context of the topic, classify the primary sentiment of this specific snippet as: Positive, Negative, Neutral, or Mixed.
-If Mixed, briefly explain the conflicting sentiments.
-Provide a brief justification for your classification (1-2 sentences), referencing specific words or phrases if possible.
-
-Format your response strictly as:
-Sentiment: [Positive/Negative/Neutral/Mixed]
-Justification: [Your reasoning]"
+Focus on capturing the essence of the participants' perspectives and experiences as represented in the text. Be objective in your interpretation."
   )
 }

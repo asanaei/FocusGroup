@@ -48,7 +48,8 @@ match another file's missing-data vocabulary.}
 scalar or an `llmr_response`. The function is stored on every agent.}
 }
 \value{
-A list of `FGAgent` objects (participants + moderator).
+A named list of `FGAgent` objects (participants + moderator), keyed
+  by agent ID.
 }
 \description{
 Reads a labeled survey file (Stata `.dta`, SPSS `.sav`, or SAS

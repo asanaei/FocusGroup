@@ -162,13 +162,9 @@ llm_conf <- LLMR::llm_config(
   temperature = 0.7
 )
 
-all_agents_list <- create_diverse_agents(
+all_agents <- create_diverse_agents(
   n_participants = 3,
   llm_config = llm_conf
-)
-all_agents_named <- setNames(
-  all_agents_list,
-  vapply(all_agents_list, function(agent) agent$id, character(1))
 )
 moderator_id <- "MOD"
 
@@ -190,14 +186,14 @@ custom_script <- list(
 )
 
 round_robin_flow <- RoundRobinFlow$new(
-  agents = all_agents_named,
+  agents = all_agents,
   moderator_id = moderator_id
 )
 
 fg_manual <- FocusGroup$new(
   topic = "Weekend preferences and activities",
   purpose = "Describe how participants prefer to spend their weekends.",
-  agents = all_agents_named,
+  agents = all_agents,
   moderator_id = moderator_id,
   turn_taking_flow = round_robin_flow,
   question_script = custom_script,
@@ -263,10 +259,6 @@ panel_agents <- create_agents_from_data(
   panel,
   n_participants = nrow(panel),
   llm_config = llm_conf
-)
-panel_agents <- setNames(
-  panel_agents,
-  vapply(panel_agents, function(agent) agent$id, character(1))
 )
 
 panel_flow <- RoundRobinFlow$new(panel_agents, moderator_id = "MOD")

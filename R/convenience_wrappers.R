@@ -276,9 +276,6 @@ run_focus_group <- function(topic,
     runner = runner
   )
 
-  # Need to convert the list to a named list with agent IDs as names
-  agents_named <- setNames(agents, sapply(agents, function(a) a$id))
-
   # Find moderator ID
   moderator_id <- NULL
   for (agent in agents) {
@@ -293,7 +290,7 @@ run_focus_group <- function(topic,
   }
 
   # Create conversation flow via factory
-  flow_obj <- create_conversation_flow(conversation_flow, agents_named, moderator_id)
+  flow_obj <- create_conversation_flow(conversation_flow, agents, moderator_id)
 
   question_script <- if (is.null(turns_per_phase)) {
     list()
@@ -306,7 +303,7 @@ run_focus_group <- function(topic,
   fg <- FocusGroup$new(
     topic = topic,
     purpose = paste("To explore perspectives and experiences related to", topic),
-    agents = agents_named,
+    agents = agents,
     moderator_id = moderator_id,
     turn_taking_flow = flow_obj,
     question_script = question_script,
@@ -397,7 +394,6 @@ run_focus_group <- function(topic,
 #' @param seed Optional integer. Seeds R's RNG (speaker selection and other
 #'   in-package sampling); it does NOT make the LLM output reproducible, since at
 #'   `temperature > 0` the provider samples server-side.
-#' @param mode Character. Currently informational ("quick" or "pro"). Default "quick".
 #' @param msg_mode How each agent's turn is presented to the model. `"roleflip"`
 #'   (default) puts the agent's own prior turns in the assistant role and others'
 #'   in labeled user messages (reduces self-repetition); `"flat"` is the legacy
@@ -439,13 +435,11 @@ fg_quick <- function(topic,
                      llm_config = NULL,
                      runner = NULL,
                      seed = NULL,
-                     mode = c("quick","pro"),
                      msg_mode = c("roleflip","flat"),
                      verbose = TRUE,
                      max_participant_responses = NULL) {
 
   flow <- match.arg(flow)
-  mode <- match.arg(mode)
   msg_mode <- match.arg(msg_mode)
 
   if (!is.null(seed)) {
@@ -462,7 +456,6 @@ fg_quick <- function(topic,
     llm_config = llm_config,
     runner = runner
   )
-  agents_named <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
   moderator_id <- "MOD"
 
   # Build compact script
@@ -476,12 +469,12 @@ fg_quick <- function(topic,
     list(phase = "closing")
   )
 
-  flow_obj <- create_conversation_flow(flow, agents_named, moderator_id)
+  flow_obj <- create_conversation_flow(flow, agents, moderator_id)
 
   fg <- FocusGroup$new(
     topic = topic,
     purpose = paste("Explore perspectives and practical implications related to", topic),
-    agents = agents_named,
+    agents = agents,
     moderator_id = moderator_id,
     turn_taking_flow = flow_obj,
     question_script = script,
@@ -591,7 +584,8 @@ fg_analyze_quick <- function(res) {
 #'   and are recycled in order if necessary. Demographics and survey responses
 #'   remain attached as raw reporting fields.
 #'
-#' @return List of FGAgent objects (participants + 1 moderator)
+#' @return A named list of FGAgent objects (participants + 1 moderator), keyed
+#'   by agent ID.
 #'
 #' @examples
 #' \dontrun{
@@ -705,7 +699,7 @@ create_diverse_agents <- function(n_participants,
       generate_persona(agent_demographics, agent_survey)
     }
 
-    agents[[i]] <- FGAgent$new(
+    agents[[paste0("P", i)]] <- FGAgent$new(
       id = paste0("P", i),
       agent_details = list(
         direct_persona_description = persona,
@@ -721,7 +715,7 @@ create_diverse_agents <- function(n_participants,
   # Create moderator
   moderator_persona <- "You are an experienced focus group moderator. You facilitate discussion, ask follow-up questions, ensure all participants have opportunities to speak, and guide the conversation through different phases. You remain neutral and encouraging."
 
-  agents[[n_participants + 1]] <- FGAgent$new(
+  agents[["MOD"]] <- FGAgent$new(
     id = "MOD",
     agent_details = list(
       direct_persona_description = moderator_persona,
@@ -743,11 +737,9 @@ create_diverse_agents <- function(n_participants,
 #' @param focus_group_result Either a FocusGroup object or the result from run_focus_group()
 #' @param num_topics Integer number of topics for topic modeling (default: 5)
 #' @param include_plots Logical, whether to generate plots (default: TRUE)
-#' @param sentiment_method Deprecated. Ignored. Sentiment analysis was removed from package scope.
 #'
-#' @return A list with `basic_stats`, `topics`, `sentiment` (always `NULL`;
-#'   sentiment analysis was removed from package scope), `tfidf`, `readability`,
-#'   `themes`, and (when `include_plots = TRUE`) `plots`.
+#' @return A list with `basic_stats`, `topics`, `tfidf`, `readability`, `themes`,
+#'   and (when `include_plots = TRUE`) `plots`.
 #'
 #' @examples
 #' \dontrun{
@@ -765,8 +757,7 @@ create_diverse_agents <- function(n_participants,
 #' @export
 analyze_focus_group <- function(focus_group_result,
                                num_topics = 5,
-                               include_plots = TRUE,
-                               sentiment_method = "afinn") {
+                               include_plots = TRUE) {
 
   # Extract FocusGroup object
   if (inherits(focus_group_result, "FocusGroup")) {
@@ -795,10 +786,6 @@ analyze_focus_group <- function(focus_group_result,
       NULL
     }
   )
-
-  # Sentiment analysis
-  # Sentiment analysis removed to simplify package scope
-  sentiment <- NULL
 
   # TF-IDF analysis
   cat("Performing TF-IDF analysis...\n")
@@ -833,7 +820,6 @@ analyze_focus_group <- function(focus_group_result,
   analysis_result <- list(
     basic_stats = basic_stats,
     topics = topics,
-    sentiment = sentiment,
     tfidf = tfidf,
     readability = readability,
     themes = themes
@@ -1126,7 +1112,8 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' @param runner `NULL` or a function `(config, messages)` returning a character
 #'   scalar or an `llmr_response`. The function is stored on every agent.
 #'
-#' @return A list of `FGAgent` objects (participants + moderator).
+#' @return A named list of `FGAgent` objects (participants + moderator), keyed
+#'   by agent ID.
 #' @seealso [create_agents_from_data()] for an in-memory data frame, and
 #'   `LLMR::anes_2024_personas` for a ready-made example.
 #' @examples
@@ -1239,7 +1226,8 @@ create_agents_from_survey <- function(n_participants,
 #' @param llm_config Optional `LLMR::llm_config` for all agents.
 #' @param runner `NULL` or a function `(config, messages)` returning a character
 #'   scalar or an `llmr_response`. The function is stored on every agent.
-#' @return A list of `FGAgent` objects (participants + moderator).
+#' @return A named list of `FGAgent` objects (participants + moderator), keyed
+#'   by agent ID.
 #' @examples
 #' \dontrun{
 #' data(anes_2024_personas, package = "LLMR")

@@ -31,7 +31,8 @@ a small set of common demographic column names found in `data`.}
 scalar or an `llmr_response`. The function is stored on every agent.}
 }
 \value{
-A list of `FGAgent` objects (participants + moderator).
+A named list of `FGAgent` objects (participants + moderator), keyed
+  by agent ID.
 }
 \description{
 Like [create_agents_from_survey()] but starting from a data frame already in

@@ -52,6 +52,43 @@ test_that("a short demographics data.frame is recycled by row, not read by colum
   expect_identical(ag[[2]]$demographics$age, "40")
 })
 
+test_that("create_diverse_agents returns a flow-ready named list", {
+  skip_if_not_installed("LLMR")
+  cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+  agents <- create_diverse_agents(2, llm_config = cfg)
+  agent_ids <- vapply(agents, function(agent) agent$id, character(1))
+
+  expect_identical(names(agents), unname(agent_ids))
+  expect_s3_class(
+    create_conversation_flow("round_robin", agents, "MOD"),
+    "RoundRobinFlow"
+  )
+})
+
+test_that("removed public arguments are rejected", {
+  expect_error(fg_quick("topic", mode = "quick"), "unused argument")
+  expect_error(
+    analyze_focus_group(NULL, sentiment_method = "afinn"),
+    "unused argument"
+  )
+})
+
+test_that("focus group analysis has no sentiment artifacts", {
+  fg <- structure(list(
+    conversation_log = list(list(speaker_id = "P1", text = "A response.")),
+    analyze = function(...) list(),
+    analyze_topics = function(...) NULL,
+    analyze_tfidf = function(...) NULL,
+    analyze_readability = function(...) NULL,
+    analyze_themes = function(...) NULL
+  ), class = "FocusGroup")
+
+  capture.output(result <- analyze_focus_group(fg, include_plots = FALSE))
+  expect_false("sentiment" %in% names(result))
+  expect_false("sentiment_analysis_prompt" %in%
+                 names(get_default_prompt_templates()))
+})
+
 test_that("parse_score_0_10 reads the intended score", {
   # explicit fraction forms
   expect_identical(parse_score_0_10("8/10"), 8L)

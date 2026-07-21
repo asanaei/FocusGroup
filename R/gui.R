@@ -133,7 +133,6 @@ run_focus_studio <- function(...) {
     {
       agents <- create_agents_from_data(chosen, n_participants = n,
                                         llm_config = llm_config)
-      agents <- stats::setNames(agents, vapply(agents, function(a) a$id, ""))
       flow_obj <- create_conversation_flow(flow, agents, "MOD")
       script <- list(
         list(phase = "opening"),
@@ -276,7 +275,6 @@ run_focus_studio <- function(...) {
             flow = input$flow %||% "round_robin",
             llm_config = cfg,
             seed = as.integer(input$seed %||% 110L),
-            mode = "quick",
             msg_mode = input$msg_mode %||% "roleflip",
             verbose = FALSE,
             max_participant_responses = as.integer(input$max_resp %||% 1L)),
