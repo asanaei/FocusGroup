@@ -4,34 +4,39 @@
 \alias{analyze_focus_group}
 \title{Analyze Focus Group Results}
 \usage{
-analyze_focus_group(focus_group_result, num_topics = 5, include_plots = TRUE)
+analyze_focus_group(
+  focus_group_result,
+  num_topics = 5,
+  include_plots = TRUE,
+  config = NULL,
+  .runner = NULL
+)
 }
 \arguments{
-\item{focus_group_result}{Either a FocusGroup object or the result from run_focus_group()}
+\item{focus_group_result}{A `FocusGroup` object or `focus_group_result`.}
 
-\item{num_topics}{Integer number of topics for topic modeling (default: 5)}
+\item{num_topics}{Integer number of topics for topic modeling.}
 
-\item{include_plots}{Logical, whether to generate plots (default: TRUE)}
+\item{include_plots}{Logical. Attempt the four descriptive plots.}
+
+\item{config}{Optional explicit `LLMR::llm_config`. When supplied, thematic
+analysis and a model summary are generated.}
+
+\item{.runner}{Optional experiments-frame runner for the two model analyses.}
 }
 \value{
-A list with `basic_stats`, `topics`, `tfidf`, `readability`, `themes`,
-  and (when `include_plots = TRUE`) `plots`.
+A `focus_group_analysis` with fixed fields and an `issues` table.
 }
 \description{
-Runs topic modeling, term-frequency, readability, and thematic analysis on
-focus group results, with basic conversation statistics.
+Runs descriptive analyses offline. Thematic analysis and a model-generated
+summary are opt-in and run only when `config` is supplied.
 }
 \examples{
-\dontrun{
-# Run focus group and analyze
-result <- run_focus_group("Climate change perceptions", participants = 8)
-analysis <- analyze_focus_group(result, num_topics = 4)
-
-# View topic analysis
-analysis$topics
-
-# View the readability table
-analysis$readability
-}
-
+transcript <- data.frame(
+  speaker = c("Moderator", "P1", "P2"),
+  text = c("What matters most?", "Cost matters.", "Access matters.")
+)
+fg <- focus_group_from_transcript(transcript)
+analysis <- analyze_focus_group(fg, include_plots = FALSE)
+analysis$basic_stats$speaker_stats
 }

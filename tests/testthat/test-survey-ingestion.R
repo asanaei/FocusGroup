@@ -45,7 +45,7 @@ test_that("create_agents_from_survey renders the question wording, not the code"
     n_participants = 3, survey_path = f,
     demographic_vars = c(age = "AGE", education = "EDU"),
     survey_vars = c("PARTY"),
-    llm_config = cfg
+    config = cfg
   )
   expect_length(ag, 4L)                       # 3 participants + moderator
   p <- Filter(function(a) !isTRUE(a$is_moderator), ag)[[1]]
@@ -67,7 +67,7 @@ test_that("the `rows` predicate restricts the eligible pool", {
     demographic_vars = c(age = "AGE"),
     survey_vars = c("PARTY"),
     rows = function(df) df$age == "55+",
-    llm_config = cfg
+    config = cfg
   )
   parts <- Filter(function(a) !isTRUE(a$is_moderator), ag)
   ages <- vapply(parts, function(a) {
@@ -80,7 +80,7 @@ test_that("create_agents_from_data works on the shared LLMR persona dataset", {
   skip_if_not_installed("LLMR")
   data(anes_2024_personas, package = "LLMR")
   cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
-  ag <- create_agents_from_data(anes_2024_personas, n_participants = 5, llm_config = cfg)
+  ag <- create_agents_from_data(anes_2024_personas, n_participants = 5, config = cfg)
   expect_length(ag, 6L)
   p <- Filter(function(a) !isTRUE(a$is_moderator), ag)[[1]]
   # the persona carries both demographic background and survey answers, with the
@@ -108,7 +108,7 @@ test_that("silicon panel personas pass through as direct descriptions", {
     n_participants = 2,
     demographic_cols = "age",
     rows = c(2, 1),
-    llm_config = cfg
+    config = cfg
   )
 
   expect_identical(
@@ -126,7 +126,7 @@ test_that("silicon panel personas pass through as direct descriptions", {
     unclassed,
     n_participants = 2,
     demographic_cols = "age",
-    llm_config = cfg
+    config = cfg
   )
   expect_identical(
     unname(vapply(duck_typed[1:2], function(agent) agent$persona_description,
@@ -138,7 +138,7 @@ test_that("silicon panel personas pass through as direct descriptions", {
   minimal_agents <- create_agents_from_data(
     minimal,
     n_participants = 2,
-    llm_config = cfg
+    config = cfg
   )
   expect_identical(
     unname(vapply(minimal_agents[1:2], function(agent) agent$persona_description,

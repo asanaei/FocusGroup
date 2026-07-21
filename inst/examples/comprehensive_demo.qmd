@@ -25,44 +25,44 @@ This document is a full, imitation-friendly Quarto demonstration of the `FocusGr
 
 The demo is intentionally long and explicit. It is designed for two audiences:
 
-1. Researchers who want a polished HTML report with turn-by-turn transparency.
+1. Researchers who want a polished HTML report with message-level transparency.
 2. Practitioners who want readable source code that can be copied and adapted.
 
 Core design choices:
 
 - Thick personas are built from many attitudinal items, not only basic demographics.
 - The script uses rich policy trade-off questions, not short generic prompts.
-- The transcript is rendered as expandable cards for each turn.
+- The transcript is rendered as expandable cards for each message.
 - The final sections provide layered analyses: participation, lexical signals, topical structure, readability, and theme synthesis.
 - If LLM calls fail or ANES files are unavailable, the report still compiles with a robust offline transcript fallback.
 
 <style>
-.turn-card {
+.message-card {
   border: 1px solid #d9d9d9;
   border-radius: 8px;
   margin-bottom: 0.65rem;
   background: #ffffff;
 }
-.turn-card summary {
+.message-card summary {
   cursor: pointer;
   padding: 0.7rem 0.85rem;
   font-weight: 600;
 }
-.turn-meta {
+.message-meta {
   color: #5e5e5e;
   font-size: 0.9rem;
   font-weight: 500;
 }
-.turn-body {
+.message-body {
   padding: 0.8rem 1rem 0.9rem 1rem;
   border-top: 1px solid #ececec;
   line-height: 1.55;
 }
-.turn-body.moderator {
+.message-body.moderator {
   border-left: 5px solid #2e8b57;
   background: #f5fbf7;
 }
-.turn-body.participant {
+.message-body.participant {
   border-left: 5px solid #1f77b4;
   background: #f8fbff;
 }
@@ -125,10 +125,11 @@ escape_html <- function(text) {
   text
 }
 
-build_turn_dataframe <- function(conversation_log) {
+build_message_dataframe <- function(conversation_log) {
   if (length(conversation_log) == 0) {
     return(tibble(
-      turn = integer(),
+      message_id = integer(),
+      round = integer(),
       speaker_id = character(),
       is_moderator = logical(),
       phase = character(),
@@ -142,7 +143,8 @@ build_turn_dataframe <- function(conversation_log) {
     lapply(conversation_log, function(entry) {
       txt <- as.character(entry$text %||% "")
       tibble(
-        turn = as.integer(entry$turn %||% NA_integer_),
+        message_id = as.integer(entry$message_id %||% NA_integer_),
+        round = as.integer(entry$round %||% NA_integer_),
         speaker_id = as.character(entry$speaker_id %||% "Unknown"),
         is_moderator = isTRUE(entry$is_moderator),
         phase = as.character(entry$phase %||% "unknown"),
@@ -152,7 +154,8 @@ build_turn_dataframe <- function(conversation_log) {
       )
     })
   ) |>
-    mutate(turn = ifelse(is.na(.data$turn), row_number(), .data$turn))
+    mutate(message_id = ifelse(is.na(.data$message_id), row_number(),
+                               .data$message_id))
 }
 ```
 
@@ -162,7 +165,7 @@ The next block mirrors the architecture in your reference code, but adjusts the 
 
 ```{r persona-dictionaries}
 # LLM configuration
-active_llm_config <- LLMR::llm_config(
+active_config <- LLMR::llm_config(
   provider = "openai",
   model = "gpt-5.4",
   temperature = 1,
@@ -236,21 +239,7 @@ resolve_anes_path <- function() {
   found[1]
 }
 
-append_survey_to_persona <- function(agents) {
-  for (i in seq_along(agents)) {
-    agent <- agents[[i]]
-    if (!isTRUE(agent$is_moderator) && length(agent$survey_responses) > 0) {
-      agents[[i]]$persona_description <- paste(
-        agent$persona_description,
-        FocusGroup::format_survey_responses(agent$survey_responses),
-        sep = "\n\n"
-      )
-    }
-  }
-  agents
-}
-
-create_synthetic_agents <- function(n_participants, llm_config) {
+create_synthetic_agents <- function(n_participants, config) {
   synthetic_demo <- tibble(
     age = c("29", "43", "37", "58", "33", "67", "46", "24"),
     gender = c("Woman", "Man", "Woman", "Man", "Woman", "Man", "Woman", "Man"),
@@ -487,21 +476,20 @@ create_synthetic_agents <- function(n_participants, llm_config) {
   demo_df <- synthetic_demo[seq_len(n_participants), , drop = FALSE]
   survey_df <- synthetic_survey[seq_len(n_participants), , drop = FALSE]
 
-  agents <- FocusGroup::create_diverse_agents(
+  agents <- FocusGroup::create_agents(
     n_participants = n_participants,
     demographics = demo_df,
     survey_responses = survey_df,
-    llm_config = llm_config
+    config = config
   )
 
-  agents <- append_survey_to_persona(agents)
   stats::setNames(agents, vapply(agents, function(a) a$id, character(1)))
 }
 
-create_agents_custom <- function(n_participants, survey_path, demo_vars, surv_vars, llm_config) {
+create_agents_custom <- function(n_participants, survey_path, demo_vars, surv_vars, config) {
   if (!file.exists(survey_path)) {
     message("ANES file not found. Using synthetic thick personas.")
-    return(create_synthetic_agents(n_participants, llm_config))
+    return(create_synthetic_agents(n_participants, config))
   }
 
   raw_data <- haven::read_dta(survey_path)
@@ -512,7 +500,7 @@ create_agents_custom <- function(n_participants, survey_path, demo_vars, surv_va
 
   if (length(present_demo) < 2 || length(present_surv) < 3) {
     message("ANES columns for thick health personas are sparse. Using synthetic fallback.")
-    return(create_synthetic_agents(n_participants, llm_config))
+    return(create_synthetic_agents(n_participants, config))
   }
 
   gender_code <- demo_vars[["gender"]]
@@ -535,7 +523,7 @@ create_agents_custom <- function(n_participants, survey_path, demo_vars, surv_va
     valid_rows <- seq_len(min(nrow(clean_data), max(n_participants * 4, 80)))
   }
   if (length(valid_rows) == 0) {
-    return(create_synthetic_agents(n_participants, llm_config))
+    return(create_synthetic_agents(n_participants, config))
   }
 
   if (length(valid_rows) > n_participants) {
@@ -582,17 +570,16 @@ create_agents_custom <- function(n_participants, survey_path, demo_vars, surv_va
 
   if (ncol(demo_df) == 0 || ncol(survey_df) == 0) {
     message("Extraction yielded sparse data. Using synthetic thick personas.")
-    return(create_synthetic_agents(n_participants, llm_config))
+    return(create_synthetic_agents(n_participants, config))
   }
 
-  agents <- FocusGroup::create_diverse_agents(
+  agents <- FocusGroup::create_agents(
     n_participants = n_participants,
     demographics = demo_df,
     survey_responses = survey_df,
-    llm_config = llm_config
+    config = config
   )
 
-  agents <- append_survey_to_persona(agents)
   stats::setNames(agents, vapply(agents, function(a) a$id, character(1)))
 }
 ```
@@ -678,8 +665,8 @@ fixed_prompts$participant_utterance_subtle_persona <- paste0(
 ```{r run-simulation}
 num_participants <- 8
 
-set.seed(2026)
-options(focusgroup.seed = 2026)
+set.seed(110)
+options(focusgroup.seed = 110)
 
 anes_dta_path <- resolve_anes_path()
 agents_thick <- create_agents_custom(
@@ -687,11 +674,10 @@ agents_thick <- create_agents_custom(
   survey_path = anes_dta_path,
   demo_vars = demo_vars,
   surv_vars = thick_health_vars,
-  llm_config = active_llm_config
+  config = active_config
 )
 
 options(focusgroup.seed = NULL)
-set.seed(NULL)
 
 moderator_id <- if ("MOD" %in% names(agents_thick)) {
   "MOD"
@@ -702,7 +688,7 @@ moderator_id <- if ("MOD" %in% names(agents_thick)) {
 
 participant_ids <- setdiff(names(agents_thick), moderator_id)
 
-conversation_flow <- FocusGroup::create_conversation_flow(
+session_flow <- FocusGroup::create_conversation_flow(
   "desire_based",
   agents_thick,
   moderator_id,
@@ -714,10 +700,10 @@ fg_thick <- FocusGroup$new(
   purpose = fg_purpose,
   agents = agents_thick,
   moderator_id = moderator_id,
-  turn_taking_flow = conversation_flow,
+  turn_taking_flow = session_flow,
   question_script = long_script,
   prompt_templates = fixed_prompts,
-  llm_config_admin = active_llm_config,
+  admin_config = active_config,
   max_tokens_config = list(utterance = 220, moderator = 500, desire = 18)
 )
 
@@ -824,25 +810,28 @@ generate_offline_response <- function(profile, question_text) {
 
 build_offline_transcript <- function(question_script, participant_ids, moderator_id) {
   log <- list()
-  turn_counter <- 0L
+  message_counter <- 0L
+  round_counter <- 1L
 
-  add_turn <- function(speaker_id, text, is_mod, phase) {
-    turn_counter <<- turn_counter + 1L
+  add_message <- function(speaker_id, text, is_mod, phase, round) {
+    message_counter <<- message_counter + 1L
     log[[length(log) + 1L]] <<- list(
-      turn = turn_counter,
+      message_id = message_counter,
+      round = round,
       speaker_id = speaker_id,
       is_moderator = is_mod,
       text = text,
-      timestamp = Sys.time() + turn_counter,
+      timestamp = Sys.time() + message_counter,
       phase = phase
     )
   }
 
-  add_turn(
+  add_message(
     moderator_id,
     "Welcome everyone. We are discussing publicly funded health insurance with careful attention to policy design and practical trade-offs.",
     TRUE,
-    "opening"
+    "opening",
+    round_counter
   )
 
   for (item in question_script) {
@@ -854,20 +843,23 @@ build_offline_transcript <- function(question_script, participant_ids, moderator
     }
 
     if (phase == "closing") {
-      add_turn(
+      round_counter <- round_counter + 1L
+      add_message(
         moderator_id,
         "Thank you. We have surfaced substantive differences, but also shared principles around affordability, access, and accountability.",
         TRUE,
-        "closing"
+        "closing",
+        round_counter
       )
       next
     }
 
-    add_turn(moderator_id, prompt, TRUE, phase)
+    round_counter <- round_counter + 1L
+    add_message(moderator_id, prompt, TRUE, phase, round_counter)
 
     for (pid in participant_ids) {
       response <- generate_offline_response(pid, prompt)
-      add_turn(pid, response, FALSE, phase)
+      add_message(pid, response, FALSE, phase, round_counter)
     }
   }
 
@@ -878,7 +870,7 @@ run_live_simulation <- tolower(Sys.getenv("FG_DEMO_RUN_LIVE", "false")) %in% c("
 
 if (run_live_simulation) {
   safe_call(
-    function() fg_thick$run_simulation(num_turns = 120, verbose = TRUE),
+    function() fg_thick$run_simulation(num_rounds = 120, verbose = TRUE),
     default = NULL,
     note = "LLM simulation failed"
   )
@@ -897,10 +889,10 @@ if (length(fg_thick$conversation_log) == 0) {
   )
 }
 
-turn_df <- build_turn_dataframe(fg_thick$conversation_log)
+message_df <- build_message_dataframe(fg_thick$conversation_log)
 
-cat("Total turns generated:", nrow(turn_df), "\n")
-cat("Speakers represented:", length(unique(turn_df$speaker_id)), "\n")
+cat("Total messages generated:", nrow(message_df), "\n")
+cat("Speakers represented:", length(unique(message_df$speaker_id)), "\n")
 cat("ANES path used:", anes_dta_path, "\n")
 ```
 
@@ -922,12 +914,12 @@ agent_table <- bind_rows(agent_rows)
 kable(agent_table, caption = "Thick Persona Snapshot (first 220 characters)")
 ```
 
-## Expandable Turn-by-Turn Transcript
+## Expandable Message Transcript
 
 ```{r transcript, results='asis'}
 cat("### Full Transcript\n\n")
 cat(
-  "Each turn is collapsible so that readers can inspect micro-level interaction",
+  "Each message is collapsible so that readers can inspect micro-level interaction",
   "without losing macro-level readability.\n\n"
 )
 
@@ -941,16 +933,16 @@ for (i in seq_len(length(fg_thick$conversation_log))) {
   body_text <- escape_html(entry$text %||% "No text.")
   body_text <- gsub("\n", "<br/>", body_text, fixed = TRUE)
 
-  cat('<details class="turn-card">\n')
+  cat('<details class="message-card">\n')
   cat(
     '<summary>',
-    "<strong>Turn ", i, " | ", speaker, "</strong>",
-    ' <span class="turn-meta">(',
+    "<strong>Message ", i, " | ", speaker, "</strong>",
+    ' <span class="message-meta">(',
     speaker_type, " | ", tools::toTitleCase(phase), " | ", stamp,
     ')</span></summary>\n',
     sep = ""
   )
-  cat('<div class="turn-body ', body_class, '">', body_text, "</div>\n", sep = "")
+  cat('<div class="message-body ', body_class, '">', body_text, "</div>\n", sep = "")
   cat("</details>\n\n")
 }
 ```
@@ -969,10 +961,10 @@ if (nrow(speaker_stats) > 0) {
   kable(speaker_stats, caption = "Speaker Participation Statistics")
 }
 
-phase_stats <- turn_df |>
-  count(phase, name = "turns") |>
-  arrange(desc(turns))
-kable(phase_stats, caption = "Turns by Discussion Phase")
+phase_stats <- message_df |>
+  count(phase, name = "messages") |>
+  arrange(desc(messages))
+kable(phase_stats, caption = "Messages by Discussion Phase")
 
 balance_res <- safe_call(
   function() fg_thick$analyze_participation_balance(),
@@ -1008,7 +1000,7 @@ support_pattern <- regex("universal|public option|single[- ]payer|coverage|guara
 constraint_pattern <- regex("tax|cost|wait|bureaucr|deficit|shortage|ration", ignore_case = TRUE)
 choice_pattern <- regex("choice|private insurance|employer plan|competition|supplemental", ignore_case = TRUE)
 
-policy_signal <- turn_df |>
+policy_signal <- message_df |>
   filter(!.data$is_moderator) |>
   mutate(
     support_hits = str_count(.data$text, support_pattern),
@@ -1018,7 +1010,7 @@ policy_signal <- turn_df |>
   ) |>
   group_by(.data$speaker_id) |>
   summarise(
-    turns = n(),
+    messages = n(),
     avg_words = round(mean(.data$word_count), 1),
     support_hits = sum(.data$support_hits),
     constraint_hits = sum(.data$constraint_hits),
@@ -1093,14 +1085,14 @@ if (!is.null(question_pattern_res)) {
 
 ```{r analysis-themes}
 theme_text <- safe_call(
-  function() fg_thick$analyze_themes(llm_config = active_llm_config),
+  function() fg_thick$analyze_themes(config = active_config),
   default = "Theme synthesis unavailable (offline mode).",
   note = "LLM thematic analysis failed"
 )
 
 summary_text <- safe_call(
   function() fg_thick$summarize(
-    llm_config = active_llm_config,
+    config = active_config,
     summary_level = 2,
     max_tokens = 1200
   ),
@@ -1123,24 +1115,24 @@ cat(as.character(summary_text), "\n")
 ## Presentation-Facing Interpretation
 
 ```{r interpretation}
-total_turns <- nrow(turn_df)
-participant_turns <- turn_df |>
+total_messages <- nrow(message_df)
+participant_messages <- message_df |>
   filter(!.data$is_moderator) |>
   nrow()
-moderator_turns <- turn_df |>
+moderator_messages <- message_df |>
   filter(.data$is_moderator) |>
   nrow()
 
-avg_words_participants <- turn_df |>
+avg_words_participants <- message_df |>
   filter(!.data$is_moderator) |>
   summarise(value = round(mean(.data$word_count), 1)) |>
   pull(value)
 
 cat("### High-level interpretation\n\n")
 cat(
-  "- The transcript is extensive and policy-dense, with", total_turns, "total turns.",
-  "\n- Participant contribution volume is", participant_turns, "turns, while moderator guidance is", moderator_turns, "turns.",
-  "\n- Average participant turn length is", avg_words_participants, "words, indicating sustained argumentation rather than slogan-level exchange.",
+  "- The transcript is extensive and policy-dense, with", total_messages, "total messages.",
+  "\n- Participant contribution volume is", participant_messages, "messages, while moderator guidance is", moderator_messages, "messages.",
+  "\n- Average participant message length is", avg_words_participants, "words, indicating sustained argumentation rather than slogan-level exchange.",
   "\n- Lexical signals suggest that support-oriented and caution-oriented frames coexist, which is expected in realistic deliberation on publicly funded insurance.",
   "\n- Across methods, the strongest recurring policy domains are financing fairness, benefits scope, implementation capacity, and institutional trust."
 )

@@ -12,19 +12,18 @@
 #'
 #' @section Participant templates and message construction:
 #' Two participant templates ship here, and which one is used depends on the
-#' message construction (see the `msg_mode` argument of [fg_quick()] /
-#' [run_focus_group()], or `options(focusgroup.msg_mode=)`).
+#' message construction (see the `message_mode` argument of
+#' [run_focus_group()], or `options(focusgroup.message_mode=)`).
 #' \itemize{
 #'   \item `participant_turn_instruction` is the canonical template for the
 #'     default role-flipped construction. It carries only the current question and
 #'     the turn cue, because the persona, standing rules, and the transcript are
 #'     supplied structurally (a system message plus role-separated turns).
-#'   \item `participant_utterance_subtle_persona` is the legacy flat template,
-#'     kept for back-compatibility. It inlines the persona and the whole
+#'   \item `participant_utterance_subtle_persona` is the flat template. It
+#'     inlines the persona and the whole
 #'     transcript into one user message. A custom template that contains
 #'     `\{\{conversation_history\}\}` or `\{\{persona_description\}\}` is treated as a
-#'     legacy flat template and routed through the flat path, so existing
-#'     customizations keep working unchanged.
+#'     flat template and routed through the flat path.
 #' }
 #'
 #' @return A named list where each element is a character string representing a prompt template.
@@ -72,7 +71,7 @@ Based on all the above, what is your contribution to the discussion now?",
     # system message and the role-separated turns), so this only carries the
     # current question and the turn cue. It deliberately contains no
     # {{conversation_history}}/{{persona_description}} placeholders, which is what
-    # routes it through the role-flip path rather than the legacy flat path.
+    # routes it through the role-flip path rather than the flat path.
     participant_turn_instruction =
 "The moderator's current question or point of discussion is: '{{current_moderator_question}}'.
 It is now your turn. Respond now in your own voice: one clear claim with a concrete
@@ -276,47 +275,7 @@ Your goal is to guide the conversation effectively, ensure diverse participation
 You can ask follow-up questions, transition to a new aspect of the topic, summarize, or encourage quieter participants.
 Your intervention should be focused and singular (e.g., one question, or one summary, not multiple actions at once).",
 
-    # --- LLM-assisted Helper Prompts ---
-    suggest_questions_prompt =
-"Given a focus group topic: '{{topic}}'
-And its primary purpose: '{{focus_group_purpose}}'
-
-Please draft a structured set of 5-7 potential focus group questions suitable for a 60-90 minute discussion.
-The set should include:
-1.  One simple Icebreaker Question (to get people comfortable, related to the topic broadly).
-2.  One or two Engagement Questions (to introduce the topic more directly and get initial thoughts/experiences).
-3.  Two or three Key Exploration Questions (to delve into the core issues related to the purpose, these are the most important).
-4.  One Ending/Exit Question (to capture any final thoughts or missed points).
-
-For each question, ensure it is:
-- Open-ended (cannot be answered with a simple 'yes' or 'no').
-- Clear and unambiguously worded.
-- Focused on one dimension at a time.
-- Non-threatening and non-leading.
-- Relevant to the stated topic and purpose.
-
-Present the questions grouped by type (Icebreaker, Engagement, Exploration, Ending).
-Format each question clearly. For example:
-Icebreaker:
-1.  [Question text]
-Engagement:
-1.  [Question text]
-2.  [Question text]
-Exploration:
-1.  [Question text]
-...
-Ending:
-1.  [Question text]",
-
-    generate_persona_prompt =
-"Generate a concise persona description for a focus group participant based on the following criteria or keywords:
-{{recruitment_criteria}}
-
-The persona description should be a short paragraph (2-4 sentences) that captures key characteristics, attitudes, or experiences relevant to these criteria. This description will be used to guide an LLM acting as this participant.
-Include a 'communication_style' trait (e.g., 'concise and to-the-point', 'likes to share personal anecdotes', 'analytical and data-driven', 'somewhat hesitant but thoughtful', 'expressive and opinionated').
-The persona should sound like a real person, not a caricature. Avoid making them overly extreme unless specified by the criteria.
-Persona Description:",
-
+    # --- LLM-assisted Helper Prompt ---
     thematic_analysis_prompt =
 "You are a qualitative research analyst.
 The following is a transcript of a focus group discussion on the topic: '{{topic}}'.

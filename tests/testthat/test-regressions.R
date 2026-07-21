@@ -11,7 +11,7 @@ run_mocked_fg <- function(tok = list(sent = 10L, rec = 5L)) {
   mk <- function(id, mod = FALSE) FGAgent$new(
     id, list(direct_persona_description = paste("Persona", id)), cfg, is_moderator = mod)
   agents <- list(MOD = mk("MOD", TRUE), P1 = mk("P1"), P2 = mk("P2"))
-  flow <- RoundRobinFlow$new(agents, "MOD")
+  flow <- create_conversation_flow("round_robin", agents, "MOD")
   counter <- new.env(); counter$i <- 0
   testthat::local_mocked_bindings(
     call_llm_robust = function(config, messages, ...) {
@@ -32,6 +32,7 @@ run_mocked_fg <- function(tok = list(sent = 10L, rec = 5L)) {
       list(phase = "engagement_question", text = "Q1?"),
       list(phase = "exploration_question", text = "Q2?"),
       list(phase = "closing")),
+    admin_config = cfg,
     max_participant_responses = 2)
   fg$run_simulation(verbose = FALSE)
   fg
@@ -43,7 +44,7 @@ test_that("a short demographics data.frame is recycled by row, not read by colum
                      education = c("PhD", "BA"), stringsAsFactors = FALSE)
   cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
   expect_warning(
-    ag <- create_diverse_agents(3, demographics = demo, llm_config = cfg),
+    ag <- create_agents(3, demographics = demo, config = cfg),
     "recycled")
   # agent 3 gets row 1 again, as a named list -- not the education COLUMN
   expect_identical(ag[[3]]$demographics,
@@ -52,10 +53,10 @@ test_that("a short demographics data.frame is recycled by row, not read by colum
   expect_identical(ag[[2]]$demographics$age, "40")
 })
 
-test_that("create_diverse_agents returns a flow-ready named list", {
+test_that("create_agents returns a flow-ready named list", {
   skip_if_not_installed("LLMR")
   cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
-  agents <- create_diverse_agents(2, llm_config = cfg)
+  agents <- create_agents(2, config = cfg)
   agent_ids <- vapply(agents, function(agent) agent$id, character(1))
 
   expect_identical(names(agents), unname(agent_ids))
@@ -65,8 +66,28 @@ test_that("create_diverse_agents returns a flow-ready named list", {
   )
 })
 
+test_that("create_agents accepts direct personas without inventing survey data", {
+  config <- LLMR::llm_config("openai", "gpt-4o-mini")
+  personas <- c(
+    "A renter who depends on the evening bus.",
+    "A driver who prioritizes road maintenance."
+  )
+  agents <- create_agents(
+    2,
+    config = config,
+    direct_persona_descriptions = personas
+  )
+  expect_identical(
+    unname(vapply(agents[c("P1", "P2")],
+                  function(agent) agent$persona_description, character(1))),
+    personas
+  )
+  expect_true(all(vapply(agents[c("P1", "P2")],
+                         function(agent) length(agent$survey_responses) == 0L,
+                         logical(1))))
+})
+
 test_that("removed public arguments are rejected", {
-  expect_error(fg_quick("topic", mode = "quick"), "unused argument")
   expect_error(
     analyze_focus_group(NULL, sentiment_method = "afinn"),
     "unused argument"
@@ -84,6 +105,7 @@ test_that("focus group analysis has no sentiment artifacts", {
   ), class = "FocusGroup")
 
   capture.output(result <- analyze_focus_group(fg, include_plots = FALSE))
+  expect_s3_class(result, "focus_group_analysis")
   expect_false("sentiment" %in% names(result))
   expect_false("sentiment_analysis_prompt" %in%
                  names(get_default_prompt_templates()))
@@ -123,25 +145,23 @@ test_that("NA token usage accumulates as zero, not NA", {
   expect_identical(.fg_tok0(7L), 7)
   skip_if_not_installed("LLMR")
   fg <- run_mocked_fg(tok = list(sent = NA_integer_, rec = NA_integer_))
-  expect_false(is.na(fg$total_tokens_sent))
-  expect_false(is.na(fg$total_tokens_received))
-  for (a in fg$agents) {
-    expect_false(is.na(a$tokens_sent_agent))
-    expect_false(is.na(a$tokens_received_agent))
-  }
-  meta_na <- vapply(fg$conversation_log[-1], function(m) is.na(m$sent_tokens), logical(1))
+  meta_na <- vapply(fg$conversation_log[-1], function(m) is.na(m$sent_tokens),
+                    logical(1))
   expect_false(any(meta_na))
 })
 
-test_that("the System roster row is excluded from analyses and turns share round numbers", {
+test_that("the System roster row is excluded and messages have unique ids and shared rounds", {
   skip_if_not_installed("LLMR")
   fg <- run_mocked_fg()
 
-  # turn numbering: one scheme (the round counter), shared by the moderator
-  # and the participants who answer within that round
-  turns <- vapply(fg$conversation_log, function(m) as.numeric(m$turn), numeric(1))
+  message_ids <- vapply(fg$conversation_log, function(m) m$message_id, integer(1))
+  rounds <- vapply(fg$conversation_log, function(m) m$round, integer(1))
   speakers <- vapply(fg$conversation_log, function(m) m$speaker_id, character(1))
-  expect_identical(turns, c(0, 1, 1, 1, 2, 2, 2, 3))
+  expect_identical(message_ids, seq_along(fg$conversation_log))
+  expect_identical(rounds, c(0L, 1L, 1L, 1L, 2L, 2L, 2L, 3L))
+  expect_identical(anyDuplicated(message_ids), 0L)
+  expect_false(any(vapply(fg$conversation_log, function(m) "turn" %in% names(m),
+                          logical(1))))
   expect_identical(speakers[1], "System")
 
   # analyze(): no System row, no NA speaker row
@@ -152,6 +172,12 @@ test_that("the System roster row is excluded from analyses and turns share round
 
   # participation balance: System can never be the least active speaker
   pb <- fg$analyze_participation_balance()
+  expect_named(
+    pb$participation_stats,
+    c("speaker_id", "messages", "words", "avg_words",
+      "message_percentage", "word_percentage"),
+    ignore.order = FALSE
+  )
   expect_false("System" %in% pb$participation_stats$speaker_id)
   expect_false(identical(pb$balance_metrics$least_active_speaker, "System"))
 
@@ -178,17 +204,6 @@ test_that("analyze_readability reports speaker ids, not row numbers", {
   r <- fg$analyze_readability()
   expect_setequal(r$speaker_id, c("MOD", "P1", "P2"))
   expect_false(any(r$speaker_id %in% as.character(seq_len(nrow(r)))))
-})
-
-test_that("fg_analyze_quick returns the same field names on the empty branch", {
-  fake_fg <- structure(list(conversation_log = list(), moderator_id = "MOD"),
-                       class = "FocusGroup")
-  res <- fg_analyze_quick(list(focus_group = fake_fg))
-  expect_named(res, c("basic_stats", "short_summary"))
-  expect_named(res$basic_stats,
-               c("total_messages", "participant_count",
-                 "avg_message_length", "total_tokens"))
-  expect_identical(res$basic_stats$total_messages, 0L)
 })
 
 test_that("focusgroup.seed does not disturb the caller's RNG stream", {
@@ -219,11 +234,27 @@ test_that("the GUI persona path applies the seed to the respondent draw", {
                          opinion = paste("view", 1:10), stringsAsFactors = FALSE)
   cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
   run_once <- function() FocusGroup:::.fg_run_from_personas(
-    topic = "topic", participants = 3, rows = integer(0), flow = "round_robin",
-    msg_mode = "roleflip", seed = 110L, max_participant_responses = 1L,
-    llm_config = cfg, data = personas)
-  p1 <- vapply(run_once()$focus_group$agents, function(a) a$persona_description, "")
-  p2 <- vapply(run_once()$focus_group$agents, function(a) a$persona_description, "")
+    topic = "topic", n_participants = 3, rows = integer(0), flow = "round_robin",
+    message_mode = "roleflip", seed = 110L, max_participant_responses = 1L,
+    config = cfg, data = personas)
+  result1 <- run_once()
+  result2 <- run_once()
+  expect_s3_class(result1, "focus_group_result")
+  expect_named(
+    result1,
+    c("focus_group", "transcript", "summary", "participants", "usage", "metadata"),
+    ignore.order = FALSE
+  )
+  expect_named(
+    result1$participants,
+    c("id", "role", "is_moderator", "persona", "demographics",
+      "survey_responses", "provider", "model"),
+    ignore.order = FALSE
+  )
+  p1 <- vapply(result1$focus_group$agents,
+               function(a) a$persona_description, "")
+  p2 <- vapply(result2$focus_group$agents,
+               function(a) a$persona_description, "")
   # the same seed draws the same respondents, so agent creation saw the seed
   expect_identical(p1, p2)
 })

@@ -16,11 +16,12 @@
 #'
 #' One lightweight agent is created per speaker so that speaker-aware methods
 #' have a roster to report on; these agents carry a minimal placeholder persona
-#' and are not meant to continue the conversation. The moderator is the first
-#' speaker whose id contains "mod" (case-insensitive), e.g. "Moderator" or
-#' "MOD"; when no speaker matches, a non-speaking "MOD" agent is added so the
-#' object is complete, and it appears in `analyze()` with zero utterances, the
-#' package's usual treatment of a silent agent. Rows whose speaker is missing
+#' and are not meant to continue the conversation. Set `moderator_id` when the
+#' transcript identifies the moderator. When it is `NULL`, the moderator is the
+#' first speaker whose id contains "mod" (case-insensitive), e.g. "Moderator"
+#' or "MOD". When the fallback finds no match, a non-speaking "MOD" agent is
+#' added so the object is complete, and it appears in `analyze()` with zero
+#' utterances. Rows whose speaker is missing
 #' or blank are dropped with a warning; rows with speaker "System" are kept in
 #' the log but excluded from analyses, matching how the simulator treats its
 #' own roster message.
@@ -33,6 +34,8 @@
 #' @param topic Character or `NULL`. The discussion topic, used by the
 #'   model-dependent analyses and stored on the object. `NULL` falls back to
 #'   "Imported transcript".
+#' @param moderator_id Character or `NULL`. Exact speaker id to treat as the
+#'   moderator. When `NULL`, the documented "mod" substring fallback is used.
 #' @return A [FocusGroup] object with a populated `conversation_log`.
 #' @seealso [analyze_focus_group()] to run the descriptive analyses in one
 #'   call; [run_focus_group()] to simulate a discussion instead.
@@ -54,7 +57,8 @@
 focus_group_from_transcript <- function(data,
                                         speaker_col = "speaker",
                                         text_col = "text",
-                                        topic = NULL) {
+                                        topic = NULL,
+                                        moderator_id = NULL) {
   if (!is.data.frame(data)) {
     stop("`data` must be a data frame with one row per turn.", call. = FALSE)
   }
@@ -74,6 +78,12 @@ focus_group_from_transcript <- function(data,
                           is.na(topic) || !nzchar(trimws(topic)))) {
     stop("`topic` must be `NULL` or a non-empty character string.", call. = FALSE)
   }
+  if (!is.null(moderator_id) &&
+      (!is.character(moderator_id) || length(moderator_id) != 1L ||
+       is.na(moderator_id) || !nzchar(trimws(moderator_id)))) {
+    stop("`moderator_id` must be `NULL` or a non-empty character string.",
+         call. = FALSE)
+  }
 
   # Rows without an attributable speaker cannot enter speaker-level analyses.
   spk <- as.character(data[[speaker_col]])
@@ -85,7 +95,12 @@ focus_group_from_transcript <- function(data,
   }
   if (!nrow(data)) stop("The transcript has no attributable turns.", call. = FALSE)
 
-  log <- .fg_as_log(data, speaker_col, text_col)
+  if (!is.null(moderator_id) &&
+      !moderator_id %in% as.character(data[[speaker_col]])) {
+    stop("`moderator_id` must identify a speaker in `data`.", call. = FALSE)
+  }
+
+  log <- .fg_as_log(data, speaker_col, text_col, moderator_id = moderator_id)
 
   # One placeholder agent per speaker. "System" stays out of the roster: it is
   # the simulator's bookkeeping label, filtered from analyses by convention.
@@ -99,7 +114,6 @@ focus_group_from_transcript <- function(data,
       identical(m$speaker_id, s) && isTRUE(m$is_moderator), logical(1)))
   }, logical(1))
 
-  cfg <- default_llmr_config()
   agents <- lapply(seq_along(speakers), function(i) {
     FGAgent$new(
       id = speakers[i],
@@ -107,20 +121,20 @@ focus_group_from_transcript <- function(data,
         "Speaker '", speakers[i], "' in an imported focus group transcript. ",
         "This placeholder stands in for the original speaker for analysis; ",
         "it carries no persona of its own.")),
-      llm_config = cfg,
+      config = NULL,
       is_moderator = is_mod[i]
     )
   })
   names(agents) <- speakers
 
-  moderator_id <- if (any(is_mod)) speakers[which(is_mod)[1]] else "MOD"
-  if (!moderator_id %in% names(agents)) {
-    agents[[moderator_id]] <- FGAgent$new(
-      id = moderator_id,
+  resolved_moderator_id <- if (any(is_mod)) speakers[which(is_mod)[1]] else "MOD"
+  if (!resolved_moderator_id %in% names(agents)) {
+    agents[[resolved_moderator_id]] <- FGAgent$new(
+      id = resolved_moderator_id,
       agent_details = list(direct_persona_description = paste(
         "Placeholder moderator for an imported transcript in which no speaker",
         "was identifiable as the moderator.")),
-      llm_config = cfg,
+      config = NULL,
       is_moderator = TRUE
     )
   }
@@ -130,8 +144,8 @@ focus_group_from_transcript <- function(data,
     topic = the_topic,
     purpose = paste("Analyze an imported focus group transcript on:", the_topic),
     agents = agents,
-    moderator_id = moderator_id,
-    turn_taking_flow = RoundRobinFlow$new(agents, moderator_id),
+    moderator_id = resolved_moderator_id,
+    turn_taking_flow = RoundRobinFlow$new(agents, resolved_moderator_id),
     # A one-entry placeholder script: the conversation already happened, so
     # nothing here is meant to run (and the empty-script message is not useful).
     question_script = list(list(phase = "generic_discussion", text = the_topic))

@@ -15,7 +15,7 @@ cfg <- LLMR::llm_config("openai", "gpt-4o-mini")   # any LLMR provider works
 agents1 <- create_agents_from_data(
   anes_2024_personas,
   n_participants = 6,
-  llm_config = cfg
+  config = cfg
 )
 agents1 <- stats::setNames(agents1, vapply(agents1, function(a) a$id, ""))
 flow1 <- create_conversation_flow("desire_based", agents1, "MOD")
@@ -25,11 +25,12 @@ fg1 <- FocusGroup$new(
   purpose = "Surface the range of priorities and where people agree or differ",
   agents = agents1,
   moderator_id = "MOD",
-  turn_taking_flow = flow1
+  turn_taking_flow = flow1,
+  admin_config = cfg
 )
 fg1$run_simulation(verbose = TRUE)
 res1 <- list(transcript = do.call(rbind, lapply(fg1$conversation_log, as.data.frame)),
-             summary = fg1$summarize(summary_level = 1))
+             summary = fg1$summarize(config = cfg, summary_level = 1))
 
 # --- Focus group 2: restrict the pool with the `rows` argument --------------
 # e.g. only respondents who pay close attention to politics.
@@ -37,7 +38,7 @@ agents2 <- create_agents_from_data(
   anes_2024_personas,
   n_participants = 6,
   rows = function(df) df[["attention to politics"]] %in% c("Always", "Most of the time"),
-  llm_config = cfg
+  config = cfg
 )
 agents2 <- stats::setNames(agents2, vapply(agents2, function(a) a$id, ""))
 flow2 <- create_conversation_flow("desire_based", agents2, "MOD")
@@ -46,8 +47,9 @@ fg2 <- FocusGroup$new(
   purpose = "Explore how engaged citizens talk about institutional trust",
   agents = agents2,
   moderator_id = "MOD",
-  turn_taking_flow = flow2
+  turn_taking_flow = flow2,
+  admin_config = cfg
 )
 fg2$run_simulation(verbose = TRUE)
 res2 <- list(transcript = do.call(rbind, lapply(fg2$conversation_log, as.data.frame)),
-             summary = fg2$summarize(summary_level = 1))
+             summary = fg2$summarize(config = cfg, summary_level = 1))

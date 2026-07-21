@@ -24,13 +24,14 @@ for selecting the next speaker.
 \describe{
 \item{\code{agents}}{A named list of `FGAgent` objects participating in the conversation.}
 
-\item{\code{agent_ids}}{A character vector of agent identifiers (names of the `agents` list).}
-
 \item{\code{participant_ids}}{A character vector of agent identifiers, excluding the moderator.}
 
 \item{\code{moderator_id}}{Character. The ID of the moderator agent.}
 
 \item{\code{last_speaker_id}}{The ID of the agent who last spoke. Can be `NULL`.}
+
+\item{\code{selection_metadata}}{A list of provenance for the latest selection.
+Desire-scoring failures record the condition and neutral fallback here.}
 }
 \if{html}{\out{</div>}}
 }

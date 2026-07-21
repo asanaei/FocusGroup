@@ -2,8 +2,8 @@
 # simulation run against a real (cheap) model. Lives under inst/integration so
 # R CMD check never runs it; you are billed only when you run it yourself. It
 # exercises the full simulation path:
-#   fg_quick() -> create_diverse_agents() + a conversation flow + the moderator
-#   script, run live -> fg_analyze_quick().
+#   run_focus_group() -> create_agents() + a conversation flow + the moderator
+#   guide, followed by offline descriptive analysis.
 #
 # The topic ("public libraries") is neutral and authored for this demo (no
 # copyrighted text). Kept deliberately small: 3 participants, one utterance per
@@ -14,38 +14,43 @@
 
 run_focusgroup_demo <- function(provider = Sys.getenv("LLMR_DEMO_PROVIDER", "groq"),
                                 model = Sys.getenv("LLMR_DEMO_MODEL", "openai/gpt-oss-20b"),
-                                participants = 3L) {
+                                n_participants = 3L) {
   stopifnot(requireNamespace("FocusGroup", quietly = TRUE))
   library(FocusGroup)
 
   cfg <- LLMR::llm_config(provider, model, temperature = 0.7, max_tokens = 120)
 
-  res <- fg_quick(
+  res <- run_focus_group(
     topic = "public libraries",
-    participants = participants,
-    flow = "round_robin",          # cheapest, deterministic turn-taking
-    model_config = cfg,
+    config = cfg,
+    n_participants = n_participants,
+    guide = list(
+      Opening = "Welcome the participants and state the ground rules.",
+      Exploration = "Which public library priority matters most, and why?",
+      Closing = "Thank the participants and close the discussion."
+    ),
+    flow = "round_robin",
     seed = 110,
     verbose = FALSE,
-    max_participant_responses = 1L  # one utterance per participant per question
+    max_participant_responses = 1L
   )
 
-  analysis <- fg_analyze_quick(res)
+  analysis <- analyze_focus_group(res, include_plots = FALSE)
   list(result = res, analysis = analysis, config = cfg)
 }
 
 if (sys.nframe() == 0L) {
   res <- run_focusgroup_demo()
-  cat("\n==== FocusGroup transcript (turn | speaker | text) ====\n")
+  cat("\n==== FocusGroup transcript (message | speaker | text) ====\n")
   tr <- res$result$transcript
   if (nrow(tr)) {
     for (i in seq_len(nrow(tr))) {
-      cat(sprintf("[%s] %s: %s\n", tr$turn[i], tr$speaker_id[i],
+      cat(sprintf("[%s] %s: %s\n", tr$message_id[i], tr$speaker_id[i],
                   substr(tr$text[i], 1, 160)))
     }
   }
-  cat("\n==== totals ====\n")
-  print(res$result$totals)
-  cat("\n==== fg_analyze_quick basic stats ====\n")
+  cat("\n==== usage ====\n")
+  print(res$result$usage)
+  cat("\n==== basic stats ====\n")
   print(res$analysis$basic_stats)
 }

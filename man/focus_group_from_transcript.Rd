@@ -8,7 +8,8 @@ focus_group_from_transcript(
   data,
   speaker_col = "speaker",
   text_col = "text",
-  topic = NULL
+  topic = NULL,
+  moderator_id = NULL
 )
 }
 \arguments{
@@ -23,6 +24,9 @@ Default "text".}
 \item{topic}{Character or `NULL`. The discussion topic, used by the
 model-dependent analyses and stored on the object. `NULL` falls back to
 "Imported transcript".}
+
+\item{moderator_id}{Character or `NULL`. Exact speaker id to treat as the
+moderator. When `NULL`, the documented "mod" substring fallback is used.}
 }
 \value{
 A [FocusGroup] object with a populated `conversation_log`.
@@ -41,11 +45,12 @@ descriptive analyses run offline, and only the model-dependent methods
 \details{
 One lightweight agent is created per speaker so that speaker-aware methods
 have a roster to report on; these agents carry a minimal placeholder persona
-and are not meant to continue the conversation. The moderator is the first
-speaker whose id contains "mod" (case-insensitive), e.g. "Moderator" or
-"MOD"; when no speaker matches, a non-speaking "MOD" agent is added so the
-object is complete, and it appears in `analyze()` with zero utterances, the
-package's usual treatment of a silent agent. Rows whose speaker is missing
+and are not meant to continue the conversation. Set `moderator_id` when the
+transcript identifies the moderator. When it is `NULL`, the moderator is the
+first speaker whose id contains "mod" (case-insensitive), e.g. "Moderator"
+or "MOD". When the fallback finds no match, a non-speaking "MOD" agent is
+added so the object is complete, and it appears in `analyze()` with zero
+utterances. Rows whose speaker is missing
 or blank are dropped with a warning; rows with speaker "System" are kept in
 the log but excluded from analyses, matching how the simulator treats its
 own roster message.

@@ -21,22 +21,23 @@ NULL
 #' @field agents Named list. A list of `FGAgent` objects participating in the simulation, indexed by their IDs.
 #' @field moderator_id Character. The ID of the agent designated as the moderator.
 #' @field conversation_log List. A chronological log of all messages. Each message is a list
-#'   that includes at least `turn`, `speaker_id`, `is_moderator`, `text`, `timestamp`, and
-#'   `phase`, along with call metadata: `response_id`, `finish_reason`, `sent_tokens`,
-#'   `rec_tokens`, `total_tokens`, `duration_s`, `provider`, and `model`.
+#'   that includes at least `message_id`, `round`, `speaker_id`, `is_moderator`,
+#'   `text`, `timestamp`, `phase`, and `metadata`, along with call metadata:
+#'   `response_id`, `finish_reason`, `sent_tokens`, `rec_tokens`, `total_tokens`,
+#'   `duration_s`, `provider`, and `model`. `message_id` is unique message order;
+#'   moderator and participant messages from one moderator cycle share `round`.
 #' @field turn_taking_flow A `ConversationFlow` object dictating participant turn-taking.
 #' @field prompt_templates List. Holds prompt templates for agent/moderator actions.
 #' @field question_script List. A structured list defining phases and specific questions/actions for the moderator.
 #'   Each element is a list with `phase` (e.g., "opening", "icebreaker_question") and optionally `text` (for specific questions).
-#' @field current_phase_index Integer. Tracks the current position in the `question_script`.
 #' @field current_question_text Character. Text of the current question being discussed.
 #' @field current_conversation_summary Character. An LLM-generated summary of earlier parts of the conversation,
 #'   used for managing context length in prompts.
 #' @field final_summary Character. Final LLM-generated summary from the most recent simulation run.
-#' @field msg_mode Character. The message construction used by the most recent
+#' @field message_mode Character. The message construction used by the most recent
 #'   `run_simulation()` ("roleflip" or "flat"), recorded so a saved object can be
 #'   replayed (e.g. in the GUI continuation experiment) with the same construction.
-#' @field llm_config_admin An `llm_config` object for group-level LLM tasks (summarization, analysis).
+#' @field admin_config An `llm_config` object for group-level model tasks.
 #' @field max_tokens_utterance Integer. Default max tokens for participant utterances.
 #' @field max_tokens_moderator Integer. Default max tokens for moderator utterances.
 #' @field max_tokens_desire Integer. Default max tokens for desire-to-talk queries.
@@ -55,29 +56,17 @@ FocusGroup <- R6::R6Class("FocusGroup",
     turn_taking_flow = NULL,
     prompt_templates = list(),
     question_script = list(),
-    current_phase_index = 0,
     current_question_text = NULL,
     current_conversation_summary = NULL,
     final_summary = NULL,
-    msg_mode = NULL, # message construction of the last run ("roleflip"/"flat")
-    llm_config_admin = NULL, # For summarization, LLM-based analysis
+    message_mode = NULL,
+    admin_config = NULL,
     max_tokens_utterance = 160,
     max_tokens_moderator = 400,
     max_tokens_desire = 16,
     max_participant_responses = 3,
     total_tokens_sent = 0,
     total_tokens_received = 0,
-
-    #' @description Add token usage to package-level accounting.
-    #' @param sent Integer. Prompt/input tokens.
-    #' @param rec Integer. Completion/output tokens.
-    record_token_usage = function(sent = 0L, rec = 0L) {
-      # NA-safe: unreported usage (NA) accumulates as 0 instead of poisoning
-      # the running totals.
-      self$total_tokens_sent <- self$total_tokens_sent + .fg_tok0(sent)
-      self$total_tokens_received <- self$total_tokens_received + .fg_tok0(rec)
-      invisible(list(sent = self$total_tokens_sent, rec = self$total_tokens_received))
-    },
 
     #' @description Initialize a new FocusGroup simulation.
     #' @param topic Character. The main discussion topic.
@@ -88,15 +77,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param question_script List. Moderator's script defining phases and questions.
     #'        If empty, a minimal default script (opening, generic discussion, closing) is used.
     #' @param prompt_templates List. Custom prompt templates. Defaults are used if not provided.
-    #' @param llm_config_admin An `llm_config` object for administrative LLM tasks (e.g., summarization, LLM-based analysis).
-    #'        If NULL, the moderator's `model_config` will be used for these tasks.
+    #' @param admin_config An `llm_config` object for administrative model tasks.
+    #'   If `NULL`, the moderator's explicitly supplied `config` is used.
     #' @param max_tokens_config List. Optional. Named list with `utterance`, `moderator`, `desire`
     #'        to override default max token limits for these LLM call types.
     #' @param max_participant_responses Integer. Optional. Maximum participant exchanges per round before moderator intervention.
     #'        Defaults to `getOption("focusgroup.max_participant_responses", 3)`.
     initialize = function(topic, purpose, agents, moderator_id, turn_taking_flow,
                           question_script = list(), prompt_templates = list(),
-                          llm_config_admin = NULL, max_tokens_config = list(),
+                          admin_config = NULL, max_tokens_config = list(),
                           max_participant_responses = NULL) {
       # Validations
       if (!is.character(topic) || length(topic) != 1 || nchar(topic) == 0) stop("'topic' must be a non-empty character string.")
@@ -110,7 +99,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$purpose <- purpose
       self$agents <- agents
       self$moderator_id <- moderator_id
-      if(!is.null(self$agents[[moderator_id]])) self$agents[[moderator_id]]$is_moderator <- TRUE # Ensure flag is set
+      if (!is.null(self$agents[[moderator_id]])) {
+        self$agents[[moderator_id]]$is_moderator <- TRUE
+        self$agents[[moderator_id]]$role <- "moderator"
+      }
       self$turn_taking_flow <- turn_taking_flow
       self$conversation_log <- list()
       self$final_summary <- NULL
@@ -125,12 +117,17 @@ FocusGroup <- R6::R6Class("FocusGroup",
       } else {
         self$question_script <- question_script
       }
-      self$current_phase_index <- 0 # Will be incremented before first use
+      private$current_phase_index <- 0
 
       default_prompts_list <- get_default_prompt_templates()
       self$prompt_templates <- utils::modifyList(default_prompts_list, prompt_templates %||% list())
 
-      self$llm_config_admin <- llm_config_admin %||% self$agents[[moderator_id]]$model_config
+      self$admin_config <- admin_config %||% self$agents[[moderator_id]]$config
+      if (!is.null(self$admin_config) &&
+          !inherits(self$admin_config, "llm_config")) {
+        stop("`admin_config` must be `NULL` or an `llm_config` object.",
+             call. = FALSE)
+      }
 
       self$max_tokens_utterance <- max_tokens_config$utterance %||% self$max_tokens_utterance
       self$max_tokens_moderator <- max_tokens_config$moderator %||% self$max_tokens_moderator
@@ -142,27 +139,34 @@ FocusGroup <- R6::R6Class("FocusGroup",
     },
 
     #' @description Run the full focus group simulation.
-    #' Iterates through the `question_script` phases or a specified number of turns.
-    #' @param num_turns Integer. Optional. Maximum number of turns to run. If `NULL` (default),
-    #'        the simulation runs until the `question_script` is exhausted or the moderator
-    #'        decides to end. If both `num_turns` and `question_script` are provided,
-    #'        the simulation stops at whichever condition is met first.
+    #' Iterates through the `question_script` phases or a specified number of rounds.
+    #' @param num_rounds Integer. Optional. Maximum number of moderator cycles to run. If `NULL` (default),
+    #'   the simulation runs until the `question_script` is exhausted or the moderator
+    #'   decides to end. If both `num_rounds` and `question_script` are provided,
+    #'   the simulation stops at whichever condition is met first.
     #' @param verbose Logical. If `TRUE`, prints progress and utterances to the console.
     #' @return Invisibly returns the `conversation_log`.
-    run_simulation = function(num_turns = NULL, verbose = FALSE) {
+    run_simulation = function(num_rounds = NULL, verbose = FALSE) {
+      if (length(self$conversation_log)) {
+        stop(
+          "This FocusGroup object already contains a session and cannot run again. ",
+          "Use the continuation experiment in run_focus_studio() to generate a continuation.",
+          call. = FALSE
+        )
+      }
       # Record the active message construction so a saved object replays the same
       # way (e.g. the GUI continuation experiment).
-      self$msg_mode <- .fg_msg_mode()
+      self$message_mode <- .fg_message_mode()
       if (verbose) {
         cat("Starting focus group simulation...\n")
         cat("Topic:", self$topic, "\n")
         cat("Purpose:", self$purpose, "\n")
       }
 
-      self$current_phase_index <- 0 # Reset for fresh run
-      turn_counter <- 0
+      private$current_phase_index <- 0
+      round_counter <- 0L
       simulation_active <- TRUE
-      private$last_summary_turn <- -Inf
+      private$last_summary_round <- -Inf
 
       # Log a roster system message so all agents "see" who is present
       participant_ids <- setdiff(names(self$agents), self$moderator_id)
@@ -170,29 +174,31 @@ FocusGroup <- R6::R6Class("FocusGroup",
         "Participants: ", paste(participant_ids, collapse = ", "),
         "; Moderator: ", self$moderator_id
       )
-      private$log_message("System", roster_msg, turn_counter, is_moderator = FALSE, phase = "setup", meta = list())
+      private$log_message("System", roster_msg, round = round_counter,
+                          is_moderator = FALSE, phase = "setup", meta = list())
 
       # Working context ceilings and triggers.
       summarize_trigger_tokens <- 48000L
       summarize_probe_tokens   <- 64000L  # probe window larger than cap so trigger can fire
       summarize_trigger_count  <- 200L
-      summarize_cooldown_turns <- 10L
+      summarize_cooldown_rounds <- 10L
       interim_summary_tokens   <- 250L
 
       while(simulation_active) {
-        turn_counter <- turn_counter + 1
-        if (!is.null(num_turns) && turn_counter > num_turns) {
-            if (verbose) cat("\n--- Reached max_turns limit (", num_turns, "). Simulation Ended ---\n")
+        round_counter <- round_counter + 1L
+        if (!is.null(num_rounds) && round_counter > num_rounds) {
+            if (verbose) cat("\n--- Reached num_rounds limit (", num_rounds, "). Simulation Ended ---\n")
             break
         }
 
-        # advance_turn returns FALSE if script ends or moderator closes
-        simulation_active <- self$advance_turn(current_turn_number = turn_counter, verbose = verbose)
+        # advance_round returns FALSE if the script ends or the moderator closes.
+        simulation_active <- private$advance_round(current_round = round_counter,
+                                                   verbose = verbose)
 
         # Threshold-based interim summarization and prompt window trimming.
         # Use a probe window larger than the trigger so the token condition can actually fire.
         needs_summary <- FALSE
-        if ((turn_counter - private$last_summary_turn) >= summarize_cooldown_turns) {
+        if ((round_counter - private$last_summary_round) >= summarize_cooldown_rounds) {
           recent_hist <- make_prompt_history(
             self$conversation_log,
             include_summary = NULL,
@@ -206,37 +212,978 @@ FocusGroup <- R6::R6Class("FocusGroup",
           if (verbose) cat("\n--- Generating interim summary for context management ---\n")
           current_transcript_for_summary <- private$get_recent_transcript_for_summary(30)
           interim_summary_text <- self$summarize(
-            llm_config = self$llm_config_admin,
+            config = self$admin_config,
             summary_level = 3,
             max_tokens = interim_summary_tokens,
             internal_call = TRUE,
             transcript_override = current_transcript_for_summary
           )
           self$current_conversation_summary <- interim_summary_text
-          private$last_summary_turn <- turn_counter
+          private$last_summary_round <- round_counter
           if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
         }
       }
-      # The loop exits one of two ways: the max_turns branch above breaks with
-      # simulation_active still TRUE (and prints its own line), or advance_turn
+      # The loop exits one of two ways: the round-limit branch above breaks with
+      # simulation_active still TRUE (and prints its own line), or advance_round
       # returns FALSE and sets simulation_active to FALSE. The latter is the
       # normal close (script exhausted or moderator ended), so announce it here.
       if (verbose && !simulation_active) cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
 
       # Final summary of the entire discussion
       if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
-      final_summary <- self$summarize(llm_config = self$llm_config_admin, summary_level = 1, internal_call = FALSE) # Level 1 for overall summary
+      final_summary <- self$summarize(config = self$admin_config, summary_level = 1,
+                                      internal_call = FALSE)
       self$final_summary <- final_summary
       if (verbose) cat("Final Summary:\n", final_summary, "\n")
 
       invisible(self$conversation_log)
     },
 
-    #' @description Advance the simulation by one logical step (moderator action + participant response if applicable).
-    #' @param current_turn_number Integer. The current turn number for logging.
-    #' @param verbose Logical. If `TRUE`, print progress.
-    #' @return Logical. `TRUE` if the simulation should continue, `FALSE` if it should end.
-    advance_turn = function(current_turn_number, verbose = FALSE) {
+
+    #' @description Generate a summary of the conversation using an LLM.
+    #' @param config An explicit `llm_config` object for the summarization model.
+    #' @param summary_level Integer (1-3). 1: Prose overview, 2: Detailed bulleted, 3: Short bulleted takeaways.
+    #' @param max_tokens Integer. Optional. Max tokens for the summary.
+    #' @param internal_call Logical. If TRUE, this is an internal call (e.g. for context window management) and token counts are not added to the agent who owns `admin_config`.
+    #' @param transcript_override Character. Optional. If provided, this transcript is summarized instead of `self$conversation_log`.
+    #' @param .runner Optional experiments-frame runner. It receives a data frame
+    #'   with `config` and `messages` list-columns and returns the rows with at
+    #'   least `response_text`.
+    #' @return Character string containing the generated summary.
+    summarize = function(config, summary_level = 1, max_tokens = NULL,
+                         internal_call = FALSE, transcript_override = NULL,
+                         .runner = NULL) {
+      if (!requireNamespace("LLMR", quietly = TRUE)) stop("LLMR package is required.")
+
+      if (missing(config) || is.null(config)) {
+        stop("`config` is required for summarization.", call. = FALSE)
+      }
+      if (!inherits(config, "llm_config")) {
+        stop("`config` must be an `llm_config` object.", call. = FALSE)
+      }
+      if (!summary_level %in% 1:3) stop("'summary_level' must be 1, 2, or 3.")
+
+      transcript_to_use <- transcript_override
+      if (is.null(transcript_to_use)) {
+          if (length(self$conversation_log) == 0) {
+            warning("Conversation log is empty. Returning an empty summary.")
+            return("The conversation log is empty. No summary can be generated.")
+          }
+          transcript_to_use <- paste(sapply(self$conversation_log, function(msg) {
+            paste0(msg$speaker_id, " (Message ", msg$message_id,
+                   ", Round ", msg$round, ", Phase: ", msg$phase, "): ",
+                   msg$text)
+          }), collapse = "\n\n")
+      }
+      if (nchar(trimws(transcript_to_use)) == 0) {
+          warning("Transcript for summary is empty. Returning empty summary.")
+          return("Transcript is empty.")
+      }
+
+
+      topic_context <- paste0("The main topic of the discussion was: ", self$topic, "\n",
+                              "The purpose of the focus group was: ", self$purpose, "\n\n")
+
+      level_instructions <- ""
+      estimated_tokens <- NULL # For LLM call
+
+      if (summary_level == 1) {
+        level_instructions <- "Provide a concise prose summary (approx. 200-300 words) of the focus group discussion. Focus on main themes, overall sentiment, key agreements/disagreements, and broad conclusions."
+        estimated_tokens <- max_tokens %||% 400
+      } else if (summary_level == 2) {
+        level_instructions <- "Analyze the focus group transcript and provide a detailed, bulleted summary. Highlight key quotes (attributed), anecdotes, new arguments, surprising statements, and points of agreement/disagreement. Organize logically."
+        estimated_tokens <- max_tokens %||% 1000
+      } else if (summary_level == 3) { # Short, for context window or quick overview
+        level_instructions <- "Provide a very short, bulleted overall summary (approx. 3-5 key bullet points) of the most critical takeaways. Focus on impactful points, arguments, and surprising insights. Keep it extremely concise."
+        estimated_tokens <- max_tokens %||% 150
+      }
+
+      full_prompt <- paste0(
+        topic_context,
+        level_instructions,
+        "\n\nHere is the transcript (or relevant portion):\n--------------------\n",
+        transcript_to_use,
+        "\n--------------------\nSummary:"
+      )
+
+      current_call_config <- config
+      if (!is.null(estimated_tokens)) {
+        current_call_config$model_params$max_tokens <- estimated_tokens
+      }
+
+      response_obj <- .fg_call_llm(
+        config = current_call_config,
+        messages = list(list(role = "user", content = full_prompt)),
+        .runner = .runner %||% self$agents[[self$moderator_id]]$.runner,
+        tries = 5,
+        wait_seconds = 2,
+        backoff_factor = 3
+      )
+      summary_text <- .fg_response_text(response_obj)
+
+      if (!internal_call) { # Only add to group totals if it's an "external" summarization request
+          u <- extract_token_counts(response_obj)
+          private$record_token_usage(u$sent, u$rec)
+      }
+      if (!nzchar(trimws(summary_text))) {
+        stop("Summarization returned an empty model response.", call. = FALSE)
+      }
+      return(summary_text)
+    },
+
+    # --- Analysis Methods ---
+    #' @description Basic analysis of the conversation log.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #'   If `NULL`, all messages are analyzed.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze. If `NULL`, analyzes all speakers.
+    #' @return A list with `speaker_stats` (a tibble: speaker_id, utterance_count, total_words, avg_words_per_utterance)
+    #'         and `full_transcript` (character string).
+    analyze = function(message_ids = NULL, speaker_ids = NULL) {
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+
+      if (length(filtered_log) == 0) {
+        warning("Filtered conversation log is empty for basic analysis.")
+        # Return empty structure consistent with non-empty case
+        all_agent_ids <- names(self$agents)
+        speaker_stats_df <- dplyr::tibble(
+          speaker_id = all_agent_ids,
+          utterance_count = 0L,
+          total_words = 0L,
+          avg_words_per_utterance = 0.0
+        )
+        return(list(speaker_stats = speaker_stats_df, full_transcript = "Filtered conversation log is empty."))
+      }
+
+      log_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
+        dplyr::tibble(
+          speaker_id = x$speaker_id %||% NA_character_,
+          text = x$text %||% ""
+        )
+      }))
+
+      speaker_stats_df <- log_df %>%
+        dplyr::mutate(word_count = sapply(strsplit(as.character(.data$text), "\\s+"), length)) %>%
+        dplyr::group_by(.data$speaker_id) %>%
+        dplyr::summarise(
+          utterance_count = dplyr::n(),
+          total_words = sum(.data$word_count, na.rm = TRUE),
+          .groups = 'drop'
+        ) %>%
+        dplyr::mutate(avg_words_per_utterance = ifelse(.data$utterance_count > 0, .data$total_words / .data$utterance_count, 0.0))
+
+      # Ensure all agents are in the stats, even if they didn't speak in the filtered log
+      all_agent_ids <- names(self$agents)
+      current_speakers_in_stats <- unique(speaker_stats_df$speaker_id)
+      missing_agents <- setdiff(all_agent_ids, current_speakers_in_stats)
+
+      if (length(missing_agents) > 0) {
+        missing_df <- dplyr::tibble(
+          speaker_id = missing_agents, utterance_count = 0L, total_words = 0L, avg_words_per_utterance = 0.0
+        )
+        speaker_stats_df <- dplyr::bind_rows(speaker_stats_df, missing_df)
+      }
+
+      # Order by original agent order if possible, or alphabetically. Keep any
+      # speaker that is not an agent (e.g. an explicitly requested "System"
+      # row) as a trailing level rather than silently turning it into NA.
+      ordered_agent_ids <- intersect(all_agent_ids, speaker_stats_df$speaker_id)
+      if(length(ordered_agent_ids) > 0) {
+          all_levels <- union(all_agent_ids, unique(as.character(speaker_stats_df$speaker_id)))
+          speaker_stats_df <- speaker_stats_df %>%
+            dplyr::mutate(speaker_id = factor(.data$speaker_id, levels = all_levels)) %>%
+            dplyr::arrange(.data$speaker_id)
+      }
+
+
+      full_transcript_text <- paste(sapply(filtered_log, function(msg) {
+        paste0(msg$speaker_id, " (Message ", msg$message_id,
+               ", Round ", msg$round, ", Phase: ", msg$phase, "): ",
+               msg$text)
+      }), collapse = "\n\n")
+
+      return(list(speaker_stats = speaker_stats_df, full_transcript = full_transcript_text))
+    },
+
+    #' @description Perform LDA topic modeling on the conversation.
+    #' @param num_topics Integer. Number of topics to identify.
+    #' @param min_doc_length Integer. Min words for a speaker's aggregated text to be a document.
+    #' @param top_n_terms Integer. Number of top terms per topic to return.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @param seed Integer or NULL. LDA seed for reproducibility (default 110, the
+    #'   package convention); `NULL` leaves the LDA control seed unset.
+    #' @param ... Additional arguments to `topicmodels::LDA()`.
+    #' @return A list with LDA model, topic terms, and document-topic proportions. `NULL` on failure.
+    analyze_topics = function(num_topics = 5, min_doc_length = 20,
+                              top_n_terms = 10, message_ids = NULL,
+                              speaker_ids = NULL, seed = 110, ...) {
+      if (!all(sapply(c("topicmodels", "tidytext", "dplyr"), requireNamespace, quietly = TRUE))) {
+        stop("Packages topicmodels, tidytext, and dplyr are required for LDA. Please install them.")
+      }
+
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+      if (length(filtered_log) == 0) {
+          warning("Filtered log is empty for topic analysis.")
+          return(NULL)
+      }
+
+      tryCatch({
+        # Extract texts and speaker IDs
+        texts <- sapply(filtered_log, function(x) x$text)
+        speaker_ids_vec <- sapply(filtered_log, function(x) x$speaker_id)
+
+        # Aggregate by speaker to create documents
+        speaker_texts <- tapply(texts, speaker_ids_vec, paste, collapse = " ")
+
+        # Filter documents by minimum length
+        word_counts <- sapply(speaker_texts, function(text) length(strsplit(text, "\\s+")[[1]]))
+        valid_docs <- names(speaker_texts)[word_counts >= min_doc_length]
+
+        if (length(valid_docs) < 2) {
+          warning("Not enough valid documents for topic modeling (minimum 2 required)")
+          return(NULL)
+        }
+
+        if (length(valid_docs) < num_topics) {
+          warning("Number of valid documents is less than num_topics. Reducing num_topics.")
+          num_topics <- length(valid_docs)
+        }
+
+        # Create document-term matrix using tidytext
+        valid_texts <- speaker_texts[valid_docs]
+
+        # Convert to tidy format and create DTM
+        tidy_docs <- dplyr::tibble(
+          document = names(valid_texts),
+          text = valid_texts
+        ) %>%
+          tidytext::unnest_tokens(.data$word, .data$text) %>%
+          dplyr::anti_join(tidytext::stop_words, by = "word") %>%
+          dplyr::filter(nchar(.data$word) > 2) %>%
+          dplyr::count(.data$document, .data$word, sort = TRUE)
+
+        # Cast to DTM
+        dtm <- tidy_docs %>%
+          tidytext::cast_dtm(.data$document, .data$word, .data$n)
+
+        # Check if DTM has sufficient terms
+        if (ncol(dtm) < 5) {
+          warning("Not enough unique terms for meaningful topic modeling")
+          return(NULL)
+        }
+
+        # Run LDA
+        lda_control <- if (is.null(seed)) list() else list(seed = as.integer(seed))
+        lda_model <- topicmodels::LDA(dtm, k = num_topics, control = lda_control, ...)
+
+        # Extract topic-term probabilities (beta)
+        topics_beta <- tidytext::tidy(lda_model, matrix = "beta")
+
+        # Get top terms for each topic
+        top_terms <- topics_beta %>%
+          dplyr::group_by(.data$topic) %>%
+          dplyr::slice_max(.data$beta, n = top_n_terms, with_ties = FALSE) %>%
+          dplyr::ungroup() %>%
+          dplyr::arrange(.data$topic, dplyr::desc(.data$beta))
+
+        # Extract document-topic probabilities (gamma)
+        topics_gamma <- tidytext::tidy(lda_model, matrix = "gamma")
+
+        # Create topic labels based on top terms
+        topic_labels <- top_terms %>%
+          dplyr::group_by(.data$topic) %>%
+          dplyr::slice_head(n = 3) %>%
+          dplyr::summarise(label = paste(.data$term, collapse = ", "), .groups = 'drop')
+
+        return(list(
+          lda_model = lda_model,
+          top_terms = top_terms,
+          document_topics = topics_gamma,
+          topic_labels = topic_labels,
+          dtm = dtm,
+          num_documents = length(valid_docs),
+          num_topics = num_topics
+        ))
+
+      }, error = function(e) {
+        warning(paste("Topic analysis failed:", e$message))
+        return(NULL)
+      })
+    },
+
+    #' @description Calculate TF-IDF scores for terms per participant.
+    #' @param top_n_terms Integer. Number of top TF-IDF terms per participant.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @param ... Additional arguments to `tidytext::unnest_tokens`.
+    #' @return A tibble with TF-IDF scores.
+    analyze_tfidf = function(top_n_terms = 10, message_ids = NULL,
+                             speaker_ids = NULL, ...) {
+      if (!all(sapply(c("tidytext", "dplyr"), requireNamespace, quietly = TRUE))) {
+        stop("Packages tidytext and dplyr are required for TF-IDF. Please install them.")
+      }
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+      if (length(filtered_log) == 0) {
+          warning("Filtered log is empty for TF-IDF analysis.")
+          return(dplyr::tibble())
+      }
+
+      tryCatch({
+        # Extract texts and speaker IDs
+        texts <- sapply(filtered_log, function(x) x$text)
+        speaker_ids_vec <- sapply(filtered_log, function(x) x$speaker_id)
+
+        # Create a data frame for analysis
+        text_df <- dplyr::tibble(
+          speaker_id = speaker_ids_vec,
+          text = texts
+        )
+
+        # Aggregate by speaker to create documents
+        speaker_docs <- text_df %>%
+          dplyr::group_by(.data$speaker_id) %>%
+          dplyr::summarise(document = paste(.data$text, collapse = " "), .groups = 'drop')
+
+        # Tokenize and calculate TF-IDF using tidytext approach
+        tfidf_results <- speaker_docs %>%
+          tidytext::unnest_tokens(.data$word, .data$document, ...) %>%
+          dplyr::anti_join(tidytext::stop_words, by = "word") %>%
+          dplyr::filter(nchar(.data$word) > 2) %>%
+          dplyr::count(.data$speaker_id, .data$word, sort = TRUE) %>%
+          tidytext::bind_tf_idf(.data$word, .data$speaker_id, .data$n) %>%
+          dplyr::group_by(.data$speaker_id) %>%
+          dplyr::slice_max(.data$tf_idf, n = top_n_terms, with_ties = FALSE) %>%
+          dplyr::ungroup() %>%
+          dplyr::transmute(
+            speaker_id = .data$speaker_id,
+            term = .data$word,
+            tf_idf = .data$tf_idf
+          ) %>%
+          dplyr::arrange(.data$speaker_id, dplyr::desc(.data$tf_idf))
+
+        return(tfidf_results)
+      }, error = function(e) {
+        warning(paste("TF-IDF analysis failed:", e$message))
+        return(dplyr::tibble())
+      })
+    },
+
+    #' @description Calculate readability scores for each participant's aggregated text.
+    #' @param measures Character vector. Readability measure(s) from `quanteda.textstats::textstat_readability`.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @return A tibble with readability scores.
+    analyze_readability = function(measures = "Flesch", message_ids = NULL,
+                                   speaker_ids = NULL) {
+      if (!all(sapply(c("quanteda", "quanteda.textstats", "dplyr"), requireNamespace, quietly = TRUE))) {
+        stop("Packages quanteda, quanteda.textstats, dplyr are required for readability. Please install them.")
+      }
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+      if (length(filtered_log) == 0) {
+          warning("Filtered log is empty for readability analysis.")
+          return(dplyr::tibble())
+      }
+
+      tryCatch({
+        # Extract texts and speaker IDs
+        texts <- sapply(filtered_log, function(x) x$text)
+        speaker_ids_vec <- sapply(filtered_log, function(x) x$speaker_id)
+
+        # Aggregate by speaker
+        speaker_texts <- tapply(texts, speaker_ids_vec, paste, collapse = " ")
+
+        # Filter out speakers with very short texts (less than 10 words)
+        speaker_word_counts <- sapply(speaker_texts, function(text) length(strsplit(text, "\\s+")[[1]]))
+        valid_speakers <- names(speaker_texts)[speaker_word_counts >= 10]
+
+        if (length(valid_speakers) == 0) {
+          warning("No speakers have sufficient text for readability analysis (minimum 10 words required)")
+          return(dplyr::tibble())
+        }
+
+        # Create corpus for valid speakers only
+        valid_texts <- speaker_texts[valid_speakers]
+        corpus <- quanteda::corpus(valid_texts)
+        quanteda::docnames(corpus) <- valid_speakers
+
+        # Calculate readability measures
+        readability_stats <- quanteda.textstats::textstat_readability(corpus, measure = measures)
+
+        # Convert to tibble and add speaker_id column. textstat_readability()
+        # returns the corpus docnames (the speaker ids) in `document`; its
+        # rownames are just "1","2",... and must not be used as ids.
+        result <- dplyr::as_tibble(readability_stats)
+        result$speaker_id <- as.character(result$document)
+        result$document <- NULL
+
+        # Reorder columns to put speaker_id first
+        result <- result %>%
+          dplyr::select("speaker_id", dplyr::everything()) %>%
+          dplyr::arrange(.data$speaker_id)
+
+        return(result)
+      }, error = function(e) {
+        warning(paste("Readability analysis failed:", e$message))
+        return(dplyr::tibble())
+      })
+    },
+
+    #' @description Perform LLM-assisted thematic analysis on the transcript.
+    #' @param config An explicit `llm_config` object for thematic analysis.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @param .runner Optional experiments-frame runner. It receives a data frame
+    #'   with `config` and `messages` list-columns and returns the rows with at
+    #'   least `response_text`.
+    #' @return The thematic summary as a character string. An empty transcript
+    #'   returns `character(0)`. Provider failures are propagated.
+    analyze_themes = function(config, message_ids = NULL, speaker_ids = NULL,
+                              .runner = NULL) {
+      if (missing(config) || is.null(config)) {
+        stop("`config` is required for thematic analysis.", call. = FALSE)
+      }
+      if (!inherits(config, "llm_config")) {
+        stop("`config` must be an `llm_config` object.", call. = FALSE)
+      }
+
+      analysis_data <- self$analyze(message_ids = message_ids,
+                                    speaker_ids = speaker_ids)
+      if (nchar(trimws(analysis_data$full_transcript)) == 0 || analysis_data$full_transcript == "Filtered conversation log is empty.") {
+          warning("Transcript for thematic analysis is empty.", call. = FALSE)
+          return(character(0))
+      }
+
+      theme_prompt <- replace_placeholders(
+        self$prompt_templates$thematic_analysis_prompt,
+        list(
+          topic = self$topic,
+          focus_group_purpose = self$purpose,
+          full_transcript = analysis_data$full_transcript
+        )
+      )
+
+      current_call_config <- config
+      current_call_config$model_params$max_tokens <- 800
+
+      response_obj <- .fg_call_llm(
+        config = current_call_config,
+        messages = list(list(role = "user", content = theme_prompt)),
+        .runner = .runner %||% self$agents[[self$moderator_id]]$.runner,
+        tries = 5
+      )
+
+      themes_summary <- .fg_response_text(response_obj)
+      u <- extract_token_counts(response_obj)
+      private$record_token_usage(u$sent, u$rec)
+      if (!nzchar(trimws(themes_summary))) {
+        stop("Thematic analysis returned an empty model response.", call. = FALSE)
+      }
+      themes_summary
+    },
+
+    # analyze_sentiment removed
+
+    #' @description Perform statistical analysis on conversation patterns.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @return A list with ANOVA results, phase participation stats, and correlations.
+    analyze_statistics = function(message_ids = NULL, speaker_ids = NULL) {
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+      if (length(filtered_log) == 0) {
+        warning("Filtered log is empty for statistical analysis.")
+        return(NULL)
+      }
+
+      tryCatch({
+        # Convert to data frame format for analysis
+        conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
+          dplyr::tibble(
+            speaker_id = x$speaker_id,
+            phase = x$phase,
+            text = x$text,
+            message_id = x$message_id,
+            round = x$round
+          )
+        }))
+
+        # Calculate basic statistics by speaker and phase
+        stats <- conv_df %>%
+          dplyr::group_by(.data$speaker_id, .data$phase) %>%
+          dplyr::summarise(
+            messages = dplyr::n(),
+            words = sum(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
+            avg_words = .data$words / .data$messages,
+            .groups = "drop"
+          )
+
+        # Perform ANOVA on word count by phase if multiple phases exist
+        word_aov <- if(length(unique(stats$phase)) > 1) {
+          stats::aov(words ~ phase, data = stats)
+        } else NULL
+
+        # Calculate phase participation statistics
+        phase_stats <- stats %>%
+          dplyr::group_by(.data$phase) %>%
+          dplyr::summarise(
+            mean_messages = mean(.data$messages),
+            sd_messages = stats::sd(.data$messages),
+            .groups = "drop"
+          )
+
+        # Calculate correlation between messages and words
+        cor_test <- if(nrow(stats) > 2) {
+          stats::cor.test(stats$messages, stats$words)
+        } else NULL
+
+        list(
+          word_count_anova = if(!is.null(word_aov)) summary(word_aov) else "Not enough phases for ANOVA",
+          phase_participation = phase_stats,
+          messages_words_correlation = cor_test
+        )
+      }, error = function(e) {
+        warning(paste("Statistical analysis failed:", e$message))
+        return(NULL)
+      })
+    },
+
+    #' @description Analyze participation balance and dominance patterns.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @return A list with participation statistics and balance metrics.
+    analyze_participation_balance = function(message_ids = NULL, speaker_ids = NULL) {
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+      if (length(filtered_log) == 0) {
+        warning("Filtered log is empty for participation balance analysis.")
+        return(NULL)
+      }
+
+      tryCatch({
+        # Convert to data frame format
+        conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
+          dplyr::tibble(
+            speaker_id = x$speaker_id,
+            text = x$text
+          )
+        }))
+
+        # Calculate participation metrics
+        participation <- conv_df %>%
+          dplyr::group_by(.data$speaker_id) %>%
+          dplyr::summarise(
+            messages = dplyr::n(),
+            words = sum(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
+            avg_words = .data$words / .data$messages,
+            .groups = "drop"
+          )
+
+        # Calculate participation percentages
+        total_messages <- sum(participation$messages)
+        total_words <- sum(participation$words)
+
+        participation <- participation %>%
+          dplyr::mutate(
+            message_percentage = (.data$messages / total_messages) * 100,
+            word_percentage = (.data$words / total_words) * 100
+          )
+
+        # Calculate dominance metrics
+        max_message_pct <- max(participation$message_percentage)
+        min_message_pct <- min(participation$message_percentage)
+        message_range <- max_message_pct - min_message_pct
+
+        list(
+          participation_stats = participation,
+          balance_metrics = list(
+            most_active_speaker = participation$speaker_id[which.max(participation$message_percentage)],
+            least_active_speaker = participation$speaker_id[which.min(participation$message_percentage)],
+            message_percentage_range = message_range,
+            is_balanced = message_range < 30
+          )
+        )
+      }, error = function(e) {
+        warning(paste("Participation balance analysis failed:", e$message))
+        return(NULL)
+      })
+    },
+
+    #' @description Analyze response patterns and interaction behaviors.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @return A list with response and interaction pattern metrics.
+    analyze_response_patterns = function(message_ids = NULL, speaker_ids = NULL) {
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+      if (length(filtered_log) == 0) {
+        warning("Filtered log is empty for response pattern analysis.")
+        return(NULL)
+      }
+
+      tryCatch({
+        # Convert to data frame format
+        conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
+          dplyr::tibble(
+            speaker_id = x$speaker_id,
+            text = x$text,
+            message_id = x$message_id
+          )
+        }))
+
+        # Calculate response patterns by speaker
+        response_patterns <- conv_df %>%
+          dplyr::group_by(.data$speaker_id) %>%
+          dplyr::summarise(
+            total_responses = dplyr::n(),
+            avg_words = mean(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
+            question_count = sum(grepl("\\?", .data$text)),
+            exclamation_count = sum(grepl("!", .data$text)),
+            .groups = "drop"
+          )
+
+        # Calculate interaction patterns
+        first_message <- min(conv_df$message_id)
+        last_message <- max(conv_df$message_id)
+
+        interaction_patterns <- conv_df %>%
+          dplyr::group_by(.data$speaker_id) %>%
+          dplyr::summarise(
+            first_to_respond = sum(.data$message_id == first_message),
+            last_to_respond = sum(.data$message_id == last_message),
+            .groups = "drop"
+          )
+
+        list(
+          response_metrics = response_patterns,
+          interaction_metrics = interaction_patterns
+        )
+      }, error = function(e) {
+        warning(paste("Response pattern analysis failed:", e$message))
+        return(NULL)
+      })
+    },
+
+    #' @description Analyze question asking patterns during the conversation.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @return A list with question pattern analysis.
+    analyze_question_patterns = function(message_ids = NULL, speaker_ids = NULL) {
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+      if (length(filtered_log) == 0) {
+        warning("Filtered log is empty for question pattern analysis.")
+        return(NULL)
+      }
+
+      tryCatch({
+        # Convert to data frame format and filter questions
+        conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
+          dplyr::tibble(
+            speaker_id = x$speaker_id,
+            phase = x$phase,
+            text = x$text
+          )
+        }))
+
+        # Extract questions and analyze patterns
+        questions <- conv_df %>%
+          dplyr::filter(grepl("\\?", .data$text)) %>%
+          dplyr::group_by(.data$speaker_id, .data$phase) %>%
+          dplyr::summarise(
+            question_count = dplyr::n(),
+            avg_words = mean(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
+            .groups = "drop"
+          )
+
+        # Analyze question distribution by phase
+        question_dist <- questions %>%
+          dplyr::group_by(.data$phase) %>%
+          dplyr::summarise(
+            total_questions = sum(.data$question_count),
+            unique_questioners = dplyr::n_distinct(.data$speaker_id),
+            .groups = "drop"
+          )
+
+        list(
+          question_patterns = questions,
+          question_distribution = question_dist
+        )
+      }, error = function(e) {
+        warning(paste("Question pattern analysis failed:", e$message))
+        return(NULL)
+      })
+    },
+
+    #' @description Extract and analyze key phrases using n-grams.
+    #' @param min_freq Integer. Minimum frequency for phrases to be considered key.
+    #' @param message_ids Integer vector. Optional `message_id` values to analyze.
+    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
+    #' @return A list with bigram and trigram analysis.
+    analyze_key_phrases = function(min_freq = 2, message_ids = NULL,
+                                   speaker_ids = NULL) {
+      # Ensure tidytext and dplyr are available
+      if (!all(sapply(c("tidytext", "dplyr", "tidyr"), requireNamespace, quietly = TRUE))) {
+        stop("Packages tidytext, dplyr, and tidyr are required for key phrase analysis.")
+      }
+
+      filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
+      if (length(filtered_log) == 0) {
+        warning("Filtered log is empty for key phrase analysis.")
+        return(list(bigrams = dplyr::tibble(), trigrams = dplyr::tibble(),
+                    total_unique_bigrams = 0, total_unique_trigrams = 0))
+      }
+
+      tryCatch({
+        # Create a tibble from the conversation log
+        conv_tibble <- dplyr::tibble(
+          doc_id = seq_along(filtered_log), # Each message as a document for n-gram extraction
+          text = sapply(filtered_log, function(x) x$text %||% "")
+        )
+
+        # --- Bigram Analysis ---
+        bigrams_tokenized <- conv_tibble %>%
+          tidytext::unnest_tokens(output = bigram, input = text, token = "ngrams", n = 2) %>%
+          dplyr::filter(!is.na(bigram)) # Remove NA bigrams that might result from very short texts
+
+        # Optional: Remove bigrams containing stop words
+        # This is a common step to make n-grams more meaningful
+        # We separate the bigram, check each word, then filter
+        bigrams_separated <- bigrams_tokenized %>%
+          tidyr::separate(bigram, c("word1", "word2"), sep = " ", remove = FALSE, fill = "right")
+
+        # Anti-join against stop words for each part of the bigram
+        # A bigram is removed if EITHER word1 OR word2 is a stop word.
+        # You might adjust this logic (e.g., remove only if both are stop words, or if first/last are)
+        # Use tidytext::stop_words directly to avoid loading into global env # Ensure stop_words is loaded
+
+        bigrams_cleaned <- bigrams_separated %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word1" = "word")) %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word2" = "word")) %>%
+          dplyr::select(doc_id, bigram) # Keep the original bigram column
+
+        total_unique_bigrams <- dplyr::n_distinct(bigrams_cleaned$bigram)
+
+        frequent_bigrams_df <- bigrams_cleaned %>%
+          dplyr::count(bigram, sort = TRUE, name = "frequency") %>%
+          dplyr::filter(frequency >= min_freq) %>%
+          dplyr::rename(feature = bigram) # Match quanteda's output column name
+
+        # --- Trigram Analysis ---
+        trigrams_tokenized <- conv_tibble %>%
+          tidytext::unnest_tokens(output = trigram, input = text, token = "ngrams", n = 3) %>%
+          dplyr::filter(!is.na(trigram))
+
+        trigrams_separated <- trigrams_tokenized %>%
+          tidyr::separate(trigram, c("word1", "word2", "word3"), sep = " ", remove = FALSE, fill = "right")
+
+        trigrams_cleaned <- trigrams_separated %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word1" = "word")) %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word2" = "word")) %>%
+          dplyr::anti_join(tidytext::stop_words, by = c("word3" = "word")) %>% # Check all three words
+          dplyr::select(doc_id, trigram)
+
+        total_unique_trigrams <- dplyr::n_distinct(trigrams_cleaned$trigram)
+
+        frequent_trigrams_df <- trigrams_cleaned %>%
+          dplyr::count(trigram, sort = TRUE, name = "frequency") %>%
+          dplyr::filter(frequency >= min_freq) %>%
+          dplyr::rename(feature = trigram) # Match quanteda's output column name
+
+        list(
+          bigrams = frequent_bigrams_df,
+          trigrams = frequent_trigrams_df,
+          total_unique_bigrams_after_stopwords = total_unique_bigrams,
+          total_unique_trigrams_after_stopwords = total_unique_trigrams
+        )
+      }, error = function(e) {
+        warning(paste("Key phrase analysis with tidytext failed:", e$message))
+        return(list(bigrams = dplyr::tibble(), trigrams = dplyr::tibble(),
+                    total_unique_bigrams_after_stopwords = 0, total_unique_trigrams_after_stopwords = 0))
+      })
+    },
+
+
+
+    #' @description Create a participation timeline of cumulative messages by participant across phases.
+    #' @return ggplot object
+    plot_participation_timeline = function() {
+      private$require_ggplot2()
+
+      # The shared helper drops the synthetic "System" roster row.
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
+        warning("No conversation data available for plotting")
+        # Return an empty plot with a message
+        return(ggplot2::ggplot() +
+                 ggplot2::labs(title = "Participation Timeline",
+                               subtitle = "No conversation data available") +
+                 ggplot2::theme_void()) # Using theme_void for a completely empty plot
+      }
+
+      # Create a data frame from the conversation log
+      # Ensure speaker_id and phase are handled if they could be NULL (though phase defaults to "unknown")
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
+        dplyr::tibble(
+          agent_id = x$speaker_id %||% NA_character_,
+          phase = x$phase %||% "unknown"
+        )
+      }))
+
+      actual_phase_order <- unique(conv_df$phase)
+      all_participants <- unique(conv_df$agent_id) # Derived from filtered data
+
+      conv_summary <- conv_df %>%
+        dplyr::group_by(.data$agent_id, .data$phase) %>%
+        dplyr::summarise(messages_in_phase = dplyr::n(), .groups = "drop") %>%
+        dplyr::mutate(phase = factor(.data$phase, levels = actual_phase_order)) %>%
+        tidyr::complete(agent_id = all_participants,
+                        phase,
+                        fill = list(messages_in_phase = 0)) %>%
+        dplyr::arrange(.data$agent_id, .data$phase) %>%
+        dplyr::group_by(.data$agent_id) %>%
+        dplyr::mutate(cumulative_messages = cumsum(.data$messages_in_phase)) %>%
+        dplyr::ungroup()
+
+
+      ggplot2::ggplot(conv_summary, ggplot2::aes(x = .data$phase, y = .data$cumulative_messages, color = .data$agent_id, group = .data$agent_id)) +
+        ggplot2::geom_line(size = 1.2) +
+        ggplot2::geom_point(size = 2.8) + ggplot2::geom_point(size = 1,color='white') + ggplot2::coord_flip() +
+        ggplot2::labs(
+          title = "Participation Timeline",
+          subtitle = "Cumulative messages by participant across phases",
+          x = "Phase",
+          y = "Cumulative Messages",
+          color = "Participant"
+        )
+    },
+
+
+
+
+    #' @description Create word count distribution plot showing message length patterns.
+    #' @return ggplot object
+    plot_word_count_distribution = function() {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
+        warning("No conversation data available for plotting")
+        return(ggplot2::ggplot() +
+                 ggplot2::labs(title = "Word Count Distribution",
+                               subtitle = "No conversation data available") +
+                 ggplot2::theme_void())
+      }
+
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
+        dplyr::tibble(
+          agent_id = x$speaker_id,
+          phase = x$phase,
+          message = x$text
+        )
+      }))
+
+      word_counts <- sapply(conv_df$message, function(x) length(strsplit(x, "\\s+")[[1]]))
+
+      word_data <- data.frame(
+        word_count = word_counts,
+        agent_id = conv_df$agent_id,
+        phase = conv_df$phase
+      )
+
+      ggplot2::ggplot(word_data, ggplot2::aes(x = .data$word_count)) +
+        ggplot2::geom_histogram(bins = 30, fill = "steelblue", alpha = 0.8) +
+        ggplot2::labs(
+          title = "Word Count Distribution",
+          subtitle = "Distribution of message lengths across all participants",
+          x = "Words per Message",
+          y = "Count"
+        ) +
+        ggplot2::facet_wrap(~ .data$phase, scales = "free_y")
+    },
+
+    #' @description Create a participation by agent plot showing total messages per participant.
+    #' @return ggplot object
+    plot_participation_by_agent = function() {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
+        warning("No conversation data available for plotting")
+        return(ggplot2::ggplot() +
+                 ggplot2::labs(title = "Participation by Agent",
+                               subtitle = "No conversation data available") +
+                 ggplot2::theme_void())
+      }
+
+      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
+        dplyr::tibble(
+          agent_id = x$speaker_id,
+          message = x$text
+        )
+      }))
+
+      participation <- conv_df %>%
+        dplyr::group_by(.data$agent_id) %>%
+        dplyr::summarise(
+          total_messages = dplyr::n(),
+          total_words = sum(sapply(.data$message, function(x) length(strsplit(x, "\\s+")[[1]]))),
+          avg_words_per_message = .data$total_words / .data$total_messages,
+          .groups = "drop"
+        ) %>%
+        dplyr::arrange(dplyr::desc(.data$total_messages))
+
+      ggplot2::ggplot(participation, ggplot2::aes(x = stats::reorder(.data$agent_id, .data$total_messages))) +
+        ggplot2::geom_bar(ggplot2::aes(y = .data$total_messages), stat = "identity", fill = "steelblue", alpha = 0.8) +
+        ggplot2::labs(
+          title = "Participation by Agent",
+          subtitle = "Total messages by participant",
+          x = "Participant",
+          y = "Total Messages"
+        )
+    },
+
+    #' @description Create a timeline showing message length over message order.
+    #' @return ggplot object
+    plot_message_length_timeline = function() {
+      private$require_ggplot2()
+
+      filtered_log <- private$get_filtered_log()
+      if (length(filtered_log) == 0) {
+        warning("No conversation data available for plotting")
+        return(ggplot2::ggplot() +
+                 ggplot2::labs(title = "Message Length Timeline",
+                               subtitle = "No conversation data available") +
+                 ggplot2::theme_void())
+      }
+
+      messages <- sapply(filtered_log, function(x) x$text)
+      phases <- sapply(filtered_log, function(x) x$phase)
+
+      word_counts <- sapply(messages, function(x) length(strsplit(x, "\\s+")[[1]]))
+      timeline_data <- data.frame(
+        message_id = vapply(filtered_log, function(x) x$message_id, integer(1)),
+        word_count = word_counts,
+        phase = phases
+      )
+
+      window_size <- min(5, nrow(timeline_data))
+      timeline_data$word_count_smooth <- stats::filter(timeline_data$word_count,
+        filter = rep(1/window_size, window_size), sides = 2)
+
+      ggplot2::ggplot(timeline_data, ggplot2::aes(x = .data$message_id)) +
+        ggplot2::geom_line(ggplot2::aes(y = .data$word_count), alpha = 0.3, color = "gray") +
+        ggplot2::geom_line(ggplot2::aes(y = .data$word_count_smooth), color = "blue", size = 1.2) +
+        ggplot2::labs(
+          title = "Message Length Timeline",
+          subtitle = "Evolution of message length throughout the conversation",
+          x = "Message ID",
+          y = "Words per Message"
+        )
+    }
+  ),
+
+  private = list(
+    record_token_usage = function(sent = 0L, rec = 0L) {
+      .fg_add_group_usage(self, sent, rec)
+    },
+
+    advance_round = function(current_round, verbose = FALSE) {
       moderator_agent <- self$agents[[self$moderator_id]]
 
       # 1. Determine Moderator's Action based on script/phase
@@ -258,7 +1205,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       }
 
       if (verbose) {
-        cat(paste0("\n--- Turn ", current_turn_number, " | Phase: ", current_phase_name))
+        cat(paste0("\n--- Round ", current_round, " | Phase: ", current_phase_name))
         if (!is.null(self$current_question_text) && nzchar(self$current_question_text) && current_phase_name != "opening" && current_phase_name != "closing") {
             cat(paste0(" | Current Question/Focus: ", substr(self$current_question_text,1,100), "..."))
         }
@@ -372,17 +1319,20 @@ FocusGroup <- R6::R6Class("FocusGroup",
       )
       mod_text <- if (is.list(mod_res)) mod_res$text else as.character(mod_res)
       mod_meta <- if (is.list(mod_res) && !is.null(mod_res$meta)) mod_res$meta else list()
-      private$log_message(self$moderator_id, mod_text, current_turn_number, is_moderator = TRUE, phase = current_phase_name, meta = mod_meta)
+      private$log_message(self$moderator_id, mod_text, round = current_round,
+                          is_moderator = TRUE, phase = current_phase_name,
+                          meta = mod_meta)
       if (verbose) cat(paste0(self$moderator_id, " (Moderator): ", mod_text, "\n"))
 
       # Update total tokens (per-call accounting)
-      self$record_token_usage(mod_meta$sent_tokens %||% 0L, mod_meta$rec_tokens %||% 0L)
+      private$record_token_usage(mod_meta$sent_tokens %||% 0L,
+                                 mod_meta$rec_tokens %||% 0L)
 
 
       # A script may contain several closing turns. End after the final closing
       # entry; otherwise continue through the remaining scripted instructions.
       if (current_phase_name == "closing") {
-        if (self$current_phase_index >= length(self$question_script)) {
+        if (private$current_phase_index >= length(self$question_script)) {
           if (verbose) cat("Moderator completed the closing. Ending simulation.\n")
           return(FALSE)
         }
@@ -399,7 +1349,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         # This creates more natural conversation flow
         participants_responded_this_round <- 0
         max_participant_responses <- self$max_participant_responses
-        
+
         repeat {
           next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
 
@@ -428,17 +1378,24 @@ FocusGroup <- R6::R6Class("FocusGroup",
               )
               part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
               part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()
-              # Participants log under the same round number as the moderator
-              # turn they answer (turn_number = NULL would fall back to the log
-              # position, mixing two numbering schemes in one log).
-              private$log_message(next_participant$id, part_text, turn_number = current_turn_number, is_moderator = FALSE, phase = current_phase_name, meta = part_meta)
+              selection_metadata <- self$turn_taking_flow$selection_metadata %||% list()
+              part_meta$metadata <- utils::modifyList(
+                part_meta$metadata %||% list(),
+                selection_metadata
+              )
+              private$log_message(next_participant$id, part_text,
+                                  round = current_round,
+                                  is_moderator = FALSE,
+                                  phase = current_phase_name,
+                                  meta = part_meta)
               if (verbose) cat(paste0(next_participant$id, ": ", part_text, "\n"))
 
               self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
 
               # Update total tokens (per-call accounting)
-              self$record_token_usage(part_meta$sent_tokens %||% 0L, part_meta$rec_tokens %||% 0L)
-              
+              private$record_token_usage(part_meta$sent_tokens %||% 0L,
+                                         part_meta$rec_tokens %||% 0L)
+
               participants_responded_this_round <- participants_responded_this_round + 1
 
               # Break if we've had enough participant exchanges or if no one else wants to talk
@@ -457,918 +1414,6 @@ FocusGroup <- R6::R6Class("FocusGroup",
       utils::flush.console()
       return(TRUE) # Continue simulation
     },
-
-    #' @description Generate a summary of the conversation using an LLM.
-    #' @param llm_config An `llm_config` object for the summarization LLM. If `NULL`, uses `self$llm_config_admin`.
-    #' @param summary_level Integer (1-3). 1: Prose overview, 2: Detailed bulleted, 3: Short bulleted takeaways.
-    #' @param max_tokens Integer. Optional. Max tokens for the summary.
-    #' @param internal_call Logical. If TRUE, this is an internal call (e.g. for context window management) and token counts are not added to the agent who "owns" llm_config_admin.
-    #' @param transcript_override Character. Optional. If provided, this transcript is summarized instead of `self$conversation_log`.
-    #' @return Character string containing the generated summary.
-    summarize = function(llm_config = NULL, summary_level = 1, max_tokens = NULL, internal_call = FALSE, transcript_override = NULL) {
-      if (!requireNamespace("LLMR", quietly = TRUE)) stop("LLMR package is required.")
-
-      active_llm_config <- llm_config %||% self$llm_config_admin
-      if (is.null(active_llm_config)) stop("An llm_config must be provided or set as llm_config_admin for summarization.")
-      if (!inherits(active_llm_config, "llm_config")) stop("'active_llm_config' must be a valid 'llm_config' object.")
-      if (!summary_level %in% 1:3) stop("'summary_level' must be 1, 2, or 3.")
-
-      transcript_to_use <- transcript_override
-      if (is.null(transcript_to_use)) {
-          if (length(self$conversation_log) == 0) {
-            warning("Conversation log is empty. Returning an empty summary.")
-            return("The conversation log is empty. No summary can be generated.")
-          }
-          transcript_to_use <- paste(sapply(self$conversation_log, function(msg) {
-            paste0(msg$speaker_id, " (Turn ", msg$turn, ", Phase: ", msg$phase, "): ", msg$text)
-          }), collapse = "\n\n")
-      }
-      if (nchar(trimws(transcript_to_use)) == 0) {
-          warning("Transcript for summary is empty. Returning empty summary.")
-          return("Transcript is empty.")
-      }
-
-
-      topic_context <- paste0("The main topic of the discussion was: ", self$topic, "\n",
-                              "The purpose of the focus group was: ", self$purpose, "\n\n")
-
-      level_instructions <- ""
-      estimated_tokens <- NULL # For LLM call
-
-      if (summary_level == 1) {
-        level_instructions <- "Provide a concise prose summary (approx. 200-300 words) of the focus group discussion. Focus on main themes, overall sentiment, key agreements/disagreements, and broad conclusions."
-        estimated_tokens <- max_tokens %||% 400
-      } else if (summary_level == 2) {
-        level_instructions <- "Analyze the focus group transcript and provide a detailed, bulleted summary. Highlight key quotes (attributed), anecdotes, new arguments, surprising statements, and points of agreement/disagreement. Organize logically."
-        estimated_tokens <- max_tokens %||% 1000
-      } else if (summary_level == 3) { # Short, for context window or quick overview
-        level_instructions <- "Provide a very short, bulleted overall summary (approx. 3-5 key bullet points) of the most critical takeaways. Focus on impactful points, arguments, and surprising insights. Keep it extremely concise."
-        estimated_tokens <- max_tokens %||% 150
-      }
-
-      full_prompt <- paste0(
-        topic_context,
-        level_instructions,
-        "\n\nHere is the transcript (or relevant portion):\n--------------------\n",
-        transcript_to_use,
-        "\n--------------------\nSummary:"
-      )
-
-      current_call_config <- active_llm_config
-      if (!is.null(estimated_tokens)) {
-        current_call_config$model_params$max_tokens <- estimated_tokens
-      }
-
-      response_obj <- .fg_call_llm(
-        config = current_call_config,
-        messages = list(list(role = "user", content = full_prompt)),
-        runner = self$agents[[self$moderator_id]]$runner,
-        tries = 5,
-        wait_seconds = 2,
-        backoff_factor = 3
-      )
-      summary_text <- .fg_response_text(response_obj)
-
-      if (!internal_call) { # Only add to group totals if it's an "external" summarization request
-          u <- extract_token_counts(response_obj)
-          self$record_token_usage(u$sent, u$rec)
-      }
-      return(summary_text)
-    },
-
-    # --- Analysis Methods ---
-    #' @description Basic analysis of the conversation log.
-    #' @param turns Integer vector. Optional. Specific turns to analyze. If `NULL`, analyzes all turns.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze. If `NULL`, analyzes all speakers.
-    #' @return A list with `speaker_stats` (a tibble: speaker_id, utterance_count, total_words, avg_words_per_utterance)
-    #'         and `full_transcript` (character string).
-    analyze = function(turns = NULL, speaker_ids = NULL) {
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-
-      if (length(filtered_log) == 0) {
-        warning("Filtered conversation log is empty for basic analysis.")
-        # Return empty structure consistent with non-empty case
-        all_agent_ids <- names(self$agents)
-        speaker_stats_df <- dplyr::tibble(
-          speaker_id = all_agent_ids,
-          utterance_count = 0L,
-          total_words = 0L,
-          avg_words_per_utterance = 0.0
-        )
-        return(list(speaker_stats = speaker_stats_df, full_transcript = "Filtered conversation log is empty."))
-      }
-
-      log_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
-        dplyr::tibble(
-          speaker_id = x$speaker_id %||% NA_character_,
-          text = x$text %||% ""
-        )
-      }))
-
-      speaker_stats_df <- log_df %>%
-        dplyr::mutate(word_count = sapply(strsplit(as.character(.data$text), "\\s+"), length)) %>%
-        dplyr::group_by(.data$speaker_id) %>%
-        dplyr::summarise(
-          utterance_count = dplyr::n(),
-          total_words = sum(.data$word_count, na.rm = TRUE),
-          .groups = 'drop'
-        ) %>%
-        dplyr::mutate(avg_words_per_utterance = ifelse(.data$utterance_count > 0, .data$total_words / .data$utterance_count, 0.0))
-
-      # Ensure all agents are in the stats, even if they didn't speak in the filtered log
-      all_agent_ids <- names(self$agents)
-      current_speakers_in_stats <- unique(speaker_stats_df$speaker_id)
-      missing_agents <- setdiff(all_agent_ids, current_speakers_in_stats)
-
-      if (length(missing_agents) > 0) {
-        missing_df <- dplyr::tibble(
-          speaker_id = missing_agents, utterance_count = 0L, total_words = 0L, avg_words_per_utterance = 0.0
-        )
-        speaker_stats_df <- dplyr::bind_rows(speaker_stats_df, missing_df)
-      }
-
-      # Order by original agent order if possible, or alphabetically. Keep any
-      # speaker that is not an agent (e.g. an explicitly requested "System"
-      # row) as a trailing level rather than silently turning it into NA.
-      ordered_agent_ids <- intersect(all_agent_ids, speaker_stats_df$speaker_id)
-      if(length(ordered_agent_ids) > 0) {
-          all_levels <- union(all_agent_ids, unique(as.character(speaker_stats_df$speaker_id)))
-          speaker_stats_df <- speaker_stats_df %>%
-            dplyr::mutate(speaker_id = factor(.data$speaker_id, levels = all_levels)) %>%
-            dplyr::arrange(.data$speaker_id)
-      }
-
-
-      full_transcript_text <- paste(sapply(filtered_log, function(msg) {
-        paste0(msg$speaker_id, " (Turn ", msg$turn, ", Phase: ", msg$phase, "): ", msg$text)
-      }), collapse = "\n\n")
-
-      return(list(speaker_stats = speaker_stats_df, full_transcript = full_transcript_text))
-    },
-
-    #' @description Perform LDA topic modeling on the conversation.
-    #' @param num_topics Integer. Number of topics to identify.
-    #' @param min_doc_length Integer. Min words for a speaker's aggregated text to be a document.
-    #' @param top_n_terms Integer. Number of top terms per topic to return.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @param seed Integer or NULL. LDA seed for reproducibility (default 110, the
-    #'   package convention); `NULL` leaves the LDA control seed unset.
-    #' @param ... Additional arguments to `topicmodels::LDA()`.
-    #' @return A list with LDA model, topic terms, and document-topic proportions. `NULL` on failure.
-    analyze_topics = function(num_topics = 5, min_doc_length = 20, top_n_terms = 10, turns = NULL, speaker_ids = NULL, seed = 110, ...) {
-      if (!all(sapply(c("topicmodels", "tidytext", "dplyr"), requireNamespace, quietly = TRUE))) {
-        stop("Packages topicmodels, tidytext, and dplyr are required for LDA. Please install them.")
-      }
-
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-          warning("Filtered log is empty for topic analysis.")
-          return(NULL)
-      }
-
-      tryCatch({
-        # Extract texts and speaker IDs
-        texts <- sapply(filtered_log, function(x) x$text)
-        speaker_ids_vec <- sapply(filtered_log, function(x) x$speaker_id)
-
-        # Aggregate by speaker to create documents
-        speaker_texts <- tapply(texts, speaker_ids_vec, paste, collapse = " ")
-
-        # Filter documents by minimum length
-        word_counts <- sapply(speaker_texts, function(text) length(strsplit(text, "\\s+")[[1]]))
-        valid_docs <- names(speaker_texts)[word_counts >= min_doc_length]
-
-        if (length(valid_docs) < 2) {
-          warning("Not enough valid documents for topic modeling (minimum 2 required)")
-          return(NULL)
-        }
-
-        if (length(valid_docs) < num_topics) {
-          warning("Number of valid documents is less than num_topics. Reducing num_topics.")
-          num_topics <- length(valid_docs)
-        }
-
-        # Create document-term matrix using tidytext
-        valid_texts <- speaker_texts[valid_docs]
-
-        # Convert to tidy format and create DTM
-        tidy_docs <- dplyr::tibble(
-          document = names(valid_texts),
-          text = valid_texts
-        ) %>%
-          tidytext::unnest_tokens(.data$word, .data$text) %>%
-          dplyr::anti_join(tidytext::stop_words, by = "word") %>%
-          dplyr::filter(nchar(.data$word) > 2) %>%
-          dplyr::count(.data$document, .data$word, sort = TRUE)
-
-        # Cast to DTM
-        dtm <- tidy_docs %>%
-          tidytext::cast_dtm(.data$document, .data$word, .data$n)
-
-        # Check if DTM has sufficient terms
-        if (ncol(dtm) < 5) {
-          warning("Not enough unique terms for meaningful topic modeling")
-          return(NULL)
-        }
-
-        # Run LDA
-        lda_control <- if (is.null(seed)) list() else list(seed = as.integer(seed))
-        lda_model <- topicmodels::LDA(dtm, k = num_topics, control = lda_control, ...)
-
-        # Extract topic-term probabilities (beta)
-        topics_beta <- tidytext::tidy(lda_model, matrix = "beta")
-
-        # Get top terms for each topic
-        top_terms <- topics_beta %>%
-          dplyr::group_by(.data$topic) %>%
-          dplyr::slice_max(.data$beta, n = top_n_terms, with_ties = FALSE) %>%
-          dplyr::ungroup() %>%
-          dplyr::arrange(.data$topic, dplyr::desc(.data$beta))
-
-        # Extract document-topic probabilities (gamma)
-        topics_gamma <- tidytext::tidy(lda_model, matrix = "gamma")
-
-        # Create topic labels based on top terms
-        topic_labels <- top_terms %>%
-          dplyr::group_by(.data$topic) %>%
-          dplyr::slice_head(n = 3) %>%
-          dplyr::summarise(label = paste(.data$term, collapse = ", "), .groups = 'drop')
-
-        return(list(
-          lda_model = lda_model,
-          top_terms = top_terms,
-          document_topics = topics_gamma,
-          topic_labels = topic_labels,
-          dtm = dtm,
-          num_documents = length(valid_docs),
-          num_topics = num_topics
-        ))
-
-      }, error = function(e) {
-        warning(paste("Topic analysis failed:", e$message))
-        return(NULL)
-      })
-    },
-
-    #' @description Calculate TF-IDF scores for terms per participant.
-    #' @param top_n_terms Integer. Number of top TF-IDF terms per participant.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @param ... Additional arguments to `tidytext::unnest_tokens`.
-    #' @return A tibble with TF-IDF scores.
-    analyze_tfidf = function(top_n_terms = 10, turns = NULL, speaker_ids = NULL, ...) {
-      if (!all(sapply(c("tidytext", "dplyr"), requireNamespace, quietly = TRUE))) {
-        stop("Packages tidytext and dplyr are required for TF-IDF. Please install them.")
-      }
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-          warning("Filtered log is empty for TF-IDF analysis.")
-          return(dplyr::tibble())
-      }
-
-      tryCatch({
-        # Extract texts and speaker IDs
-        texts <- sapply(filtered_log, function(x) x$text)
-        speaker_ids_vec <- sapply(filtered_log, function(x) x$speaker_id)
-
-        # Create a data frame for analysis
-        text_df <- dplyr::tibble(
-          speaker_id = speaker_ids_vec,
-          text = texts
-        )
-
-        # Aggregate by speaker to create documents
-        speaker_docs <- text_df %>%
-          dplyr::group_by(.data$speaker_id) %>%
-          dplyr::summarise(document = paste(.data$text, collapse = " "), .groups = 'drop')
-
-        # Tokenize and calculate TF-IDF using tidytext approach
-        tfidf_results <- speaker_docs %>%
-          tidytext::unnest_tokens(.data$word, .data$document, ...) %>%
-          dplyr::anti_join(tidytext::stop_words, by = "word") %>%
-          dplyr::filter(nchar(.data$word) > 2) %>%
-          dplyr::count(.data$speaker_id, .data$word, sort = TRUE) %>%
-          tidytext::bind_tf_idf(.data$word, .data$speaker_id, .data$n) %>%
-          dplyr::group_by(.data$speaker_id) %>%
-          dplyr::slice_max(.data$tf_idf, n = top_n_terms, with_ties = FALSE) %>%
-          dplyr::ungroup() %>%
-          dplyr::transmute(
-            speaker_id = .data$speaker_id,
-            term = .data$word,
-            tf_idf = .data$tf_idf
-          ) %>%
-          dplyr::arrange(.data$speaker_id, dplyr::desc(.data$tf_idf))
-
-        return(tfidf_results)
-      }, error = function(e) {
-        warning(paste("TF-IDF analysis failed:", e$message))
-        return(dplyr::tibble())
-      })
-    },
-
-    #' @description Calculate readability scores for each participant's aggregated text.
-    #' @param measures Character vector. Readability measure(s) from `quanteda.textstats::textstat_readability`.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A tibble with readability scores.
-    analyze_readability = function(measures = "Flesch", turns = NULL, speaker_ids = NULL) {
-      if (!all(sapply(c("quanteda", "quanteda.textstats", "dplyr"), requireNamespace, quietly = TRUE))) {
-        stop("Packages quanteda, quanteda.textstats, dplyr are required for readability. Please install them.")
-      }
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-          warning("Filtered log is empty for readability analysis.")
-          return(dplyr::tibble())
-      }
-
-      tryCatch({
-        # Extract texts and speaker IDs
-        texts <- sapply(filtered_log, function(x) x$text)
-        speaker_ids_vec <- sapply(filtered_log, function(x) x$speaker_id)
-
-        # Aggregate by speaker
-        speaker_texts <- tapply(texts, speaker_ids_vec, paste, collapse = " ")
-
-        # Filter out speakers with very short texts (less than 10 words)
-        speaker_word_counts <- sapply(speaker_texts, function(text) length(strsplit(text, "\\s+")[[1]]))
-        valid_speakers <- names(speaker_texts)[speaker_word_counts >= 10]
-
-        if (length(valid_speakers) == 0) {
-          warning("No speakers have sufficient text for readability analysis (minimum 10 words required)")
-          return(dplyr::tibble())
-        }
-
-        # Create corpus for valid speakers only
-        valid_texts <- speaker_texts[valid_speakers]
-        corpus <- quanteda::corpus(valid_texts)
-        quanteda::docnames(corpus) <- valid_speakers
-
-        # Calculate readability measures
-        readability_stats <- quanteda.textstats::textstat_readability(corpus, measure = measures)
-
-        # Convert to tibble and add speaker_id column. textstat_readability()
-        # returns the corpus docnames (the speaker ids) in `document`; its
-        # rownames are just "1","2",... and must not be used as ids.
-        result <- dplyr::as_tibble(readability_stats)
-        result$speaker_id <- as.character(result$document)
-        result$document <- NULL
-
-        # Reorder columns to put speaker_id first
-        result <- result %>%
-          dplyr::select("speaker_id", dplyr::everything()) %>%
-          dplyr::arrange(.data$speaker_id)
-
-        return(result)
-      }, error = function(e) {
-        warning(paste("Readability analysis failed:", e$message))
-        return(dplyr::tibble())
-      })
-    },
-
-    #' @description Perform LLM-assisted thematic analysis on the transcript.
-    #' @param llm_config An `llm_config` object for the analysis. If `NULL`, uses `self$llm_config_admin`.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return The thematic summary as a character string, carrying the raw LLM
-    #'   response object in its `raw_llm_response` attribute. `NULL` if there is
-    #'   nothing to analyze.
-    analyze_themes = function(llm_config = NULL, turns = NULL, speaker_ids = NULL) {
-      active_llm_config <- llm_config %||% self$llm_config_admin
-      if (is.null(active_llm_config)) stop("An llm_config is required for thematic analysis.")
-
-      analysis_data <- self$analyze(turns = turns, speaker_ids = speaker_ids) # Gets full_transcript
-      if (nchar(trimws(analysis_data$full_transcript)) == 0 || analysis_data$full_transcript == "Filtered conversation log is empty.") {
-          warning("Transcript for thematic analysis is empty. Returning NULL.")
-          return(NULL)
-      }
-
-      # Simple thematic analysis using LLM
-      result <- tryCatch({
-        theme_prompt <- replace_placeholders(
-          self$prompt_templates$thematic_analysis_prompt,
-          list(
-            topic = self$topic,
-            focus_group_purpose = self$purpose,
-            full_transcript = analysis_data$full_transcript
-          )
-        )
-
-        current_call_config <- active_llm_config
-        current_call_config$model_params$max_tokens <- 800
-
-        response_obj <- .fg_call_llm(
-          config = current_call_config,
-          messages = list(list(role = "user", content = theme_prompt)),
-          runner = self$agents[[self$moderator_id]]$runner,
-          tries = 5
-        )
-
-        themes_summary = .fg_response_text(response_obj)
-        attr(themes_summary , 'raw_llm_response') <- response_obj
-        u <- extract_token_counts(response_obj)
-        self$record_token_usage(u$sent, u$rec)
-        themes_summary
-      }, error = function(e) NULL)
-      return(result)
-    },
-
-    # analyze_sentiment removed
-
-    #' @description Perform statistical analysis on conversation patterns.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A list with ANOVA results, phase participation stats, and correlations.
-    analyze_statistics = function(turns = NULL, speaker_ids = NULL) {
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-        warning("Filtered log is empty for statistical analysis.")
-        return(NULL)
-      }
-
-      tryCatch({
-        # Convert to data frame format for analysis
-        conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
-          dplyr::tibble(
-            speaker_id = x$speaker_id,
-            phase = x$phase,
-            text = x$text,
-            turn = x$turn
-          )
-        }))
-
-        # Calculate basic statistics by speaker and phase
-        stats <- conv_df %>%
-          dplyr::group_by(.data$speaker_id, .data$phase) %>%
-          dplyr::summarise(
-            turns = dplyr::n(),
-            words = sum(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
-            avg_words = .data$words / .data$turns,
-            .groups = "drop"
-          )
-
-        # Perform ANOVA on word count by phase if multiple phases exist
-        word_aov <- if(length(unique(stats$phase)) > 1) {
-          stats::aov(words ~ phase, data = stats)
-        } else NULL
-
-        # Calculate phase participation statistics
-        phase_stats <- stats %>%
-          dplyr::group_by(.data$phase) %>%
-          dplyr::summarise(
-            mean_turns = mean(.data$turns),
-            sd_turns = stats::sd(.data$turns),
-            .groups = "drop"
-          )
-
-        # Calculate correlation between turns and words
-        cor_test <- if(nrow(stats) > 2) {
-          stats::cor.test(stats$turns, stats$words)
-        } else NULL
-
-        list(
-          word_count_anova = if(!is.null(word_aov)) summary(word_aov) else "Not enough phases for ANOVA",
-          phase_participation = phase_stats,
-          turns_words_correlation = cor_test
-        )
-      }, error = function(e) {
-        warning(paste("Statistical analysis failed:", e$message))
-        return(NULL)
-      })
-    },
-
-    #' @description Analyze participation balance and dominance patterns.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A list with participation statistics and balance metrics.
-    analyze_participation_balance = function(turns = NULL, speaker_ids = NULL) {
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-        warning("Filtered log is empty for participation balance analysis.")
-        return(NULL)
-      }
-
-      tryCatch({
-        # Convert to data frame format
-        conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
-          dplyr::tibble(
-            speaker_id = x$speaker_id,
-            text = x$text
-          )
-        }))
-
-        # Calculate participation metrics
-        participation <- conv_df %>%
-          dplyr::group_by(.data$speaker_id) %>%
-          dplyr::summarise(
-            turns = dplyr::n(),
-            words = sum(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
-            avg_words = .data$words / .data$turns,
-            .groups = "drop"
-          )
-
-        # Calculate participation percentages
-        total_turns <- sum(participation$turns)
-        total_words <- sum(participation$words)
-
-        participation <- participation %>%
-          dplyr::mutate(
-            turn_percentage = (.data$turns / total_turns) * 100,
-            word_percentage = (.data$words / total_words) * 100
-          )
-
-        # Calculate dominance metrics
-        max_turn_pct <- max(participation$turn_percentage)
-        min_turn_pct <- min(participation$turn_percentage)
-        turn_range <- max_turn_pct - min_turn_pct
-
-        list(
-          participation_stats = participation,
-          balance_metrics = list(
-            most_active_speaker = participation$speaker_id[which.max(participation$turn_percentage)],
-            least_active_speaker = participation$speaker_id[which.min(participation$turn_percentage)],
-            turn_percentage_range = turn_range,
-            is_balanced = turn_range < 30  # Arbitrary threshold for "balanced" participation
-          )
-        )
-      }, error = function(e) {
-        warning(paste("Participation balance analysis failed:", e$message))
-        return(NULL)
-      })
-    },
-
-    #' @description Analyze response patterns and interaction behaviors.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A list with response and interaction pattern metrics.
-    analyze_response_patterns = function(turns = NULL, speaker_ids = NULL) {
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-        warning("Filtered log is empty for response pattern analysis.")
-        return(NULL)
-      }
-
-      tryCatch({
-        # Convert to data frame format
-        conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
-          dplyr::tibble(
-            speaker_id = x$speaker_id,
-            text = x$text,
-            turn = x$turn
-          )
-        }))
-
-        # Calculate response patterns by speaker
-        response_patterns <- conv_df %>%
-          dplyr::group_by(.data$speaker_id) %>%
-          dplyr::summarise(
-            total_responses = dplyr::n(),
-            avg_words = mean(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
-            question_count = sum(grepl("\\?", .data$text)),
-            exclamation_count = sum(grepl("!", .data$text)),
-            .groups = "drop"
-          )
-
-        # Calculate interaction patterns
-        min_turn <- min(conv_df$turn)
-        max_turn <- max(conv_df$turn)
-
-        interaction_patterns <- conv_df %>%
-          dplyr::group_by(.data$speaker_id) %>%
-          dplyr::summarise(
-            first_to_respond = sum(.data$turn == min_turn),
-            last_to_respond = sum(.data$turn == max_turn),
-            .groups = "drop"
-          )
-
-        list(
-          response_metrics = response_patterns,
-          interaction_metrics = interaction_patterns
-        )
-      }, error = function(e) {
-        warning(paste("Response pattern analysis failed:", e$message))
-        return(NULL)
-      })
-    },
-
-    #' @description Analyze question asking patterns during the conversation.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A list with question pattern analysis.
-    analyze_question_patterns = function(turns = NULL, speaker_ids = NULL) {
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-        warning("Filtered log is empty for question pattern analysis.")
-        return(NULL)
-      }
-
-      tryCatch({
-        # Convert to data frame format and filter questions
-        conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
-          dplyr::tibble(
-            speaker_id = x$speaker_id,
-            phase = x$phase,
-            text = x$text
-          )
-        }))
-
-        # Extract questions and analyze patterns
-        questions <- conv_df %>%
-          dplyr::filter(grepl("\\?", .data$text)) %>%
-          dplyr::group_by(.data$speaker_id, .data$phase) %>%
-          dplyr::summarise(
-            question_count = dplyr::n(),
-            avg_words = mean(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
-            .groups = "drop"
-          )
-
-        # Analyze question distribution by phase
-        question_dist <- questions %>%
-          dplyr::group_by(.data$phase) %>%
-          dplyr::summarise(
-            total_questions = sum(.data$question_count),
-            unique_questioners = dplyr::n_distinct(.data$speaker_id),
-            .groups = "drop"
-          )
-
-        list(
-          question_patterns = questions,
-          question_distribution = question_dist
-        )
-      }, error = function(e) {
-        warning(paste("Question pattern analysis failed:", e$message))
-        return(NULL)
-      })
-    },
-
-    #' @description Extract and analyze key phrases using n-grams.
-    #' @param min_freq Integer. Minimum frequency for phrases to be considered key.
-    #' @param turns Integer vector. Optional. Specific turns to analyze.
-    #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A list with bigram and trigram analysis.
-    analyze_key_phrases = function(min_freq = 2, turns = NULL, speaker_ids = NULL) {
-      # Ensure tidytext and dplyr are available
-      if (!all(sapply(c("tidytext", "dplyr", "tidyr"), requireNamespace, quietly = TRUE))) {
-        stop("Packages tidytext, dplyr, and tidyr are required for key phrase analysis.")
-      }
-
-      filtered_log <- private$get_filtered_log(turns, speaker_ids)
-      if (length(filtered_log) == 0) {
-        warning("Filtered log is empty for key phrase analysis.")
-        return(list(bigrams = dplyr::tibble(), trigrams = dplyr::tibble(),
-                    total_unique_bigrams = 0, total_unique_trigrams = 0))
-      }
-
-      tryCatch({
-        # Create a tibble from the conversation log
-        conv_tibble <- dplyr::tibble(
-          doc_id = seq_along(filtered_log), # Each message as a document for n-gram extraction
-          text = sapply(filtered_log, function(x) x$text %||% "")
-        )
-
-        # --- Bigram Analysis ---
-        bigrams_tokenized <- conv_tibble %>%
-          tidytext::unnest_tokens(output = bigram, input = text, token = "ngrams", n = 2) %>%
-          dplyr::filter(!is.na(bigram)) # Remove NA bigrams that might result from very short texts
-
-        # Optional: Remove bigrams containing stop words
-        # This is a common step to make n-grams more meaningful
-        # We separate the bigram, check each word, then filter
-        bigrams_separated <- bigrams_tokenized %>%
-          tidyr::separate(bigram, c("word1", "word2"), sep = " ", remove = FALSE, fill = "right")
-
-        # Anti-join against stop words for each part of the bigram
-        # A bigram is removed if EITHER word1 OR word2 is a stop word.
-        # You might adjust this logic (e.g., remove only if both are stop words, or if first/last are)
-        # Use tidytext::stop_words directly to avoid loading into global env # Ensure stop_words is loaded
-
-        bigrams_cleaned <- bigrams_separated %>%
-          dplyr::anti_join(tidytext::stop_words, by = c("word1" = "word")) %>%
-          dplyr::anti_join(tidytext::stop_words, by = c("word2" = "word")) %>%
-          dplyr::select(doc_id, bigram) # Keep the original bigram column
-
-        total_unique_bigrams <- dplyr::n_distinct(bigrams_cleaned$bigram)
-
-        frequent_bigrams_df <- bigrams_cleaned %>%
-          dplyr::count(bigram, sort = TRUE, name = "frequency") %>%
-          dplyr::filter(frequency >= min_freq) %>%
-          dplyr::rename(feature = bigram) # Match quanteda's output column name
-
-        # --- Trigram Analysis ---
-        trigrams_tokenized <- conv_tibble %>%
-          tidytext::unnest_tokens(output = trigram, input = text, token = "ngrams", n = 3) %>%
-          dplyr::filter(!is.na(trigram))
-
-        trigrams_separated <- trigrams_tokenized %>%
-          tidyr::separate(trigram, c("word1", "word2", "word3"), sep = " ", remove = FALSE, fill = "right")
-
-        trigrams_cleaned <- trigrams_separated %>%
-          dplyr::anti_join(tidytext::stop_words, by = c("word1" = "word")) %>%
-          dplyr::anti_join(tidytext::stop_words, by = c("word2" = "word")) %>%
-          dplyr::anti_join(tidytext::stop_words, by = c("word3" = "word")) %>% # Check all three words
-          dplyr::select(doc_id, trigram)
-
-        total_unique_trigrams <- dplyr::n_distinct(trigrams_cleaned$trigram)
-
-        frequent_trigrams_df <- trigrams_cleaned %>%
-          dplyr::count(trigram, sort = TRUE, name = "frequency") %>%
-          dplyr::filter(frequency >= min_freq) %>%
-          dplyr::rename(feature = trigram) # Match quanteda's output column name
-
-        list(
-          bigrams = frequent_bigrams_df,
-          trigrams = frequent_trigrams_df,
-          total_unique_bigrams_after_stopwords = total_unique_bigrams,
-          total_unique_trigrams_after_stopwords = total_unique_trigrams
-        )
-      }, error = function(e) {
-        warning(paste("Key phrase analysis with tidytext failed:", e$message))
-        return(list(bigrams = dplyr::tibble(), trigrams = dplyr::tibble(),
-                    total_unique_bigrams_after_stopwords = 0, total_unique_trigrams_after_stopwords = 0))
-      })
-    },
-
-
-
-    #' @description Create participation timeline plot showing cumulative turns by participant across phases.
-    #' @return ggplot object
-    plot_participation_timeline = function() {
-      private$require_ggplot2()
-
-      # The shared helper drops the synthetic "System" roster row.
-      filtered_log <- private$get_filtered_log()
-      if (length(filtered_log) == 0) {
-        warning("No conversation data available for plotting")
-        # Return an empty plot with a message
-        return(ggplot2::ggplot() +
-                 ggplot2::labs(title = "Participation Timeline",
-                               subtitle = "No conversation data available") +
-                 ggplot2::theme_void()) # Using theme_void for a completely empty plot
-      }
-
-      # Create a data frame from the conversation log
-      # Ensure speaker_id and phase are handled if they could be NULL (though phase defaults to "unknown")
-      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
-        dplyr::tibble(
-          agent_id = x$speaker_id %||% NA_character_,
-          phase = x$phase %||% "unknown"
-        )
-      }))
-
-      actual_phase_order <- unique(conv_df$phase)
-      all_participants <- unique(conv_df$agent_id) # Derived from filtered data
-
-      conv_summary <- conv_df %>%
-        dplyr::group_by(.data$agent_id, .data$phase) %>%
-        dplyr::summarise(turns_in_phase = dplyr::n(), .groups = "drop") %>%
-        dplyr::mutate(phase = factor(.data$phase, levels = actual_phase_order)) %>%
-        tidyr::complete(agent_id = all_participants,
-                        phase,
-                        fill = list(turns_in_phase = 0)) %>%
-        dplyr::arrange(.data$agent_id, .data$phase) %>%
-        dplyr::group_by(.data$agent_id) %>%
-        dplyr::mutate(cumulative_turns = cumsum(.data$turns_in_phase)) %>%
-        dplyr::ungroup()
-
-
-      ggplot2::ggplot(conv_summary, ggplot2::aes(x = .data$phase, y = .data$cumulative_turns, color = .data$agent_id, group = .data$agent_id)) +
-        ggplot2::geom_line(size = 1.2) +
-        ggplot2::geom_point(size = 2.8) + ggplot2::geom_point(size = 1,color='white') + ggplot2::coord_flip() +
-        ggplot2::labs(
-          title = "Participation Timeline",
-          subtitle = "Cumulative turns by participant across phases",
-          x = "Phase",
-          y = "Cumulative Turns",
-          color = "Participant"
-        )
-    },
-
-
-
-
-    #' @description Create word count distribution plot showing message length patterns.
-    #' @return ggplot object
-    plot_word_count_distribution = function() {
-      private$require_ggplot2()
-
-      filtered_log <- private$get_filtered_log()
-      if (length(filtered_log) == 0) {
-        warning("No conversation data available for plotting")
-        return(ggplot2::ggplot() +
-                 ggplot2::labs(title = "Word Count Distribution",
-                               subtitle = "No conversation data available") +
-                 ggplot2::theme_void())
-      }
-
-      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
-        dplyr::tibble(
-          agent_id = x$speaker_id,
-          phase = x$phase,
-          message = x$text
-        )
-      }))
-
-      word_counts <- sapply(conv_df$message, function(x) length(strsplit(x, "\\s+")[[1]]))
-
-      word_data <- data.frame(
-        word_count = word_counts,
-        agent_id = conv_df$agent_id,
-        phase = conv_df$phase
-      )
-
-      ggplot2::ggplot(word_data, ggplot2::aes(x = .data$word_count)) +
-        ggplot2::geom_histogram(bins = 30, fill = "steelblue", alpha = 0.8) +
-        ggplot2::labs(
-          title = "Word Count Distribution",
-          subtitle = "Distribution of message lengths across all participants",
-          x = "Words per Message",
-          y = "Count"
-        ) +
-        ggplot2::facet_wrap(~ .data$phase, scales = "free_y")
-    },
-
-    #' @description Create participation by agent plot showing total turns per participant.
-    #' @return ggplot object
-    plot_participation_by_agent = function() {
-      private$require_ggplot2()
-
-      filtered_log <- private$get_filtered_log()
-      if (length(filtered_log) == 0) {
-        warning("No conversation data available for plotting")
-        return(ggplot2::ggplot() +
-                 ggplot2::labs(title = "Participation by Agent",
-                               subtitle = "No conversation data available") +
-                 ggplot2::theme_void())
-      }
-
-      conv_df <- dplyr::bind_rows(lapply(filtered_log, function(x) {
-        dplyr::tibble(
-          agent_id = x$speaker_id,
-          message = x$text
-        )
-      }))
-
-      participation <- conv_df %>%
-        dplyr::group_by(.data$agent_id) %>%
-        dplyr::summarise(
-          total_turns = dplyr::n(),
-          total_words = sum(sapply(.data$message, function(x) length(strsplit(x, "\\s+")[[1]]))),
-          avg_words_per_turn = .data$total_words / .data$total_turns,
-          .groups = "drop"
-        ) %>%
-        dplyr::arrange(dplyr::desc(.data$total_turns))
-
-      ggplot2::ggplot(participation, ggplot2::aes(x = stats::reorder(.data$agent_id, .data$total_turns))) +
-        ggplot2::geom_bar(ggplot2::aes(y = .data$total_turns), stat = "identity", fill = "steelblue", alpha = 0.8) +
-        ggplot2::labs(
-          title = "Participation by Agent",
-          subtitle = "Total turns by participant",
-          x = "Participant",
-          y = "Total Turns"
-        )
-    },
-
-    #' @description Create turn length timeline plot showing message length evolution over time.
-    #' @return ggplot object
-    plot_turn_length_timeline = function() {
-      private$require_ggplot2()
-
-      filtered_log <- private$get_filtered_log()
-      if (length(filtered_log) == 0) {
-        warning("No conversation data available for plotting")
-        return(ggplot2::ggplot() +
-                 ggplot2::labs(title = "Turn Length Timeline",
-                               subtitle = "No conversation data available") +
-                 ggplot2::theme_void())
-      }
-
-      messages <- sapply(filtered_log, function(x) x$text)
-      phases <- sapply(filtered_log, function(x) x$phase)
-
-      word_counts <- sapply(messages, function(x) length(strsplit(x, "\\s+")[[1]]))
-      timeline_data <- data.frame(
-        turn_number = seq_along(word_counts),
-        word_count = word_counts,
-        phase = phases
-      )
-
-      window_size <- min(5, nrow(timeline_data))
-      timeline_data$word_count_smooth <- stats::filter(timeline_data$word_count,
-        filter = rep(1/window_size, window_size), sides = 2)
-
-      ggplot2::ggplot(timeline_data, ggplot2::aes(x = .data$turn_number)) +
-        ggplot2::geom_line(ggplot2::aes(y = .data$word_count), alpha = 0.3, color = "gray") +
-        ggplot2::geom_line(ggplot2::aes(y = .data$word_count_smooth), color = "blue", size = 1.2) +
-        ggplot2::labs(
-          title = "Turn Length Timeline",
-          subtitle = "Evolution of message length throughout the conversation",
-          x = "Turn Number",
-          y = "Words per Message"
-        )
-    }
-  ),
-
-  private = list(
     # Guard for the plot_* methods: ggplot2 is a Suggests, not an Import.
     require_ggplot2 = function() {
       if (!requireNamespace("ggplot2", quietly = TRUE)) {
@@ -1382,27 +1427,29 @@ FocusGroup <- R6::R6Class("FocusGroup",
     get_next_phase_or_question = function() {
       if (is.null(self$question_script) || length(self$question_script) == 0) {
         # If no script, run a single "generic_discussion" phase then end.
-        if (self$current_phase_index == 0) { # First call
-            self$current_phase_index <- 1 # Mark as started
+        if (private$current_phase_index == 0) { # First call
+            private$current_phase_index <- 1 # Mark as started
             return(list(phase = "generic_discussion", text = self$topic))
         }
         return(NULL) # End after one generic phase if no script
       }
 
-      self$current_phase_index <- self$current_phase_index + 1
-      if (self$current_phase_index > length(self$question_script)) {
+      private$current_phase_index <- private$current_phase_index + 1
+      if (private$current_phase_index > length(self$question_script)) {
         return(NULL) # Script exhausted
       }
-      return(self$question_script[[self$current_phase_index]])
+      return(self$question_script[[private$current_phase_index]])
     },
 
     # Helper to log a message
-    log_message = function(speaker_id, text, turn_number, is_moderator = NULL, phase = "unknown", meta = list()) {
+    log_message = function(speaker_id, text, round, is_moderator = NULL,
+                           phase = "unknown", meta = list()) {
       if (is.null(is_moderator)) {
         is_moderator <- (speaker_id == self$moderator_id)
       }
       msg <- list(
-        turn = turn_number %||% (length(self$conversation_log) + 1), # Fallback if turn_number not passed
+        message_id = as.integer(length(self$conversation_log) + 1L),
+        round = as.integer(round),
         speaker_id = speaker_id,
         is_moderator = is_moderator,
         text = text,
@@ -1415,26 +1462,31 @@ FocusGroup <- R6::R6Class("FocusGroup",
         total_tokens = meta$total_tokens %||% NA_integer_,
         duration_s = meta$duration_s %||% NA_real_,
         provider = meta$provider %||% NA_character_,
-        model = meta$model %||% NA_character_
+        model = meta$model %||% NA_character_,
+        metadata = meta$metadata %||% list()
       )
       self$conversation_log <- c(self$conversation_log, list(msg))
     },
 
-    # Helper to get filtered log for analysis methods. The synthetic turn-0
+    # Helper to get filtered log for analysis methods. The synthetic setup
     # "System" roster message is part of the prompt context, not of the
     # conversation, so it is dropped by default: no analysis or plot should
     # report "System" as a speaker. Explicitly requesting speaker_ids
     # containing "System" (or include_system = TRUE) keeps it.
-    get_filtered_log = function(turns = NULL, speaker_ids = NULL, include_system = FALSE) {
+    get_filtered_log = function(message_ids = NULL, speaker_ids = NULL,
+                                include_system = FALSE) {
       if (length(self$conversation_log) == 0) return(list())
 
       filtered_log <- self$conversation_log
       if (!include_system && !("System" %in% (speaker_ids %||% character(0)))) {
         filtered_log <- Filter(function(x) !identical(x$speaker_id, "System"), filtered_log)
       }
-      if (!is.null(turns)) {
-        if(!is.numeric(turns)) stop("'turns' must be a numeric vector.")
-        filtered_log <- Filter(function(x) x$turn %in% turns, filtered_log)
+      if (!is.null(message_ids)) {
+        if (!is.numeric(message_ids)) {
+          stop("`message_ids` must be a numeric vector.", call. = FALSE)
+        }
+        filtered_log <- Filter(function(x) x$message_id %in% message_ids,
+                               filtered_log)
       }
       if (!is.null(speaker_ids)) {
         if(!is.character(speaker_ids)) stop("'speaker_ids' must be a character vector.")
@@ -1443,9 +1495,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
       return(filtered_log)
     },
 
-    # Store last token counts per agent to calculate diff for group total
-    last_agent_tokens = list(),
-    last_summary_turn = NULL,
+    current_phase_index = 0L,
+    last_summary_round = NULL,
 
     # Helper to get recent transcript for interim summary
     get_recent_transcript_for_summary = function(n_recent_utterances = 10) {
@@ -1458,3 +1509,29 @@ FocusGroup <- R6::R6Class("FocusGroup",
     }
   )
 )
+
+#' Print a FocusGroup
+#'
+#' @param x A `FocusGroup` object.
+#' @param ... Unused.
+#' @return `x`, invisibly.
+#' @keywords internal
+#' @export
+print.FocusGroup <- function(x, ...) {
+  rounds <- if (length(x$conversation_log)) {
+    vapply(x$conversation_log, function(message) {
+      as.integer(message$round %||% NA_integer_)
+    }, integer(1))
+  } else {
+    integer(0)
+  }
+  rounds <- unique(rounds[!is.na(rounds) & rounds > 0L])
+
+  cat("<FocusGroup>\n")
+  cat("  Topic: ", x$topic, "\n", sep = "")
+  cat("  Participants: ",
+      length(setdiff(names(x$agents), x$moderator_id)), "\n", sep = "")
+  cat("  Messages: ", length(x$conversation_log),
+      " in ", length(rounds), " round(s)\n", sep = "")
+  invisible(x)
+}

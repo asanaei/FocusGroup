@@ -9,31 +9,32 @@
 ## Overview
 
 FocusGroup runs a moderated discussion in which language models act as the
-moderator and participants. A question script determines what the moderator
-does. A conversation flow selects each participant. The package stores the
-utterances, phase labels, response metadata, and token counts in a
-`FocusGroup` object. Model requests are made through
+moderator and participants. A moderator guide determines what the moderator
+does, and a conversation flow selects each participant. The package records
+each message, its phase and round, response metadata, and token use in a
+`FocusGroup` object. Model requests use
 [LLMR](https://asanaei.github.io/LLMR/).
 
-FocusGroup is used to pilot moderator guides and discussion protocols before
-fieldwork. Researchers can compare scripts and turn-taking rules or examine how
-an edited turn changes the continuation of a discussion. `fg_quick()` and
-`run_focus_group()` construct complete sessions. The exported R6 classes give
-direct access to agents, scripts, prompts, and speaker selection.
+The package is intended for piloting moderator guides and discussion protocols
+before fieldwork. A generated transcript records model responses under a
+specified guide, persona set, and model configuration. It is not an estimate of
+public opinion.
 
-## Main objects
+The principal public objects are:
 
-- `FGAgent` stores one speaker's persona, model configuration, optional runner,
-  utterance history, and token counts.
-- `FocusGroup` stores the roster, moderator script, conversation flow, prompts,
-  and conversation log.
-- `RoundRobinFlow`, `ProbabilisticFlow`, and `DesireBasedFlow` select the next
-  participant by order, propensity, or a model-produced score.
-- `create_diverse_agents()`, `create_agents_from_data()`, and
-  `create_agents_from_survey()` construct agents from direct descriptions or
-  respondent data.
-- `analyze_focus_group()` runs the main transcript analyses.
-- `run_focus_studio()` starts the optional Shiny interface.
+- `run_focus_group()`, which constructs and runs a complete session.
+- `FGAgent`, which represents one participant or moderator and stores its
+  `config`.
+- `FocusGroup`, which owns the roster, guide, flow, prompts, and session log.
+- `ConversationFlow`, the extension base class for speaker-selection rules.
+- `create_agents()`, `create_agents_from_data()`, and
+  `create_agents_from_survey()`, which construct agents from supplied personas
+  or respondent records.
+- `create_conversation_flow()`, which constructs a built-in flow from a mode
+  name.
+- `focus_group_from_transcript()`, which imports an existing transcript.
+- `analyze_focus_group()`, which runs the main transcript analyses.
+- `run_focus_studio()`, which starts the optional Shiny interface.
 
 FocusGroup is experimental. Its public interface may change before a stable
 release.
@@ -52,38 +53,20 @@ install.packages(c("ggplot2", "quanteda", "quanteda.textstats",
                    "topicmodels", "tidytext"))
 ```
 
-Set the provider key in an environment variable before making a provider call.
-For an OpenAI model, LLMR reads `OPENAI_API_KEY`.
+Set the provider key in an environment variable before making a live provider
+call. For an OpenAI model, LLMR reads `OPENAI_API_KEY`.
 
-## Quick start
+## Run a focus group
 
-### Shiny interface
-
-`run_focus_studio()` starts the optional Shiny application:
-
-```r
-library(FocusGroup)
-run_focus_studio()
-```
-
-**Run a focus group** executes a session and saves the `FocusGroup` object as an
-`.rds` file. **Analyze transcript** reads participation and word statistics
-without making a model call. **Continuation experiment** compares the next
-generated turn under an original and an edited history.
-
-### Run a scripted set of phases
-
-`run_focus_group()` constructs agents, a moderator script, and a conversation
-flow. For `turns_per_phase`, numeric values select that many instructions from
-the built-in phase banks. Character vectors provide instructions verbatim, one
-moderator turn per element. Phases must be supplied in the order Opening,
-Icebreaker, Engagement, Exploration, Closing.
+Every operation that generates model output requires an explicit `config`.
+`guide` accepts phase counts or ordered moderator instructions. Supported phase
+names are Opening, Icebreaker, Engagement, Exploration, and Closing.
 
 ```r
 library(FocusGroup)
 library(LLMR)
 
-llm_config_agents <- LLMR::llm_config(
+config <- LLMR::llm_config(
   provider = "openai",
   model = "gpt-4o-mini",
   temperature = 0.7,
@@ -106,223 +89,201 @@ moderator_guide <- list(
 
 result <- run_focus_group(
   topic = "The impact of remote work on team collaboration",
-  participants = 4,
-  turns_per_phase = moderator_guide,
-  llm_config = llm_config_agents,
+  n_participants = 4,
+  guide = moderator_guide,
+  flow = "desire_based",
+  config = config,
   seed = 110,
+  message_mode = "roleflip",
   verbose = TRUE
 )
 
-head(result$conversation, 5)
-result$basic_stats$speaker_stats
+print(result)
+head(result$transcript, 5)
+result$usage
 cat(result$summary)
 ```
 
-The transcript records model responses under the supplied prompts and
-configuration. It is not an estimate of public opinion.
+`run_focus_group()` returns a `focus_group_result` with stable fields:
+`focus_group`, `transcript`, `summary`, `participants`, `usage`, and `metadata`.
+`participants` is a data frame. `usage` uses LLMR's `sent`, `rec`, and `total`
+token vocabulary. `metadata` contains `topic`, `purpose`, `flow`,
+`message_mode`, `n_participants`, `estimated_calls`, `provider`, and `model`.
+Credentials are never included.
 
-### Run a session without a provider
+Before a live run, the function estimates the number of model calls. A request
+above `max_calls` stops unless `confirm = TRUE`. Retries and incomplete outputs
+can increase the realized call count. Supplying `.runner` bypasses this live
+cost stop.
 
-`runner` is called with the active LLMR configuration and message list in place
-of a provider call. The fixed response below permits the complete session and
-its descriptive analyses to run offline.
+A `FocusGroup` object represents one session and runs once. Construct another
+object for another full session. The continuation experiment in
+`run_focus_studio()` is the documented path for comparing generated continuations
+from an existing session.
+
+## Run a session without a provider
+
+The `.runner` seam uses the same experiments-frame contract as LLMRcontent
+archive replay. It receives a data frame with `config` and `messages`
+list-columns and returns those rows with at least `response_text`. An explicit
+configuration remains required because it is part of each experiment row.
 
 ```r
-scripted_runner <- function(config, messages) {
-  paste(
-    "This scripted response states one position on library funding and gives",
-    "a concrete reason that another participant could examine."
-  )
+scripted_runner <- function(experiments, ...) {
+  experiments$response_text <- vapply(experiments$messages, function(messages) {
+    prompt <- paste(vapply(messages, `[[`, character(1), "content"),
+                    collapse = "\n")
+    if (grepl("Desire to talk score", prompt, fixed = TRUE)) {
+      return("8")
+    }
+    if (grepl("Summary:", prompt, fixed = TRUE)) {
+      return("The session recorded distinct positions and a disagreement.")
+    }
+    paste(
+      "This scripted response states one position on library funding and gives",
+      "a concrete reason that another participant could examine."
+    )
+  }, character(1))
+  experiments$success <- TRUE
+  experiments
 }
 
-offline_result <- fg_quick(
+offline_config <- LLMR::llm_config("openai", "gpt-4o-mini")
+
+offline_result <- run_focus_group(
   topic = "Library funding priorities",
-  participants = 2,
+  n_participants = 2,
+  guide = list(
+    Opening = "Welcome the group.",
+    Engagement = "Which funding priority matters most?",
+    Closing = "Thank the participants and close the session."
+  ),
   flow = "round_robin",
-  runner = scripted_runner,
+  config = offline_config,
   max_participant_responses = 1,
-  verbose = FALSE
+  verbose = FALSE,
+  .runner = scripted_runner
 )
 
 offline_result$focus_group$analyze()$speaker_stats
 ```
 
-### Construct the R6 objects directly
+## Construct the R6 objects directly
 
-`FGAgent`, a `ConversationFlow` subclass, and `FocusGroup` can be constructed
-directly.
+Built-in turn-taking implementations are constructed through
+`create_conversation_flow()`. `ConversationFlow` remains public so new flow
+classes can inherit from it.
 
 ```r
-library(FocusGroup)
-library(LLMR)
-
-llm_conf <- LLMR::llm_config(
-  provider = "openai",
-  model = "gpt-4o-mini",
-  temperature = 0.7
-)
-
-all_agents <- create_diverse_agents(
+agents <- create_agents(
   n_participants = 3,
-  llm_config = llm_conf
-)
-moderator_id <- "MOD"
-
-custom_script <- list(
-  list(phase = "opening"),
-  list(
-    phase = "icebreaker_question",
-    text = "What is one word that describes your ideal weekend?"
-  ),
-  list(
-    phase = "engagement_question",
-    text = "How do you typically spend your weekends?"
-  ),
-  list(
-    phase = "exploration_question",
-    text = "What makes a weekend relaxing or fulfilling for you?"
-  ),
-  list(phase = "closing")
+  config = config
 )
 
-round_robin_flow <- RoundRobinFlow$new(
-  agents = all_agents,
-  moderator_id = moderator_id
+session_flow <- create_conversation_flow(
+  mode = "round_robin",
+  agents = agents,
+  moderator_id = "MOD"
 )
 
-fg_manual <- FocusGroup$new(
+fg <- FocusGroup$new(
   topic = "Weekend preferences and activities",
   purpose = "Describe how participants prefer to spend their weekends.",
-  agents = all_agents,
-  moderator_id = moderator_id,
-  turn_taking_flow = round_robin_flow,
-  question_script = custom_script,
-  llm_config_admin = llm_conf
-)
-
-fg_manual$run_simulation(verbose = TRUE)
-conversation_df_manual <- dplyr::bind_rows(
-  lapply(fg_manual$conversation_log, as.data.frame)
-)
-head(conversation_df_manual, 5)
-cat(fg_manual$summarize(summary_level = 1))
-```
-
-## Core classes
-
-### `FGAgent`
-
-`FGAgent` represents one participant or moderator. `generate_utterance()`
-returns text and call metadata. `get_need_to_talk()` returns the score used by
-`DesireBasedFlow`.
-
-```r
-participant_details <- list(
-  direct_persona_description = paste(
-    "A 35-year-old software engineer who enjoys hiking and is concerned",
-    "about data privacy."
-  ),
-  communication_style = "analytical and inclined to ask clarifying questions",
-  demographics = list(age = 35, occupation = "Software Engineer")
-)
-
-agent1 <- FGAgent$new(
-  id = "P1",
-  agent_details = participant_details,
-  llm_config = llm_conf
-)
-```
-
-### `FocusGroup`
-
-`FocusGroup` owns the roster, script, conversation flow, prompts, and log.
-`run_simulation()` executes the script. `analyze()` and the other
-`analyze_*()` methods read the log.
-
-### `ConversationFlow`
-
-`ConversationFlow` defines `select_next_speaker()`. Its three subclasses
-implement the supplied selection rules. `create_conversation_flow()` constructs
-a flow from a mode name.
-
-## From a silicon panel to a focus group
-
-`create_agents_from_data()` treats a data frame as a pre-rendered persona panel
-when it inherits from `silicon_panel` or contains both `persona` and
-`persona_id`. It uses `persona` as the direct persona description and excludes
-`persona` and `persona_id` from survey responses. LLMRpanel need not be
-installed.
-
-```r
-# panel is an LLMRpanel persona frame with class "silicon_panel"
-panel_agents <- create_agents_from_data(
-  panel,
-  n_participants = nrow(panel),
-  llm_config = llm_conf
-)
-
-panel_flow <- RoundRobinFlow$new(panel_agents, moderator_id = "MOD")
-panel_session <- FocusGroup$new(
-  topic = "Public transit priorities",
-  purpose = "Examine points of agreement and disagreement.",
-  agents = panel_agents,
+  agents = agents,
   moderator_id = "MOD",
-  turn_taking_flow = panel_flow,
+  turn_taking_flow = session_flow,
   question_script = list(
     list(phase = "opening"),
     list(
       phase = "exploration_question",
-      text = "Which transit priority should receive attention first?"
+      text = "What makes a weekend relaxing or fulfilling for you?"
     ),
     list(phase = "closing")
-  )
+  ),
+  admin_config = config
 )
-panel_session$run_simulation()
+
+fg$run_simulation(verbose = TRUE)
 ```
 
-`create_agents_from_data()` also accepts `LLMR::anes_2024_personas`.
+`FGAgent$new()` also takes `config`; its public configuration field has the
+same name. Public model-dependent methods use `config`, and caller-controlled
+execution uses `.runner` as the final ordinary seam.
 
-## Create agents from survey data
+## Create agents from respondent data
 
 `create_agents_from_survey()` reads Stata, SPSS, and SAS files with `haven`. It
-decodes selected variables from their value labels and uses variable labels as
-question text. `create_agents_from_data()` accepts an in-memory data frame.
-`create_diverse_agents()` accepts demographic and survey-response data frames
-with one row per participant.
-
-When a direct persona description is absent, the package renders the supplied
-demographic fields and survey responses in the persona prompt. It does not
-infer dispositions from demographic labels.
-
-## Prompts
-
-`get_default_prompt_templates()` returns the named templates used by
-`FocusGroup`. Change the required entries and pass the list to
-`FocusGroup$new(prompt_templates = ...)`.
+decodes selected values from their labels and uses variable labels as question
+text. `create_agents_from_data()` accepts an in-memory data frame, including a
+pre-rendered persona panel with `persona` and `persona_id` columns.
 
 ```r
-default_prompts <- get_default_prompt_templates()
-default_prompts$moderator_opening <- paste(
-  "Welcome the participants. State that the topic is {{topic}} and the",
-  "purpose is {{focus_group_purpose}}. Explain the ground rules."
+data(anes_2024_personas, package = "LLMR")
+
+panel_agents <- create_agents_from_data(
+  anes_2024_personas,
+  n_participants = 6,
+  config = config
+)
+```
+
+When a direct persona is absent, `create_agents()` renders the supplied
+demographic fields and survey responses. It does not infer dispositions from
+demographic labels.
+
+## Import a transcript
+
+Pass `moderator_id` when the moderator is known. When it is omitted, the
+importer falls back to matching `"mod"` within speaker identifiers. Importing
+and descriptive analysis make no model call.
+
+```r
+transcript <- data.frame(
+  speaker = c("Facilitator", "P1", "P2"),
+  text = c("What should change?", "Service frequency.", "Lower fares.")
 )
 
-# fg <- FocusGroup$new(
-#   ...,
-#   prompt_templates = default_prompts
-# )
+imported <- focus_group_from_transcript(
+  transcript,
+  topic = "Public transit",
+  moderator_id = "Facilitator"
+)
 ```
 
 ## Analysis
 
-`FocusGroup$analyze()` returns speaker counts, word counts, and a formatted
-transcript. Other methods return topic, TF-IDF, readability, thematic,
-participation, response, question, and key-phrase results.
-`analyze_focus_group()` runs the main analyses in one call.
+`analyze_focus_group()` returns a `focus_group_analysis` with a fixed field set:
+`basic_stats`, `topics`, `tfidf`, `readability`, `themes`, `model_summary`,
+`plots`, and `issues`. Components that cannot be computed have typed empty
+values. `plots` is an empty list when ggplot2 is unavailable, and `issues`
+names each optional analysis that failed and gives its reason.
 
-The four `plot_*()` methods return ggplot objects for participation and turn
-length. When `include_plots = TRUE`, `analyze_focus_group()` places them in its
-`plots` element if ggplot2 is installed.
+Descriptive analyses run offline. Thematic analysis and model summaries are
+opt-in and run only when the caller supplies `config`:
+
+```r
+offline_analysis <- analyze_focus_group(imported, include_plots = FALSE)
+model_analysis <- analyze_focus_group(result, config = config)
+```
+
+A requested model analysis does not convert a provider failure into a missing
+component. The provider condition is raised to the caller.
+
+FocusGroup does not export specialized report constructors. `LLMR::report()`
+is the ecosystem reporting entry point.
+
+## Prompts
+
+`get_default_prompt_templates()` returns the supported participant, moderator,
+desire-scoring, and thematic-analysis templates. Modify named entries and pass
+the list as `prompt_templates` when constructing a `FocusGroup`.
+
+## Shiny interface
+
+`run_focus_studio()` starts the optional Shiny application. Its run path uses
+`run_focus_group()`. Its analysis tab reads participation and word statistics
+offline, and its continuation experiment compares the next generated message under
+an original and edited history.
 
 ## Contributing
 

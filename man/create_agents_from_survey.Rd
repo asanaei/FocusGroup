@@ -7,19 +7,21 @@
 create_agents_from_survey(
   n_participants,
   survey_path,
+  config,
   demographic_vars = NULL,
   survey_vars = NULL,
   rows = NULL,
   weights = NULL,
   na_strings = .fg_default_na_strings,
-  llm_config = NULL,
-  runner = NULL
+  .runner = NULL
 )
 }
 \arguments{
 \item{n_participants}{Integer number of participants (excludes the moderator).}
 
 \item{survey_path}{Path to the survey file (`.dta`, `.sav`, or `.sas7bdat`).}
+
+\item{config}{An explicit `LLMR::llm_config` for all agents.}
 
 \item{demographic_vars}{Variable names (codes) to render as demographics.
 May be a named vector, in which case the names are shown as the field
@@ -42,10 +44,7 @@ respondents are drawn.}
 missing (case-insensitive). Defaults to a small common set; pass your own to
 match another file's missing-data vocabulary.}
 
-\item{llm_config}{Optional `LLMR::llm_config` for all agents.}
-
-\item{runner}{`NULL` or a function `(config, messages)` returning a character
-scalar or an `llmr_response`. The function is stored on every agent.}
+\item{.runner}{Optional experiments-frame runner stored on every agent.}
 }
 \value{
 A named list of `FGAgent` objects (participants + moderator), keyed
@@ -69,6 +68,7 @@ inferences from the answers; it states them and lets the model interpret.
 agents <- create_agents_from_survey(
   n_participants = 6,
   survey_path = "anes_timeseries_2024_stata.dta",
+  config = LLMR::llm_config("openai", "gpt-4o-mini"),
   demographic_vars = c(age = "V241458x", education = "V241465x"),
   survey_vars = c("Party identification" = "V241227x",
                   "Ideology" = "V241177"),

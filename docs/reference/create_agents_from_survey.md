@@ -1,0 +1,107 @@
+# Create agents from a labeled survey file
+
+Reads a labeled survey file (Stata \`.dta\`, SPSS \`.sav\`, or SAS
+\`.sas7bdat\`), decodes the chosen variables from their value labels,
+and turns each selected respondent into an \`FGAgent\` whose persona
+states that respondent's demographics and survey answers. Numeric codes
+are decoded from the file's own value labels, so the same call works on
+ANES, GSS, WVS, or any other labeled file; nothing about a particular
+dataset is hard-coded.
+
+## Usage
+
+``` r
+create_agents_from_survey(
+  n_participants,
+  survey_path,
+  config,
+  demographic_vars = NULL,
+  survey_vars = NULL,
+  rows = NULL,
+  weights = NULL,
+  na_strings = .fg_default_na_strings,
+  .runner = NULL
+)
+```
+
+## Arguments
+
+- n_participants:
+
+  Integer number of participants (excludes the moderator).
+
+- survey_path:
+
+  Path to the survey file (\`.dta\`, \`.sav\`, or \`.sas7bdat\`).
+
+- config:
+
+  An explicit \`LLMR::llm_config\` for all agents.
+
+- demographic_vars:
+
+  Variable names (codes) to render as demographics. May be a named
+  vector, in which case the names are shown as the field labels. If
+  \`NULL\`, common demographic variables are auto-detected by their
+  labels.
+
+- survey_vars:
+
+  Variable names (codes) to render as survey responses. May be named
+  (names become the question wording shown). If \`NULL\`, labeled
+  variables that are not demographics are used.
+
+- rows:
+
+  Optional row selector restricting the eligible respondents before
+  sampling: an integer or logical vector, or a predicate \`function(df)
+  -\> logical\` over the decoded demographics frame.
+
+- weights:
+
+  Optional sampling weights: a column name in the file, or a numeric
+  vector aligned to the file's rows. Used only to weight which
+  respondents are drawn.
+
+- na_strings:
+
+  Character vector of value-label substrings treated as missing
+  (case-insensitive). Defaults to a small common set; pass your own to
+  match another file's missing-data vocabulary.
+
+- .runner:
+
+  Optional experiments-frame runner stored on every agent.
+
+## Value
+
+A named list of \`FGAgent\` objects (participants + moderator), keyed by
+agent ID.
+
+## Details
+
+The survey answers are keyed by each variable's question wording (its
+label in the file) so the model sees the item, not a code name. The
+persona draws no inferences from the answers; it states them and lets
+the model interpret.
+
+## See also
+
+\[create_agents_from_data()\] for an in-memory data frame, and
+\`LLMR::anes_2024_personas\` for a ready-made example.
+
+## Examples
+
+``` r
+if (FALSE) { # \dontrun{
+agents <- create_agents_from_survey(
+  n_participants = 6,
+  survey_path = "anes_timeseries_2024_stata.dta",
+  config = LLMR::llm_config("openai", "gpt-4o-mini"),
+  demographic_vars = c(age = "V241458x", education = "V241465x"),
+  survey_vars = c("Party identification" = "V241227x",
+                  "Ideology" = "V241177"),
+  rows = function(df) df$age != "18-24"   # exclude the youngest band
+)
+} # }
+```

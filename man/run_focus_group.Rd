@@ -2,102 +2,85 @@
 % Please edit documentation in R/convenience_wrappers.R
 \name{run_focus_group}
 \alias{run_focus_group}
-\title{Run a Simple Focus Group Simulation}
+\title{Run a Focus Group Simulation}
 \usage{
 run_focus_group(
   topic,
-  participants = 6,
-  turns_per_phase = c(Opening = 2, Icebreaker = 3, Engagement = 8, Exploration = 10,
-    Closing = 2),
+  config,
+  n_participants = 6,
+  guide = c(Opening = 2, Icebreaker = 3, Engagement = 8, Exploration = 10, Closing = 2),
   demographics = NULL,
   survey_responses = NULL,
-  conversation_flow = "desire_based",
-  llm_config = NULL,
-  runner = NULL,
+  flow = "desire_based",
   seed = NULL,
-  msg_mode = c("roleflip", "flat"),
+  message_mode = c("roleflip", "flat"),
   verbose = TRUE,
-  max_participant_responses = NULL
+  max_participant_responses = NULL,
+  max_calls = 100L,
+  confirm = FALSE,
+  .runner = NULL
 )
 }
 \arguments{
-\item{topic}{Character string describing the focus group topic}
+\item{topic}{Character. Focus group topic.}
 
-\item{participants}{Integer number of participants (excluding moderator)}
+\item{config}{An explicit `LLMR::llm_config` used by all agents and group-level
+model tasks.}
 
-\item{turns_per_phase}{A named numeric vector or named list for the moderator
-turns in each phase. Numeric values set the number of moderator turns and
-draw distinct questions or instructions from the package's phase banks. In
-a named list, character vectors supply the ordered scripts directly, and
-their lengths set the counts. Supported names are Opening, Icebreaker,
-Engagement, Exploration, and Closing, matched without regard to case.
-When several phases are supplied, they must appear in that order.
-Question turns may elicit several participant responses.}
+\item{n_participants}{Integer. Number of participants, excluding the moderator.}
 
-\item{demographics}{Optional data frame with participant demographics. If NULL,
-diverse demographics will be automatically generated.}
+\item{guide}{A named numeric vector or named list. Numeric values select that
+many moderator instructions from the phase banks. Character vectors supply
+the ordered instructions directly.}
 
-\item{survey_responses}{Optional data frame with survey responses. If NULL,
-responses will be automatically generated.}
+\item{demographics}{Optional participant demographics.}
 
-\item{conversation_flow}{Character string specifying turn-taking mechanism:
-"round_robin", "probabilistic", or "desire_based". Default is "desire_based".}
+\item{survey_responses}{Optional participant survey responses.}
 
-\item{llm_config}{List with LLM configuration. If NULL, uses default configuration.}
+\item{flow}{Character. One of `"round_robin"`, `"probabilistic"`, or
+`"desire_based"`.}
 
-\item{runner}{`NULL` or a function `(config, messages)` returning a character
-scalar or an `llmr_response`. When supplied, all participant, moderator,
-desire-scoring, and summary calls use this function instead of a provider.}
+\item{seed}{Optional integer governing in-package sampling.}
 
-\item{seed}{Optional integer. Seeds R's RNG, which governs speaker selection
-and other in-package sampling. It does NOT make the LLM output reproducible:
-at `temperature > 0` the provider samples server-side, beyond R's control.}
+\item{message_mode}{Character. `"roleflip"` or `"flat"`.}
 
-\item{msg_mode}{How each agent's turn is presented to the model. `"roleflip"`
-(default) gives each agent its own prior turns in the assistant role and
-others' turns as labeled user messages, which reduces self-repetition;
-`"flat"` reproduces the legacy single-user-message transcript. Recorded per
-run so the construction is explicit rather than an implicit default.}
+\item{verbose}{Logical. Print session progress.}
 
-\item{verbose}{Logical, whether to print progress messages}
+\item{max_participant_responses}{Optional integer maximum number of participant
+responses per moderator question.}
 
-\item{max_participant_responses}{Optional integer. Maximum participant responses
-per moderator question before the moderator advances.}
+\item{max_calls}{Integer. Maximum estimated live model outputs allowed without
+confirmation.}
+
+\item{confirm}{Logical. Permit a live run whose estimate exceeds `max_calls`.}
+
+\item{.runner}{Optional experiments-frame runner. It receives a data frame
+with `config` and `messages` list-columns and returns those rows with at
+least `response_text`.}
 }
 \value{
-A list containing:
-  * `focus_group`: The FocusGroup object
-  * `conversation`: Data frame with the full conversation
-  * `summary`: Conversation summary
-  * `basic_stats`: Basic conversation statistics
-  * `participants`: Information about participants
+A `focus_group_result` with the group, transcript, summary,
+  participant table, token usage, and sanitized metadata.
 }
 \description{
-This is the main high-level wrapper function for running focus group simulations.
-It creates agents, sets up the focus group, runs the simulation, and returns
-a comprehensive result object.
+Constructs the agents, moderator guide, and turn-taking flow, then runs one
+focus group session. The model configuration is explicit. Before a live run,
+the function estimates the number of generated model outputs and applies the
+`max_calls` limit unless `confirm` is `TRUE`.
 }
 \examples{
 \dontrun{
-# Simple focus group on social media
+cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
 result <- run_focus_group(
-  topic = "Social media impact on mental health",
-  participants = 6,
-  turns_per_phase = list(
-    Opening = "Welcome the group and state the ground rules.",
-    Icebreaker = c("What first comes to mind when you think about social media?",
-                   "What has your own experience been?"),
-    Engagement = "Where does social media enter your daily life?",
-    Exploration = "What trade-offs deserve closer attention?",
+  topic = "Library funding priorities",
+  config = cfg,
+  n_participants = 4,
+  guide = list(
+    Opening = "Welcome the participants and state the ground rules.",
+    Exploration = "Which funding priority deserves attention first?",
     Closing = "Thank the participants and close the session."
-  )
+  ),
+  flow = "round_robin"
 )
-
-# Access the conversation
-head(result$conversation)
-
-# View summary
-result$summary
 }
-
 }

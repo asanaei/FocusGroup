@@ -15,102 +15,139 @@ knitr::opts_chunk$set(eval = FALSE)
 
 FocusGroup separates a moderated discussion into agents, a turn-taking rule,
 and a group object. This separation lets a researcher change the moderator
-guide, participant source, or speaker-selection rule without changing the
-stored transcript or its analysis.
+guide, participant source, or speaker-selection rule while retaining one log
+grammar for analysis.
 
 `FGAgent` represents a participant or moderator and generates that agent's
-turns. `ConversationFlow` selects the next participant. `FocusGroup` advances
-the moderator script and records the resulting messages. LLMR supplies model
-configurations and provider calls.
+turns. Its model configuration is stored in the `config` field.
+`ConversationFlow` is the extension base for selecting the next participant.
+`FocusGroup` advances the moderator guide and records each message. LLMR
+supplies model configurations and provider calls.
 
-## Constructing a session
+## Public surface
 
-`fg_quick()` creates a fixed seven-step moderator guide.
-`run_focus_group()` accepts phase counts or an ordered set of moderator
-instructions. The supported phases are Opening, Icebreaker, Engagement,
-Exploration, and Closing. Each character element in `turns_per_phase` becomes
-one moderator turn. `max_participant_responses` limits the responses collected
-after a question.
+`run_focus_group()` is the single high-level session runner. It requires an
+explicit `config`, constructs the roster and flow, performs a call-count
+preflight, runs the guide, and returns a `focus_group_result`.
 
-For direct construction, create `FGAgent` objects, place them in a named list,
-create a `ConversationFlow`, and pass both to `FocusGroup$new()`.
-`create_diverse_agents()`, `create_agents_from_data()`, and
+Its main argument grammar is consistent with the other package entry points:
+
+- `n_participants` is the participant count, excluding the moderator.
+- `guide` is a named vector or list of phase counts or moderator scripts.
+- `flow` selects the speaker-selection rule.
+- `message_mode` selects role-flipped or flat message construction.
+- `config` is the model configuration, and `admin_config` is the group-level
+  configuration on direct `FocusGroup` construction.
+- `.runner`, when supplied, is the last execution seam.
+
+The package supplies three built-in flow modes: `"round_robin"`,
+`"probabilistic"`, and `"desire_based"`. Construct them with
+`create_conversation_flow()`. Their implementation classes are internal.
+`ConversationFlow` remains public so packages and researchers can define new
+selection rules.
+
+`create_agents()`, `create_agents_from_data()`, and
 `create_agents_from_survey()` return agent-ID-keyed lists that include the
-moderator `MOD`.
-
-The high-level wrappers and agent constructors accept a `runner` function.
-When supplied, this function handles each model request in place of a provider
-call.
+moderator `MOD`. Each requires an explicit `config` because the returned agents
+can generate model output.
 
 `focus_group_from_transcript()` creates a `FocusGroup` from an existing
-transcript. It does not generate new turns.
+transcript without generating new turns. `moderator_id` identifies the
+moderator when known. If it is omitted, the importer falls back to finding
+`"mod"` within a speaker identifier.
+
+## Runner contract
+
+The `.runner` seam has the experiments-frame contract used across the LLMR
+family. The package calls `.runner(experiments, ...)`, where `experiments` is a
+data frame with `config` and `messages` list-columns. The runner returns those
+rows with at least `response_text`; it may also return `response_id`, token
+counts, `success`, and related diagnostics.
+
+The seam handles moderator, participant, desire-scoring, and summary requests.
+The same contract permits an archive replay runner to execute a full session
+without a live provider. A configuration remains explicit because it is part
+of the experiment record and its provenance.
 
 ## Running a session
 
 `FocusGroup$run_simulation()` first records the participant roster as a
 `System` message. It then reads `question_script` in order. For each entry, the
-moderator generates one turn. Question phases call
+moderator generates one message. Question phases call
 `select_next_speaker()` and collect no more than
-`max_participant_responses` participant turns. Opening and closing phases do
-not collect participant responses.
+`max_participant_responses` participant messages. Opening and closing phases
+do not collect participant responses.
 
-`RoundRobinFlow` cycles through participants. `ProbabilisticFlow` samples from
-speaking propensities, sets the selected participant's propensity to zero, and
-lets the other propensities recover toward their base values.
-`DesireBasedFlow` asks eligible participants for a score and selects the
-participant with the highest eligible score. If no score reaches the
-threshold, it selects the participant with the highest score.
+The round-robin mode cycles through participants. The probabilistic mode
+samples from speaking propensities. The desire-based mode asks eligible
+participants for model-produced scores and selects among eligible candidates.
+Provider failures in desire scoring are recorded in the message metadata and
+trigger one message to the user. Selection then uses a neutral draw among the
+candidates; a failure is never recorded as a score of zero.
 
-When no runner is supplied and no more than eight participants are eligible,
-desire scores use LLMR broadcast calls grouped by model configuration. Other
-sessions score one participant per call.
+The loop stops when the script is exhausted, `num_rounds` is reached, or the
+last closing entry is processed. It stores a final summary in `final_summary`.
+The summary is not appended to `conversation_log`.
 
-The loop stops when the script is exhausted, `num_turns` is reached, or the
-last closing entry is processed. It then stores a final summary in
-`final_summary`. The summary is not appended to `conversation_log`.
+A `FocusGroup` object runs once. Calling `run_simulation()` on an object that
+has already run raises an error. Construct a new object for another full
+session. Use the continuation experiment in `run_focus_studio()` to compare a
+next message under original and edited histories.
 
 ## Messages and prompts
 
-The default `msg_mode = "roleflip"` presents an agent's prior turns as
-assistant messages and labels the other turns as user messages.
-`msg_mode = "flat"` places the transcript in one user message for compatibility
-with older prompt templates. The selected mode is stored on the `FocusGroup`
-object.
+The default `message_mode = "roleflip"` presents an agent's prior messages as
+assistant messages and labels other speakers' messages as user messages.
+`message_mode = "flat"` places the transcript in one user message. The selected
+mode is recorded with the session.
 
-`get_default_prompt_templates()` returns the moderator, participant,
-desire-scoring, and analysis prompts. Pass named replacements through
-`prompt_templates` in `FocusGroup$new()`. A custom participant template that
-contains `{{conversation_history}}` or `{{persona_description}}` uses the flat
-message path.
+`get_default_prompt_templates()` returns only templates supported by package
+operations. Pass named replacements through `prompt_templates` in
+`FocusGroup$new()`. A custom participant template containing
+`{{conversation_history}}` or `{{persona_description}}` uses the flat message
+path.
 
 ## Stored data
 
-`conversation_log` is an ordered list of message records. Each record contains
-the round number, speaker identifier, moderator flag, text, timestamp, phase,
-response metadata, token counts, provider, and model. Moderator and participant
-messages from the same question share a round number. The initial roster has
-turn 0 and phase `setup`.
+`conversation_log` is an ordered list of message records. Each record has a
+unique integer `message_id`, the moderator cycle in `round`, and `phase`.
+Moderator and participant messages responding to the same question share a
+round. Response identifiers, finish reasons, token counts, provider and model
+labels, duration, and failure metadata accompany generated messages.
 
-`run_focus_group()` returns the log as the data frame `conversation`.
-`fg_quick()` returns it as `transcript`. Both wrappers also return the
-underlying `FocusGroup` object and the final summary.
+`run_focus_group()` exposes this log as the `transcript` data frame in its
+result. A `focus_group_result` always has these fields:
+
+- `focus_group`: the underlying R6 object.
+- `transcript`: one row per logged message.
+- `summary`: the final model summary.
+- `participants`: a data frame describing the roster.
+- `usage`: token use in LLMR's `sent`, `rec`, and `total` vocabulary.
+- `metadata`: `topic`, `purpose`, `flow`, `message_mode`, `n_participants`,
+  `estimated_calls`, `provider`, and `model`, with no credentials.
+
+The class has a concise print method. `FocusGroup` also has a concise S3 print
+method for direct R6 objects.
 
 ## Analysis
 
-`FocusGroup$analyze()` returns speaker statistics and a formatted transcript.
-Other methods compute participation, response, question, key-phrase, topic,
-TF-IDF, and readability results. Plotting methods return ggplot objects when
-ggplot2 is installed.
+`FocusGroup$analyze()` and the descriptive text methods operate on the stored
+log. `analyze_focus_group()` collects the principal analyses in a
+`focus_group_analysis` with fixed fields: `basic_stats`, `topics`, `tfidf`,
+`readability`, `themes`, `model_summary`, `plots`, and `issues`.
 
-`analyze_themes()` and `summarize()` make model calls. The descriptive and text
-analysis methods operate on the stored transcript.
-
-`analyze_focus_group()` runs several analyses and can add plots.
+Missing optional packages and unsuitable data produce typed empty components
+and an explanatory row in `issues`. `plots` is an empty list when ggplot2 is
+unavailable. Descriptive analyses run offline. Thematic analysis and model
+summaries run only when `analyze_focus_group()` receives an explicit `config`.
+A requested model analysis that encounters a provider failure raises the
+provider condition.
 
 ## Extending the package
 
 To add a turn-taking rule, subclass `ConversationFlow` and implement
 `select_next_speaker()`. Override `update_state_post_selection()` when the rule
-keeps state, and add the new mode to `create_conversation_flow()`.
+keeps state. An extension can construct its class directly; built-in modes
+remain available through `create_conversation_flow()`.
 
 See the function and class help pages for argument defaults and return values.

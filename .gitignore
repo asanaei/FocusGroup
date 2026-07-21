@@ -3,6 +3,8 @@
 .RData
 .Ruserdata
 plan.md
+.gitignore
+.Rbuildignore
 
 # AI tooling
 .claude/

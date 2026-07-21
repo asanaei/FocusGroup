@@ -46,20 +46,24 @@ test_that("named character lists preserve custom phase scripts", {
 
 test_that("a session executes every requested opening and closing turn", {
   captured_messages <- list()
-  runner <- function(config, messages) {
-    captured_messages[[length(captured_messages) + 1L]] <<- messages
-    paste(
+  scripted_runner <- function(experiments, ...) {
+    captured_messages <<- c(captured_messages, experiments$messages)
+    experiments$response_text <- rep(paste(
       "This scripted moderator or participant turn states one concrete point",
       "about the topic and supplies a reason for the group to consider."
-    )
+    ), nrow(experiments))
+    experiments$success <- TRUE
+    experiments
   }
+  config <- LLMR::llm_config("openai", "gpt-4o-mini")
   result <- run_focus_group(
     topic = "public transit",
-    participants = 1,
-    turns_per_phase = c(Opening = 2, Icebreaker = 2, Engagement = 1,
-                        Exploration = 1, Closing = 2),
-    conversation_flow = "round_robin",
-    runner = runner,
+    n_participants = 1,
+    guide = c(Opening = 2, Icebreaker = 2, Engagement = 1,
+              Exploration = 1, Closing = 2),
+    flow = "round_robin",
+    config = config,
+    .runner = scripted_runner,
     max_participant_responses = 1,
     verbose = FALSE
   )

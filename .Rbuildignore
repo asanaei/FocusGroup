@@ -16,6 +16,8 @@
 ^assets$
 ^demo_simple\.html$
 ^cran-comments\.md$
+^[.]gitignore$
+^[.]Rbuildignore$
 
 # Build artifacts
 ^.*\.tar\.gz$

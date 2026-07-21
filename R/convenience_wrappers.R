@@ -1,7 +1,7 @@
 #' 
 NULL
 
-# Default moderator scripts used when turns_per_phase supplies numeric counts.
+# Default moderator scripts used when guide supplies numeric counts.
 # Each public default count fits within its phase bank, so the standard session
 # does not repeat a question.
 .fg_phase_script_banks <- function(topic) {
@@ -79,16 +79,16 @@ NULL
 # Convert numeric phase counts or user-supplied phase scripts to the structure
 # consumed by FocusGroup. Numeric values select distinct defaults; character
 # vectors supply the exact ordered moderator questions or instructions.
-.fg_build_question_script <- function(turns_per_phase, topic) {
-  if (is.null(turns_per_phase)) return(list())
-  if (!(is.atomic(turns_per_phase) || is.list(turns_per_phase)) ||
-      is.data.frame(turns_per_phase)) {
-    stop("`turns_per_phase` must be a named numeric vector or named list.",
+.fg_build_question_script <- function(guide, topic) {
+  if (is.null(guide)) return(list())
+  if (!(is.atomic(guide) || is.list(guide)) ||
+      is.data.frame(guide)) {
+    stop("`guide` must be a named numeric vector or named list.",
          call. = FALSE)
   }
-  phase_names <- names(turns_per_phase)
+  phase_names <- names(guide)
   if (is.null(phase_names) || anyNA(phase_names) || any(!nzchar(phase_names))) {
-    stop("`turns_per_phase` must have non-empty phase names.", call. = FALSE)
+    stop("`guide` must have non-empty phase names.", call. = FALSE)
   }
 
   supported <- c("Opening", "Icebreaker", "Engagement", "Exploration", "Closing")
@@ -100,10 +100,10 @@ NULL
   }
   canonical <- supported[matched]
   if (anyDuplicated(canonical)) {
-    stop("Each phase may appear only once in `turns_per_phase`.", call. = FALSE)
+    stop("Each phase may appear only once in `guide`.", call. = FALSE)
   }
   if (is.unsorted(matched)) {
-    stop("Phases in `turns_per_phase` must follow the order Opening, Icebreaker, Engagement, Exploration, Closing.",
+    stop("Phases in `guide` must follow the order Opening, Icebreaker, Engagement, Exploration, Closing.",
          call. = FALSE)
   }
 
@@ -117,8 +117,8 @@ NULL
   banks <- .fg_phase_script_banks(topic)
   out <- list()
 
-  for (i in seq_along(turns_per_phase)) {
-    value <- turns_per_phase[[i]]
+  for (i in seq_along(guide)) {
+    value <- guide[[i]]
     phase <- canonical[[i]]
     scripts <- if (is.character(value)) {
       if (anyNA(value) || any(!nzchar(trimws(value)))) {
@@ -142,455 +142,320 @@ NULL
   }
 
   if (!length(out)) {
-    stop("`turns_per_phase` must specify at least one moderator turn.",
+    stop("`guide` must specify at least one moderator turn.",
          call. = FALSE)
   }
   out
 }
 
-#' Run a Simple Focus Group Simulation
+#' Run a Focus Group Simulation
 #'
-#' This is the main high-level wrapper function for running focus group simulations.
-#' It creates agents, sets up the focus group, runs the simulation, and returns
-#' a comprehensive result object.
+#' Constructs the agents, moderator guide, and turn-taking flow, then runs one
+#' focus group session. The model configuration is explicit. Before a live run,
+#' the function estimates the number of generated model outputs and applies the
+#' `max_calls` limit unless `confirm` is `TRUE`.
 #'
-#' @param topic Character string describing the focus group topic
-#' @param participants Integer number of participants (excluding moderator)
-#' @param turns_per_phase A named numeric vector or named list for the moderator
-#'   turns in each phase. Numeric values set the number of moderator turns and
-#'   draw distinct questions or instructions from the package's phase banks. In
-#'   a named list, character vectors supply the ordered scripts directly, and
-#'   their lengths set the counts. Supported names are Opening, Icebreaker,
-#'   Engagement, Exploration, and Closing, matched without regard to case.
-#'   When several phases are supplied, they must appear in that order.
-#'   Question turns may elicit several participant responses.
-#' @param demographics Optional data frame with participant demographics. If NULL,
-#'   diverse demographics will be automatically generated.
-#' @param survey_responses Optional data frame with survey responses. If NULL,
-#'   responses will be automatically generated.
-#' @param conversation_flow Character string specifying turn-taking mechanism:
-#'   "round_robin", "probabilistic", or "desire_based". Default is "desire_based".
-#' @param llm_config List with LLM configuration. If NULL, uses default configuration.
-#' @param runner `NULL` or a function `(config, messages)` returning a character
-#'   scalar or an `llmr_response`. When supplied, all participant, moderator,
-#'   desire-scoring, and summary calls use this function instead of a provider.
-#' @param seed Optional integer. Seeds R's RNG, which governs speaker selection
-#'   and other in-package sampling. It does NOT make the LLM output reproducible:
-#'   at `temperature > 0` the provider samples server-side, beyond R's control.
-#' @param msg_mode How each agent's turn is presented to the model. `"roleflip"`
-#'   (default) gives each agent its own prior turns in the assistant role and
-#'   others' turns as labeled user messages, which reduces self-repetition;
-#'   `"flat"` reproduces the legacy single-user-message transcript. Recorded per
-#'   run so the construction is explicit rather than an implicit default.
-#' @param verbose Logical, whether to print progress messages
-#' @param max_participant_responses Optional integer. Maximum participant responses
-#'   per moderator question before the moderator advances.
-#'
-#' @return A list containing:
-#'   * `focus_group`: The FocusGroup object
-#'   * `conversation`: Data frame with the full conversation
-#'   * `summary`: Conversation summary
-#'   * `basic_stats`: Basic conversation statistics
-#'   * `participants`: Information about participants
-#'
+#' @param topic Character. Focus group topic.
+#' @param config An explicit `LLMR::llm_config` used by all agents and group-level
+#'   model tasks.
+#' @param n_participants Integer. Number of participants, excluding the moderator.
+#' @param guide A named numeric vector or named list. Numeric values select that
+#'   many moderator instructions from the phase banks. Character vectors supply
+#'   the ordered instructions directly.
+#' @param demographics Optional participant demographics.
+#' @param survey_responses Optional participant survey responses.
+#' @param flow Character. One of `"round_robin"`, `"probabilistic"`, or
+#'   `"desire_based"`.
+#' @param seed Optional integer governing in-package sampling.
+#' @param message_mode Character. `"roleflip"` or `"flat"`.
+#' @param verbose Logical. Print session progress.
+#' @param max_participant_responses Optional integer maximum number of participant
+#'   responses per moderator question.
+#' @param max_calls Integer. Maximum estimated live model outputs allowed without
+#'   confirmation.
+#' @param confirm Logical. Permit a live run whose estimate exceeds `max_calls`.
+#' @param .runner Optional experiments-frame runner. It receives a data frame
+#'   with `config` and `messages` list-columns and returns those rows with at
+#'   least `response_text`.
+#' @return A `focus_group_result` with the group, transcript, summary,
+#'   participant table, token usage, and sanitized metadata.
 #' @examples
 #' \dontrun{
-#' # Simple focus group on social media
+#' cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
 #' result <- run_focus_group(
-#'   topic = "Social media impact on mental health",
-#'   participants = 6,
-#'   turns_per_phase = list(
-#'     Opening = "Welcome the group and state the ground rules.",
-#'     Icebreaker = c("What first comes to mind when you think about social media?",
-#'                    "What has your own experience been?"),
-#'     Engagement = "Where does social media enter your daily life?",
-#'     Exploration = "What trade-offs deserve closer attention?",
+#'   topic = "Library funding priorities",
+#'   config = cfg,
+#'   n_participants = 4,
+#'   guide = list(
+#'     Opening = "Welcome the participants and state the ground rules.",
+#'     Exploration = "Which funding priority deserves attention first?",
 #'     Closing = "Thank the participants and close the session."
-#'   )
+#'   ),
+#'   flow = "round_robin"
 #' )
-#'
-#' # Access the conversation
-#' head(result$conversation)
-#'
-#' # View summary
-#' result$summary
 #' }
-#'
 #' @export
-run_focus_group <- function(topic,
-                           participants = 6,
-                           turns_per_phase = c(Opening = 2, Icebreaker = 3,
-                                             Engagement = 8, Exploration = 10,
-                                             Closing = 2),
-                           demographics = NULL,
-                           survey_responses = NULL,
-                           conversation_flow = "desire_based",
-                           llm_config = NULL,
-                           runner = NULL,
-                           seed = NULL,
-                           msg_mode = c("roleflip","flat"),
-                           verbose = TRUE,
-                           max_participant_responses = NULL) {
+run_focus_group <- function(topic, config, n_participants = 6,
+                            guide = c(Opening = 2, Icebreaker = 3,
+                                      Engagement = 8, Exploration = 10,
+                                      Closing = 2),
+                            demographics = NULL, survey_responses = NULL,
+                            flow = "desire_based", seed = NULL,
+                            message_mode = c("roleflip", "flat"), verbose = TRUE,
+                            max_participant_responses = NULL, max_calls = 100L,
+                            confirm = FALSE, .runner = NULL) {
+  .fg_validate_config(config)
+  message_mode <- match.arg(message_mode)
 
-  msg_mode <- match.arg(msg_mode)
-
-  if (!is.null(seed)) {
-    if (!requireNamespace("withr", quietly = TRUE)) stop("withr is required for deterministic seeding")
-    withr::local_seed(as.integer(seed))
+  if (!is.character(topic) || length(topic) != 1L || is.na(topic) ||
+      !nzchar(trimws(topic))) {
+    stop("`topic` must be a non-empty character string.", call. = FALSE)
   }
-
-  # Validate inputs
-  if (!is.character(topic) || length(topic) != 1) {
-    stop("topic must be a single character string")
+  if (!is.numeric(n_participants) || length(n_participants) != 1L ||
+      is.na(n_participants) || n_participants < 1 ||
+      n_participants != floor(n_participants)) {
+    stop("`n_participants` must be one positive integer.", call. = FALSE)
   }
-
-  if (!is.numeric(participants) || participants < 1) {
-    stop("participants must be a positive integer")
-  }
-
+  n_participants <- as.integer(n_participants)
   flow_types <- c("round_robin", "probabilistic", "desire_based")
-  if (!conversation_flow %in% flow_types) {
-    stop("conversation_flow must be one of: ", paste(flow_types, collapse = ", "))
+  if (!is.character(flow) || length(flow) != 1L || !flow %in% flow_types) {
+    stop("`flow` must be one of: ", paste(flow_types, collapse = ", "), ".",
+         call. = FALSE)
+  }
+  if (!is.numeric(max_calls) || length(max_calls) != 1L || is.na(max_calls) ||
+      max_calls < 1 || max_calls != floor(max_calls)) {
+    stop("`max_calls` must be one positive integer.", call. = FALSE)
+  }
+  if (!is.logical(confirm) || length(confirm) != 1L || is.na(confirm)) {
+    stop("`confirm` must be `TRUE` or `FALSE`.", call. = FALSE)
+  }
+  if (!is.null(.runner) && !is.function(.runner)) {
+    stop("`.runner` must be `NULL` or a function.", call. = FALSE)
   }
 
+  response_limit <- max_participant_responses %||%
+    getOption("focusgroup.max_participant_responses", 3L)
+  if (!is.numeric(response_limit) || length(response_limit) != 1L ||
+      is.na(response_limit) || response_limit < 1 ||
+      response_limit != floor(response_limit)) {
+    stop("`max_participant_responses` must be `NULL` or one positive integer.",
+         call. = FALSE)
+  }
+  response_limit <- as.integer(response_limit)
+
+  question_script <- .fg_build_question_script(guide, topic)
+  estimate_script <- question_script
+  if (!length(estimate_script)) {
+    estimate_script <- list(
+      list(phase = "opening"),
+      list(phase = "generic_discussion", text = topic),
+      list(phase = "closing")
+    )
+  }
+  response_phases <- c(
+    "icebreaker_question", "engagement_question", "exploration_question",
+    "probing_focused", "ending_question", "generic_discussion"
+  )
+  phases <- vapply(estimate_script, `[[`, character(1), "phase")
+  question_rounds <- sum(phases %in% response_phases)
+  moderator_outputs <- length(estimate_script)
+  participant_outputs <- question_rounds * response_limit
+  desire_outputs <- if (identical(flow, "desire_based")) {
+    participant_outputs * n_participants
+  } else {
+    0L
+  }
+  estimated_calls <- as.integer(
+    moderator_outputs + participant_outputs + desire_outputs + 1L
+  )
+  if (is.null(.runner) && estimated_calls > max_calls && !confirm) {
+    stop(
+      "Estimated model outputs (", estimated_calls, ") exceed `max_calls` (",
+      as.integer(max_calls), "). Increase `max_calls` or set `confirm = TRUE` ",
+      "after reviewing the guide and flow.", call. = FALSE
+    )
+  }
+
+  if (!is.null(seed)) withr::local_seed(as.integer(seed))
   if (verbose) {
     cat("Setting up focus group simulation...\n")
     cat("Topic:", topic, "\n")
-    cat("Participants:", participants, "\n")
-    cat("Conversation flow:", conversation_flow, "\n")
+    cat("Participants:", n_participants, "\n")
+    cat("Conversation flow:", flow, "\n")
+    cat("Estimated model outputs:", estimated_calls, "\n")
   }
 
-  # Resolve the configuration before agents are built, so the returned
-  # config_meta reports the model actually used even when the caller relied on
-  # the default (create_diverse_agents() would otherwise default internally and
-  # leave config_meta with NULL provider/model).
-  if (is.null(llm_config)) llm_config <- default_llmr_config()
-
-  # Create agents
-  if (verbose) cat("Creating agents...\n")
-  agents <- create_diverse_agents(
-    n_participants = participants,
+  agents <- create_agents(
+    n_participants = n_participants,
+    config = config,
     demographics = demographics,
     survey_responses = survey_responses,
-    llm_config = llm_config,
-    runner = runner
+    .runner = .runner
   )
-
-  # Find moderator ID
-  moderator_id <- NULL
-  for (agent in agents) {
-    if (agent$is_moderator || agent$id == "MOD") {
-      moderator_id <- agent$id
-      break
-    }
+  moderator_id <- names(agents)[vapply(
+    agents, function(agent) isTRUE(agent$is_moderator), logical(1)
+  )][1]
+  if (is.na(moderator_id) || !nzchar(moderator_id)) {
+    stop("No moderator found in the agent roster.", call. = FALSE)
   }
 
-  if (is.null(moderator_id)) {
-    stop("No moderator found in agents list")
-  }
-
-  # Create conversation flow via factory
-  flow_obj <- create_conversation_flow(conversation_flow, agents, moderator_id)
-
-  question_script <- if (is.null(turns_per_phase)) {
-    list()
-  } else {
-    .fg_build_question_script(turns_per_phase, topic)
-  }
-
-  # Create focus group with purpose
-  if (verbose) cat("Setting up focus group...\n")
+  purpose <- paste("To explore perspectives and experiences related to", topic)
   fg <- FocusGroup$new(
     topic = topic,
-    purpose = paste("To explore perspectives and experiences related to", topic),
+    purpose = purpose,
     agents = agents,
     moderator_id = moderator_id,
-    turn_taking_flow = flow_obj,
+    turn_taking_flow = create_conversation_flow(flow, agents, moderator_id),
     question_script = question_script,
-    max_participant_responses = max_participant_responses
+    admin_config = config,
+    max_participant_responses = response_limit
   )
 
-  # Run simulation
-  if (verbose) cat("Running simulation...\n")
   withr::with_options(
-    list(focusgroup.msg_mode = msg_mode),
+    list(focusgroup.message_mode = message_mode),
     fg$run_simulation(verbose = verbose)
   )
 
-  # Generate summary and basic stats
-  if (verbose) cat("Generating summary and statistics...\n")
-
-  # Extract conversation data frame
-  conversation_df <- data.frame()
-  if (length(fg$conversation_log) > 0) {
-    conversation_df <- do.call(rbind, lapply(fg$conversation_log, function(x) {
-      data.frame(
-        turn = x$turn,
-        speaker_id = x$speaker_id,
-        is_moderator = x$is_moderator,
-        text = x$text,
-        phase = x$phase,
-        response_id = x$response_id,
-        finish_reason = x$finish_reason,
-        sent_tokens = x$sent_tokens,
-        rec_tokens = x$rec_tokens,
-        total_tokens = x$total_tokens,
-        duration_s = x$duration_s,
-        provider = x$provider,
-        model = x$model,
-        timestamp = x$timestamp,
-        stringsAsFactors = FALSE
-      )
-    }))
-  }
-
-  summary_result <- if (length(fg$conversation_log) > 0) {
-    fg$final_summary %||% fg$summarize(summary_level = 1)
-  } else {
-    "No conversation to summarize"
-  }
-
-  basic_stats <- fg$analyze()
-
-  # Return comprehensive result
-  result <- list(
+  result <- .fg_focus_group_result(
     focus_group = fg,
-    conversation = conversation_df,
-    summary = summary_result,
-    basic_stats = basic_stats,
-    msg_mode = msg_mode,                                  # back-compat top-level
-    config_meta = list(provider = llm_config$provider,    # parity with fg_quick()
-                       model = llm_config$model,
-                       msg_mode = msg_mode),
-    participants = lapply(fg$agents, function(agent) {
-      list(
-        id = agent$id,
-        is_moderator = agent$is_moderator,
-        persona = agent$persona_description,
-        demographics = agent$demographics,
-        survey_responses = agent$survey_responses
-      )
-    })
+    flow = flow,
+    message_mode = message_mode,
+    n_participants = n_participants,
+    estimated_calls = estimated_calls
   )
 
-  if (verbose) cat("Simulation complete!\n")
-
-  return(result)
+  if (verbose) cat("Simulation complete.\n")
+  result
 }
 
-#' Run a focus group quickly with sensible defaults and cost controls
-#'
-#' Quick focus group runner with safe defaults and cost controls
-#'
-#' Creates agents, a compact script, runs the simulation, and returns a structured result.
-#'
-#' @param topic Character. Focus group topic.
-#' @param participants Integer. Number of participants (excluding moderator). Default 6.
-#' @param flow Character. Turn-taking flow: one of "desire_based", "round_robin", "probabilistic".
-#' @param llm_config Optional `LLMR::llm_config`. If `NULL`, uses OpenAI gpt-4o-mini with small caps.
-#' @param runner `NULL` or a function `(config, messages)` returning a character
-#'   scalar or an `llmr_response`. When supplied, the session runs without live
-#'   provider calls.
-#' @param seed Optional integer. Seeds R's RNG (speaker selection and other
-#'   in-package sampling); it does NOT make the LLM output reproducible, since at
-#'   `temperature > 0` the provider samples server-side.
-#' @param msg_mode How each agent's turn is presented to the model. `"roleflip"`
-#'   (default) puts the agent's own prior turns in the assistant role and others'
-#'   in labeled user messages (reduces self-repetition); `"flat"` is the legacy
-#'   single-user-message transcript.
-#' @param verbose Logical. Print progress.
-#' @param max_participant_responses Optional integer. Maximum participant responses
-#'   per moderator question before the moderator advances.
-#'
-#' @return A list with elements: `transcript` (data frame), `summary` (character), `participants` (list),
-#'   `totals` (list), `config_meta` (list), and `focus_group` (the `FocusGroup` object).
-#'
-#' @examples
-#' scripted_runner <- function(config, messages) {
-#'   paste(
-#'     "This scripted response records a concrete position on library funding",
-#'     "and gives a reason that the group can examine."
-#'   )
-#' }
-#' offline <- fg_quick(
-#'   "Library funding priorities",
-#'   participants = 1,
-#'   flow = "round_robin",
-#'   runner = scripted_runner,
-#'   max_participant_responses = 1,
-#'   verbose = FALSE
-#' )
-#' offline$focus_group$analyze()$speaker_stats
-#'
-#' \dontrun{
-#' Sys.setenv(OPENAI_API_KEY = "...")
-#' res <- fg_quick("Library funding priorities", participants = 4)
-#' head(res$transcript)
-#' cat(res$summary)
-#' }
-#' @export
-fg_quick <- function(topic,
-                     participants = 6,
-                     flow = c("desire_based","round_robin","probabilistic"),
-                     llm_config = NULL,
-                     runner = NULL,
-                     seed = NULL,
-                     msg_mode = c("roleflip","flat"),
-                     verbose = TRUE,
-                     max_participant_responses = NULL) {
-
-  flow <- match.arg(flow)
-  msg_mode <- match.arg(msg_mode)
-
-  if (!is.null(seed)) {
-    if (!requireNamespace("withr", quietly = TRUE)) stop("withr is required for deterministic seeding")
-    withr::local_seed(as.integer(seed))
+.fg_validate_config <- function(config) {
+  if (missing(config) || is.null(config) || !inherits(config, "llm_config")) {
+    stop("`config` must be an explicit `llm_config` object.", call. = FALSE)
   }
-
-  if (is.null(llm_config)) llm_config <- default_llmr_config()
-
-  agents <- create_diverse_agents(
-    n_participants = participants,
-    demographics = NULL,
-    survey_responses = NULL,
-    llm_config = llm_config,
-    runner = runner
-  )
-  moderator_id <- "MOD"
-
-  # Build compact script
-  script <- list(
-    list(phase = "opening"),
-    list(phase = "engagement_question", text = paste0("From your perspective, what matters most about ", topic, " in the next year?")),
-    list(phase = "engagement_question", text = paste0("What recent experience shaped your view on ", topic, "?")),
-    list(phase = "exploration_question", text = paste0("What are the trade-offs or tensions around ", topic, "?")),
-    list(phase = "exploration_question", text = paste0("Where do you see common ground or division on ", topic, "?")),
-    list(phase = "exploration_question", text = paste0("What would change your mind on any part of ", topic, "?")),
-    list(phase = "closing")
-  )
-
-  flow_obj <- create_conversation_flow(flow, agents, moderator_id)
-
-  fg <- FocusGroup$new(
-    topic = topic,
-    purpose = paste("Explore perspectives and practical implications related to", topic),
-    agents = agents,
-    moderator_id = moderator_id,
-    turn_taking_flow = flow_obj,
-    question_script = script,
-    max_participant_responses = max_participant_responses
-  )
-
-  withr::with_options(
-    list(focusgroup.msg_mode = msg_mode),
-    fg$run_simulation(verbose = verbose)
-  )
-
-  conversation_df <- if (length(fg$conversation_log)) do.call(rbind, lapply(fg$conversation_log, function(x) {
-    data.frame(
-      turn = x$turn,
-      speaker_id = x$speaker_id,
-      is_moderator = x$is_moderator,
-      text = x$text,
-      phase = x$phase,
-      response_id = x$response_id,
-      finish_reason = x$finish_reason,
-      sent_tokens = x$sent_tokens,
-      rec_tokens = x$rec_tokens,
-      total_tokens = x$total_tokens,
-      duration_s = x$duration_s,
-      provider = x$provider,
-      model = x$model,
-      timestamp = x$timestamp,
-      stringsAsFactors = FALSE
-    )
-  })) else data.frame()
-
-  list(
-    transcript = conversation_df,
-    summary = fg$final_summary %||% fg$summarize(summary_level = 1),
-    participants = lapply(fg$agents, function(a) list(id = a$id, persona = a$persona_description)),
-    totals = list(total_tokens_in = fg$total_tokens_sent, total_tokens_out = fg$total_tokens_received, total_turns = length(fg$conversation_log)),
-    config_meta = list(provider = llm_config$provider, model = llm_config$model,
-                       msg_mode = msg_mode),
-    focus_group = fg
-  )
+  invisible(config)
 }
 
-#' Quick analysis helper for a `fg_quick()` result
-#'
-#' @param res The object returned by `fg_quick()` (or a `FocusGroup` object).
-#'
-#' @return A list with `basic_stats` and `short_summary`.
-#'
-#' @examples
-#' \dontrun{
-#' out <- fg_quick("Community safety concerns", participants = 3)
-#' quick <- fg_analyze_quick(out)
-#' quick$basic_stats
-#' }
-#' @export
-fg_analyze_quick <- function(res) {
-  fg <- if (inherits(res, "FocusGroup")) res else res$focus_group
-  
-  # Basic conversation statistics. The empty branch mirrors the field names of
-  # the populated branch so callers can index the result either way.
-  conv_log <- fg$conversation_log
-  if (length(conv_log) == 0) {
-    return(list(
-      basic_stats = list(
-        total_messages = 0L,
-        participant_count = 0L,
-        avg_message_length = NA_real_,
-        total_tokens = 0L
-      ),
-      short_summary = "Empty conversation"
-    ))
+.fg_transcript_data <- function(log) {
+  out <- data.frame(
+    message_id = integer(), round = integer(), speaker_id = character(),
+    is_moderator = logical(), text = character(), phase = character(),
+    response_id = character(), finish_reason = character(),
+    sent_tokens = integer(), rec_tokens = integer(), total_tokens = integer(),
+    duration_s = double(), provider = character(), model = character(),
+    timestamp = as.POSIXct(character()), stringsAsFactors = FALSE
+  )
+  out$metadata <- I(list())
+  if (!length(log)) return(out)
+
+  scalar <- function(x, default) {
+    value <- x %||% default
+    if (!length(value) || is.na(value[[1]])) default else value[[1]]
   }
-  
-  # Extract basic stats
-  total_messages <- length(conv_log)
-  participants <- unique(sapply(conv_log, function(x) if (is.null(x$speaker_id)) "Unknown" else x$speaker_id))
-  participants <- participants[participants != fg$moderator_id]
-  
-  basic_stats <- list(
-    total_messages = total_messages,
-    participant_count = length(participants),
-    avg_message_length = mean(sapply(conv_log, function(x) nchar(if (is.null(x$text)) "" else x$text)), na.rm = TRUE),
-    total_tokens = sum(sapply(conv_log, function(x) (if (is.null(x$sent_tokens)) 0 else x$sent_tokens) +
-                                       (if (is.null(x$rec_tokens)) 0 else x$rec_tokens)), na.rm = TRUE)
+  out <- data.frame(
+    message_id = vapply(log, function(x) as.integer(scalar(x$message_id, NA_integer_)), integer(1)),
+    round = vapply(log, function(x) as.integer(scalar(x$round, NA_integer_)), integer(1)),
+    speaker_id = vapply(log, function(x) as.character(scalar(x$speaker_id, "")), character(1)),
+    is_moderator = vapply(log, function(x) isTRUE(x$is_moderator), logical(1)),
+    text = vapply(log, function(x) as.character(scalar(x$text, "")), character(1)),
+    phase = vapply(log, function(x) as.character(scalar(x$phase, "unknown")), character(1)),
+    response_id = vapply(log, function(x) as.character(scalar(x$response_id, NA_character_)), character(1)),
+    finish_reason = vapply(log, function(x) as.character(scalar(x$finish_reason, NA_character_)), character(1)),
+    sent_tokens = vapply(log, function(x) as.integer(scalar(x$sent_tokens, NA_integer_)), integer(1)),
+    rec_tokens = vapply(log, function(x) as.integer(scalar(x$rec_tokens, NA_integer_)), integer(1)),
+    total_tokens = vapply(log, function(x) as.integer(scalar(x$total_tokens, NA_integer_)), integer(1)),
+    duration_s = vapply(log, function(x) as.numeric(scalar(x$duration_s, NA_real_)), numeric(1)),
+    provider = vapply(log, function(x) as.character(scalar(x$provider, NA_character_)), character(1)),
+    model = vapply(log, function(x) as.character(scalar(x$model, NA_character_)), character(1)),
+    timestamp = as.POSIXct(vapply(
+      log, function(x) as.numeric(scalar(x$timestamp, as.POSIXct(NA))), numeric(1)
+    ), origin = "1970-01-01"),
+    stringsAsFactors = FALSE
   )
-  
-  out <- list(
-    basic_stats = basic_stats
-  )
-  out$short_summary <- fg$summarize(summary_level = 3, max_tokens = 250)
+  out$metadata <- I(lapply(log, function(x) x$metadata %||% list()))
   out
 }
 
-#' Create Diverse AI Agents for Focus Group
+.fg_participant_data <- function(agents) {
+  out <- data.frame(
+    id = vapply(agents, function(agent) agent$id, character(1)),
+    role = vapply(agents, function(agent) agent$role %||%
+                    if (isTRUE(agent$is_moderator)) "moderator" else "participant",
+                  character(1)),
+    is_moderator = vapply(agents, function(agent) isTRUE(agent$is_moderator), logical(1)),
+    persona = vapply(agents, function(agent) agent$persona_description, character(1)),
+    stringsAsFactors = FALSE
+  )
+  out$demographics <- I(lapply(agents, function(agent) agent$demographics %||% list()))
+  out$survey_responses <- I(lapply(agents, function(agent) agent$survey_responses %||% list()))
+  out$provider <- vapply(agents, function(agent)
+    agent$config$provider %||% NA_character_, character(1))
+  out$model <- vapply(agents, function(agent)
+    agent$config$model %||% NA_character_, character(1))
+  out[c("id", "role", "is_moderator", "persona", "demographics",
+        "survey_responses", "provider", "model")]
+}
+
+.fg_focus_group_result <- function(focus_group, flow, message_mode,
+                                   n_participants, estimated_calls) {
+  transcript <- .fg_transcript_data(focus_group$conversation_log)
+  participant_data <- .fg_participant_data(focus_group$agents)
+  sent <- .fg_tok0(focus_group$total_tokens_sent)
+  rec <- .fg_tok0(focus_group$total_tokens_received)
+  moderator_config <- focus_group$agents[[focus_group$moderator_id]]$config
+  structure(
+    list(
+      focus_group = focus_group,
+      transcript = transcript,
+      summary = focus_group$final_summary %||% character(),
+      participants = participant_data,
+      usage = list(sent = sent, rec = rec, total = sent + rec),
+      metadata = list(
+        topic = focus_group$topic,
+        purpose = focus_group$purpose,
+        flow = flow,
+        message_mode = message_mode,
+        n_participants = as.integer(n_participants),
+        estimated_calls = as.integer(estimated_calls),
+        provider = moderator_config$provider %||% NA_character_,
+        model = moderator_config$model %||% NA_character_
+      )
+    ),
+    class = c("focus_group_result", "list")
+  )
+}
+
+#' @export
+print.focus_group_result <- function(x, ...) {
+  cat("<focus_group_result>\n")
+  cat("Topic: ", x$metadata$topic, "\n", sep = "")
+  cat("Participants: ", x$metadata$n_participants,
+      " | Messages: ", nrow(x$transcript),
+      " | Tokens: ", x$usage$total, "\n", sep = "")
+  invisible(x)
+}
+
+#' Create Focus Group Agents
 #'
-#' Creates a diverse set of AI agents with varied demographics and personas
-#' for use in focus group simulations.
+#' Creates participant agents from supplied records, direct personas, or
+#' generated profiles, and adds a moderator.
 #'
 #' @param n_participants Integer number of participants to create
+#' @param config An explicit `LLMR::llm_config` for all agents.
 #' @param demographics Optional data frame with demographics. If NULL, generates diverse demographics.
 #' @param survey_responses Optional data frame with survey responses. If NULL, generates responses.
-#' @param llm_config List with LLM configuration parameters
-#' @param runner `NULL` or a function `(config, messages)` returning a character
-#'   scalar or an `llmr_response`. The function is stored on every agent.
 #' @param direct_persona_descriptions Optional character vector of pre-rendered
 #'   participant personas. When supplied, these descriptions are used directly
 #'   and are recycled in order if necessary. Demographics and survey responses
 #'   remain attached as raw reporting fields.
+#' @param .runner Optional experiments-frame runner stored on every agent.
 #'
 #' @return A named list of FGAgent objects (participants + 1 moderator), keyed
 #'   by agent ID.
 #'
 #' @examples
 #' \dontrun{
-#' # Create 6 diverse participants
-#' agents <- create_diverse_agents(6)
+#' cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+#' agents <- create_agents(6, config = cfg)
 #'
 #' # Create with custom demographics
 #' demo_data <- data.frame(
@@ -598,19 +463,19 @@ fg_analyze_quick <- function(res) {
 #'   gender = c("Female", "Male", "Male", "Female", "Male", "Female"),
 #'   education = c("Bachelor's", "Master's", "High School", "PhD", "Some College", "Bachelor's")
 #' )
-#' agents <- create_diverse_agents(6, demographics = demo_data)
+#' agents <- create_agents(6, config = cfg, demographics = demo_data)
 #' }
 #'
 #' @export
-create_diverse_agents <- function(n_participants,
-                                 demographics = NULL,
-                                 survey_responses = NULL,
-                                 llm_config = NULL,
-                                 runner = NULL,
-                                 direct_persona_descriptions = NULL) {
+create_agents <- function(n_participants, config, demographics = NULL,
+                          survey_responses = NULL,
+                          direct_persona_descriptions = NULL, .runner = NULL) {
+
+  .fg_validate_config(config)
 
   if (!is.numeric(n_participants) || length(n_participants) != 1L ||
-      is.na(n_participants) || n_participants < 1) {
+      is.na(n_participants) || n_participants < 1 ||
+      n_participants != floor(n_participants)) {
     stop("`n_participants` must be a single positive integer.", call. = FALSE)
   }
   n_participants <- as.integer(n_participants)
@@ -634,9 +499,6 @@ create_diverse_agents <- function(n_participants,
   if (is.null(survey_responses) && is.null(direct_persona_descriptions)) {
     survey_responses <- generate_survey_responses(n_participants)
   }
-
-  # Default LLM config
-  if (is.null(llm_config)) llm_config <- default_llmr_config()
 
   # A data.frame with fewer rows than participants is recycled by row, openly.
   # (Without this, the is.list() branch below would treat the frame as a list
@@ -706,9 +568,9 @@ create_diverse_agents <- function(n_participants,
         demographics = agent_demographics,
         survey_responses = agent_survey
       ),
-      llm_config = llm_config,
+      config = config,
       is_moderator = FALSE,
-      runner = runner
+      .runner = .runner
     )
   }
 
@@ -721,9 +583,9 @@ create_diverse_agents <- function(n_participants,
       direct_persona_description = moderator_persona,
       demographics = list(role = "professional_moderator")
     ),
-    llm_config = llm_config,
+    config = config,
     is_moderator = TRUE,
-    runner = runner
+    .runner = .runner
   )
 
   return(agents)
@@ -731,119 +593,180 @@ create_diverse_agents <- function(n_participants,
 
 #' Analyze Focus Group Results
 #'
-#' Runs topic modeling, term-frequency, readability, and thematic analysis on
-#' focus group results, with basic conversation statistics.
+#' Runs descriptive analyses offline. Thematic analysis and a model-generated
+#' summary are opt-in and run only when `config` is supplied.
 #'
-#' @param focus_group_result Either a FocusGroup object or the result from run_focus_group()
-#' @param num_topics Integer number of topics for topic modeling (default: 5)
-#' @param include_plots Logical, whether to generate plots (default: TRUE)
-#'
-#' @return A list with `basic_stats`, `topics`, `tfidf`, `readability`, `themes`,
-#'   and (when `include_plots = TRUE`) `plots`.
+#' @param focus_group_result A `FocusGroup` object or `focus_group_result`.
+#' @param num_topics Integer number of topics for topic modeling.
+#' @param include_plots Logical. Attempt the four descriptive plots.
+#' @param config Optional explicit `LLMR::llm_config`. When supplied, thematic
+#'   analysis and a model summary are generated.
+#' @param .runner Optional experiments-frame runner for the two model analyses.
+#' @return A `focus_group_analysis` with fixed fields and an `issues` table.
 #'
 #' @examples
-#' \dontrun{
-#' # Run focus group and analyze
-#' result <- run_focus_group("Climate change perceptions", participants = 8)
-#' analysis <- analyze_focus_group(result, num_topics = 4)
-#'
-#' # View topic analysis
-#' analysis$topics
-#'
-#' # View the readability table
-#' analysis$readability
-#' }
-#'
+#' transcript <- data.frame(
+#'   speaker = c("Moderator", "P1", "P2"),
+#'   text = c("What matters most?", "Cost matters.", "Access matters.")
+#' )
+#' fg <- focus_group_from_transcript(transcript)
+#' analysis <- analyze_focus_group(fg, include_plots = FALSE)
+#' analysis$basic_stats$speaker_stats
 #' @export
 analyze_focus_group <- function(focus_group_result,
-                               num_topics = 5,
-                               include_plots = TRUE) {
-
-  # Extract FocusGroup object
+                                num_topics = 5,
+                                include_plots = TRUE,
+                                config = NULL,
+                                .runner = NULL) {
   if (inherits(focus_group_result, "FocusGroup")) {
     fg <- focus_group_result
-  } else if (is.list(focus_group_result) && "focus_group" %in% names(focus_group_result)) {
+  } else if (inherits(focus_group_result, "focus_group_result")) {
     fg <- focus_group_result$focus_group
   } else {
-    stop("focus_group_result must be a FocusGroup object or result from run_focus_group()")
+    stop("`focus_group_result` must be a FocusGroup or focus_group_result.",
+         call. = FALSE)
+  }
+  if (!inherits(fg, "FocusGroup")) {
+    stop("`focus_group_result$focus_group` must be a FocusGroup object.",
+         call. = FALSE)
+  }
+  if (!length(fg$conversation_log)) {
+    stop("No conversation data found.", call. = FALSE)
+  }
+  if (!is.numeric(num_topics) || length(num_topics) != 1L ||
+      is.na(num_topics) || num_topics < 1 || num_topics != floor(num_topics)) {
+    stop("`num_topics` must be one positive integer.", call. = FALSE)
+  }
+  if (!is.logical(include_plots) || length(include_plots) != 1L ||
+      is.na(include_plots)) {
+    stop("`include_plots` must be `TRUE` or `FALSE`.", call. = FALSE)
+  }
+  if (!is.null(config)) .fg_validate_config(config)
+  if (!is.null(.runner) && !is.function(.runner)) {
+    stop("`.runner` must be `NULL` or a function.", call. = FALSE)
   }
 
-  if (length(fg$conversation_log) == 0) {
-    stop("No conversation data found. Run simulation first.")
+  issues <- dplyr::tibble(component = character(), reason = character())
+  add_issue <- function(component, reason) {
+    issues <<- dplyr::bind_rows(
+      issues,
+      dplyr::tibble(component = as.character(component),
+                    reason = as.character(reason))
+    )
+  }
+  capture_component <- function(component, code, empty) {
+    warnings <- character()
+    failure <- NULL
+    value <- tryCatch(
+      withCallingHandlers(
+        code(),
+        warning = function(w) {
+          warnings <<- c(warnings, conditionMessage(w))
+          invokeRestart("muffleWarning")
+        }
+      ),
+      error = function(e) {
+        failure <<- conditionMessage(e)
+        NULL
+      }
+    )
+    if (length(warnings)) {
+      for (reason in unique(warnings)) add_issue(component, reason)
+    }
+    if (!is.null(failure)) {
+      add_issue(component, failure)
+      return(empty)
+    }
+    if (is.null(value)) {
+      if (!length(warnings)) add_issue(component, "Analysis returned no result.")
+      return(empty)
+    }
+    value
   }
 
-  cat("Performing comprehensive analysis...\n")
-
-  # Basic statistics
-  basic_stats <- fg$analyze()
-
-  # Topic analysis
-  cat("Analyzing topics...\n")
-  topics <- tryCatch(
-    fg$analyze_topics(num_topics = num_topics),
-    error = function(e) {
-      cat("Topic analysis failed:", e$message, "\n")
-      NULL
-    }
+  empty_basic <- list(
+    speaker_stats = dplyr::tibble(
+      speaker_id = character(), utterance_count = integer(),
+      total_words = integer(), avg_words_per_utterance = double()
+    ),
+    full_transcript = character()
   )
-
-  # TF-IDF analysis
-  cat("Performing TF-IDF analysis...\n")
-  tfidf <- tryCatch(
-    fg$analyze_tfidf(),
-    error = function(e) {
-      cat("TF-IDF analysis failed:", e$message, "\n")
-      NULL
-    }
+  basic_stats <- capture_component("basic_stats", function() fg$analyze(),
+                                   empty_basic)
+  topics <- capture_component(
+    "topics", function() fg$analyze_topics(num_topics = as.integer(num_topics)),
+    list()
   )
-
-  # Readability analysis
-  cat("Analyzing readability...\n")
-  readability <- tryCatch(
-    fg$analyze_readability(),
-    error = function(e) {
-      cat("Readability analysis failed:", e$message, "\n")
-      NULL
-    }
+  empty_tfidf <- dplyr::tibble(
+    speaker_id = character(), term = character(), tf_idf = double()
   )
-
-  # Thematic analysis
-  cat("Performing thematic analysis...\n")
-  themes <- tryCatch(
-    fg$analyze_themes(),
-    error = function(e) {
-      cat("Thematic analysis failed:", e$message, "\n")
-      NULL
-    }
+  tfidf <- capture_component(
+    "tfidf", function() fg$analyze_tfidf(),
+    empty_tfidf
   )
+  if (!is.data.frame(tfidf) || !nrow(tfidf)) tfidf <- empty_tfidf
 
-  analysis_result <- list(
-    basic_stats = basic_stats,
-    topics = topics,
-    tfidf = tfidf,
-    readability = readability,
-    themes = themes
+  empty_readability <- dplyr::tibble(speaker_id = character())
+  readability <- capture_component(
+    "readability", function() fg$analyze_readability(),
+    empty_readability
   )
+  if (!is.data.frame(readability) || !nrow(readability)) {
+    readability <- empty_readability
+  }
 
-  # Generate plots if requested (ggplot2 is a Suggests; skip with a message
-  # when it is not installed rather than failing the whole analysis)
+  themes <- character()
+  model_summary <- character()
+  if (!is.null(config)) {
+    themes <- fg$analyze_themes(config = config, .runner = .runner)
+    model_summary <- fg$summarize(config = config, .runner = .runner)
+  }
+
+  plots <- list()
   if (include_plots) {
     if (requireNamespace("ggplot2", quietly = TRUE)) {
-      cat("Generating visualizations...\n")
-      plots <- list(
-        participation_timeline = fg$plot_participation_timeline(),
-        word_count_distribution = fg$plot_word_count_distribution(),
-        participation_by_agent = fg$plot_participation_by_agent(),
-        turn_length_timeline = fg$plot_turn_length_timeline()
+      plot_calls <- list(
+        participation_timeline = function() fg$plot_participation_timeline(),
+        word_count_distribution = function() fg$plot_word_count_distribution(),
+        participation_by_agent = function() fg$plot_participation_by_agent(),
+        message_length_timeline = function() fg$plot_message_length_timeline()
       )
-      analysis_result$plots <- plots
+      for (component in names(plot_calls)) {
+        value <- capture_component(
+          paste0("plots.", component), plot_calls[[component]], NULL
+        )
+        if (!is.null(value)) plots[[component]] <- value
+      }
     } else {
-      message("Package 'ggplot2' is not installed; skipping plots.")
+      add_issue("plots", "Package 'ggplot2' is not installed.")
     }
   }
 
-  cat("Analysis complete!\n")
-  return(analysis_result)
+  structure(
+    list(
+      basic_stats = basic_stats,
+      topics = topics,
+      tfidf = tfidf,
+      readability = readability,
+      themes = themes,
+      model_summary = model_summary,
+      plots = plots,
+      issues = issues
+    ),
+    class = c("focus_group_analysis", "list")
+  )
+}
+
+#' @export
+print.focus_group_analysis <- function(x, ...) {
+  cat("<focus_group_analysis>\n")
+  cat("Speakers: ", nrow(x$basic_stats$speaker_stats),
+      " | Topics: ", length(x$topics),
+      " | Issues: ", nrow(x$issues), "\n", sep = "")
+  cat("Model analysis: ",
+      if (length(x$themes) || length(x$model_summary)) "included" else "not requested",
+      "\n", sep = "")
+  invisible(x)
 }
 
 #' Generate Diverse Demographics
@@ -1023,9 +946,9 @@ generate_persona <- function(demographics, survey_responses = NULL,
 # Shared core: given a decoded demographics frame and survey-responses frame
 # (already row-aligned, same nrow), select rows and build agents.
 .fg_agents_from_frames <- function(demo_df, survey_df, n_participants,
-                                   llm_config, rows = NULL, weights = NULL,
-                                   runner = NULL,
-                                   direct_persona_descriptions = NULL) {
+                                   config, rows = NULL, weights = NULL,
+                                   direct_persona_descriptions = NULL,
+                                   .runner = NULL) {
   N <- nrow(demo_df)
   if (!is.null(direct_persona_descriptions) &&
       length(direct_persona_descriptions) != N) {
@@ -1067,13 +990,13 @@ generate_persona <- function(demographics, survey_responses = NULL,
     NULL
   }
 
-  create_diverse_agents(
+  create_agents(
     n_participants = n_participants,
+    config = config,
     demographics = demo_sample,
     survey_responses = survey_sample,
-    llm_config = llm_config,
-    runner = runner,
-    direct_persona_descriptions = persona_sample
+    direct_persona_descriptions = persona_sample,
+    .runner = .runner
   )
 }
 
@@ -1092,6 +1015,7 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'
 #' @param n_participants Integer number of participants (excludes the moderator).
 #' @param survey_path Path to the survey file (`.dta`, `.sav`, or `.sas7bdat`).
+#' @param config An explicit `LLMR::llm_config` for all agents.
 #' @param demographic_vars Variable names (codes) to render as demographics.
 #'   May be a named vector, in which case the names are shown as the field
 #'   labels. If `NULL`, common demographic variables are auto-detected by their
@@ -1108,9 +1032,7 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' @param na_strings Character vector of value-label substrings treated as
 #'   missing (case-insensitive). Defaults to a small common set; pass your own to
 #'   match another file's missing-data vocabulary.
-#' @param llm_config Optional `LLMR::llm_config` for all agents.
-#' @param runner `NULL` or a function `(config, messages)` returning a character
-#'   scalar or an `llmr_response`. The function is stored on every agent.
+#' @param .runner Optional experiments-frame runner stored on every agent.
 #'
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID.
@@ -1121,6 +1043,7 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' agents <- create_agents_from_survey(
 #'   n_participants = 6,
 #'   survey_path = "anes_timeseries_2024_stata.dta",
+#'   config = LLMR::llm_config("openai", "gpt-4o-mini"),
 #'   demographic_vars = c(age = "V241458x", education = "V241465x"),
 #'   survey_vars = c("Party identification" = "V241227x",
 #'                   "Ideology" = "V241177"),
@@ -1130,15 +1053,15 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' @export
 create_agents_from_survey <- function(n_participants,
                                       survey_path,
+                                      config,
                                       demographic_vars = NULL,
                                       survey_vars = NULL,
                                       rows = NULL,
                                       weights = NULL,
                                       na_strings = .fg_default_na_strings,
-                                      llm_config = NULL,
-                                      runner = NULL) {
+                                      .runner = NULL) {
+  .fg_validate_config(config)
   if (!file.exists(survey_path)) stop("Survey file not found at: ", survey_path)
-  if (is.null(llm_config)) llm_config <- default_llmr_config()
 
   ext <- tolower(tools::file_ext(survey_path))
   raw_lab <- switch(ext,
@@ -1198,8 +1121,10 @@ create_agents_from_survey <- function(n_participants,
   if (!is.null(survey_df)) survey_df <- survey_df[keep, , drop = FALSE]
   if (!is.null(weights_vec) && length(weights_vec) == length(keep)) weights_vec <- weights_vec[keep]
 
-  .fg_agents_from_frames(demo_df, survey_df, n_participants, llm_config,
-                         rows = rows, weights = weights_vec, runner = runner)
+  .fg_agents_from_frames(
+    demo_df, survey_df, n_participants, config,
+    rows = rows, weights = weights_vec, .runner = .runner
+  )
 }
 
 #' Create agents from an in-memory data frame of respondents
@@ -1219,28 +1144,29 @@ create_agents_from_survey <- function(n_participants,
 #'
 #' @param data A data frame, one respondent per row.
 #' @param n_participants Integer number of participants (excludes the moderator).
+#' @param config An explicit `LLMR::llm_config` for all agents.
 #' @param demographic_cols Character vector of columns to render as demographics.
 #'   Defaults to the `data`'s `"demographic_fields"` attribute when present, else
 #'   a small set of common demographic column names found in `data`.
 #' @param rows,weights See [create_agents_from_survey()].
-#' @param llm_config Optional `LLMR::llm_config` for all agents.
-#' @param runner `NULL` or a function `(config, messages)` returning a character
-#'   scalar or an `llmr_response`. The function is stored on every agent.
+#' @param .runner Optional experiments-frame runner stored on every agent.
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID.
 #' @examples
 #' \dontrun{
 #' data(anes_2024_personas, package = "LLMR")
-#' agents <- create_agents_from_data(anes_2024_personas, n_participants = 6)
+#' cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+#' agents <- create_agents_from_data(
+#'   anes_2024_personas, n_participants = 6, config = cfg
+#' )
 #' }
 #' @export
-create_agents_from_data <- function(data, n_participants,
+create_agents_from_data <- function(data, n_participants, config,
                                     demographic_cols = NULL,
                                     rows = NULL, weights = NULL,
-                                    llm_config = NULL,
-                                    runner = NULL) {
+                                    .runner = NULL) {
   stopifnot(is.data.frame(data))
-  if (is.null(llm_config)) llm_config <- default_llmr_config()
+  .fg_validate_config(config)
 
   is_silicon_panel <- inherits(data, "silicon_panel") ||
     all(c("persona", "persona_id") %in% names(data))
@@ -1301,9 +1227,12 @@ create_agents_from_data <- function(data, n_participants,
     suppressWarnings(as.numeric(data[[weights]]))
   } else weights
 
-  .fg_agents_from_frames(demo_df, survey_df, n_participants, llm_config,
-                         rows = rows, weights = wv, runner = runner,
-                         direct_persona_descriptions = direct_personas)
+  .fg_agents_from_frames(
+    demo_df, survey_df, n_participants, config,
+    rows = rows, weights = wv,
+    direct_persona_descriptions = direct_personas,
+    .runner = .runner
+  )
 }
 
  

@@ -11,7 +11,7 @@ different phases and actions within the simulation."><meta property="og:image" c
 
     <a class="navbar-brand me-2" href="../index.html">FocusGroup</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -21,6 +21,7 @@ different phases and actions within the simulation."><meta property="og:image" c
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
+<li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><a class="external-link nav-link" href="https://github.com/asanaei/FocusGroup" aria-label="GitHub repository"><span class="fa fa-github"></span></a></li>
       </ul></div>
 
@@ -56,34 +57,49 @@ different phases and actions within the simulation.</p>
     <p>Users can retrieve this list, modify specific templates, and then pass the modified list
 to `FocusGroup$new()` or higher-level wrapper functions to customize the simulation's prompts.</p>
     </div>
+    <div class="section level2">
+    <h2 id="participant-templates-and-message-construction">Participant templates and message construction<a class="anchor" aria-label="anchor" href="#participant-templates-and-message-construction"></a></h2>
+
+
+<p>Two participant templates ship here, and which one is used depends on the
+message construction (see the `message_mode` argument of
+[run_focus_group()], or `options(focusgroup.message_mode=)`).</p><ul><li><p>`participant_turn_instruction` is the canonical template for the
+    default role-flipped construction. It carries only the current question and
+    the turn cue, because the persona, standing rules, and the transcript are
+    supplied structurally (a system message plus role-separated turns).</p></li>
+<li><p>`participant_utterance_subtle_persona` is the flat template. It
+    inlines the persona and the whole
+    transcript into one user message. A custom template that contains
+    `{{conversation_history}}` or `{{persona_description}}` is treated as a
+    flat template and routed through the flat path.</p></li>
+</ul></div>
 
     <div class="section level2">
     <h2 id="ref-examples">Examples<a class="anchor" aria-label="anchor" href="#ref-examples"></a></h2>
     <div class="sourceCode"><pre class="sourceCode r"><code><span class="r-in"><span><span class="va">default_prompts</span> <span class="op">&lt;-</span> <span class="fu">get_default_prompt_templates</span><span class="op">(</span><span class="op">)</span></span></span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="fu"><a href="https://rdrr.io/r/base/names.html" class="external-link">names</a></span><span class="op">(</span><span class="va">default_prompts</span><span class="op">)</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span>  [1] "participant_utterance_subtle_persona"</span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [2] "participant_desire_to_talk_nuanced"  </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [3] "moderator_opening"                   </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [4] "moderator_icebreaker_question"       </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [5] "moderator_engagement_question"       </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [6] "moderator_exploration_question"      </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [7] "moderator_probing_focused"           </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [8] "moderator_summarizing"               </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span>  [9] "moderator_transition"                </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [10] "moderator_manage_participation"      </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [11] "moderator_ending_question"           </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [12] "moderator_closing"                   </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [13] "moderator_generic_utterance"         </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [14] "suggest_questions_prompt"            </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [15] "generate_persona_prompt"             </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [2] "participant_turn_instruction"        </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [3] "participant_desire_instruction"      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [4] "participant_desire_to_talk_nuanced"  </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [5] "moderator_opening"                   </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [6] "moderator_icebreaker_question"       </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [7] "moderator_engagement_question"       </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [8] "moderator_exploration_question"      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span>  [9] "moderator_probing_focused"           </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [10] "moderator_summarizing"               </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [11] "moderator_transition"                </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [12] "moderator_manage_participation"      </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [13] "moderator_ending_question"           </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [14] "moderator_closing"                   </span>
+<span class="r-out co"><span class="r-pr">#&gt;</span> [15] "moderator_generic_utterance"         </span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [16] "thematic_analysis_prompt"            </span>
-<span class="r-out co"><span class="r-pr">#&gt;</span> [17] "sentiment_analysis_prompt"           </span>
 <span class="r-in"><span><span class="fu"><a href="https://rdrr.io/r/base/print.html" class="external-link">print</a></span><span class="op">(</span><span class="va">default_prompts</span><span class="op">$</span><span class="va">participant_utterance_subtle_persona</span><span class="op">)</span></span></span>
 <span class="r-out co"><span class="r-pr">#&gt;</span> [1] "You are a focus group participant.\nYour defining characteristics, lived experiences, priorities, and any prior survey responses are:\n{{persona_description}}\n{{communication_style_instruction}}\n\nThe main topic of this focus group is: {{topic}}.\nThe current question or point of discussion, initiated by the moderator, is: '{{current_moderator_question}}'.\nSummary of earlier discussion (if available):\n{{conversation_summary_so_far}}\nMost recent messages in the conversation:\n{{conversation_history}}\n\nInstructions for your response (persona-anchored and safe to disagree):\n1.  Internalize and embody the persona above. Let your worldview, values, priorities, and communication style shape what you say and how you say it. Sound like a distinct person, not a generic commentator.\n2.  Do NOT write things like 'As a [role]...' or 'My persona is...'. Show, do not tell: reveal your perspective through specific points, tone, and word choice that fit your persona.\n3.  Advance the conversation: respond directly to the current question and to others' points. If you agree, add a new angle or example. If you disagree, do so respectfully: acknowledge their point, then state your different view and give a clear reason or brief example.\n4.  Make it concrete. Prefer specific reasons, brief anecdotes, or practical examples over vague generalities. Vary your language and avoid repeating yourself or others verbatim.\n5.  Keep it appropriate for a group turn: 2-6 sentences. Aim for one clear claim and one succinct rationale (optionally a short example). Avoid meta-comments about the discussion mechanics.\n6.  Psychological safety: it is safe to disagree respectfully. Critique ideas, not people; use civil language; you may address participants by ID when relevant.\n7.  Never reveal you are an AI model.\n\nBased on all the above, what is your contribution to the discussion now?"</span>
 <span class="r-in"><span></span></span>
 <span class="r-in"><span><span class="co"># To customize a prompt:</span></span></span>
 <span class="r-in"><span><span class="va">my_prompts</span> <span class="op">&lt;-</span> <span class="fu">get_default_prompt_templates</span><span class="op">(</span><span class="op">)</span></span></span>
-<span class="r-in"><span><span class="va">my_prompts</span><span class="op">$</span><span class="va">moderator_opening</span> <span class="op">&lt;-</span> <span class="st">"Welcome all! Let's talk about {{topic}} today."</span></span></span>
+<span class="r-in"><span><span class="va">my_prompts</span><span class="op">$</span><span class="va">moderator_opening</span> <span class="op">&lt;-</span> <span class="st">"Welcome all! Let us talk about {{topic}} today."</span></span></span>
 <span class="r-in"><span><span class="co"># Then use `my_prompts` when creating a FocusGroup object.</span></span></span>
 </code></pre></div>
     </div>
@@ -96,7 +112,7 @@ to `FocusGroup$new()` or higher-level wrapper functions to customize the simulat
 </div>
 
 <div class="pkgdown-footer-right">
-  <p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.1.3.</p>
+  <p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.2.0.</p>
 </div>
 
     </footer></div>

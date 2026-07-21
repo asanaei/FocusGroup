@@ -12,7 +12,7 @@ NULL
 #' Creates a default configuration for the large language model used by agents.
 #' Values are read from options() so users can override without editing code.
 #' @return An LLMR::llm_config object.
-#' @export
+#' @noRd
 default_llmr_config <- function() {
   if (!requireNamespace("LLMR", quietly = TRUE)) {
     stop("LLMR is required to build an LLM config.")
@@ -38,6 +38,16 @@ default_llmr_config <- function() {
   sum(v)
 }
 
+.fg_add_group_usage <- function(focus_group, sent = 0L, rec = 0L) {
+  focus_group$total_tokens_sent <- focus_group$total_tokens_sent + .fg_tok0(sent)
+  focus_group$total_tokens_received <-
+    focus_group$total_tokens_received + .fg_tok0(rec)
+  invisible(list(
+    sent = focus_group$total_tokens_sent,
+    rec = focus_group$total_tokens_received
+  ))
+}
+
 # --- Formatting Helpers ---
 
 #' Format Demographics List to Text
@@ -48,9 +58,7 @@ default_llmr_config <- function() {
 #'        and values are the corresponding characteristics.
 #' @return A character string with demographics formatted as "key1: value1; key2: value2; ...".
 #'         Returns "No specific demographics provided." if the input is empty or uninformative.
-#' @export
-#' @examples
-#' format_demographics(list(age = 30, occupation = "Engineer"))
+#' @noRd
 format_demographics <- function(demographics) {
   if (is.null(demographics) || length(demographics) == 0) {
     return("No specific demographics provided.")
@@ -71,12 +79,7 @@ format_demographics <- function(demographics) {
 #'        participant's answers.
 #' @return A character string with survey responses formatted for clarity.
 #'         Returns "No survey responses provided." if the input is empty.
-#' @export
-#' @examples
-#' format_survey_responses(list(
-#'   "What is your main concern about AI?" = "Job displacement.",
-#'   "How often do you use product X?" = "Daily."
-#' ))
+#' @noRd
 format_survey_responses <- function(survey_responses) {
   if (is.null(survey_responses) || length(survey_responses) == 0) {
     return("No survey responses provided.")
@@ -101,15 +104,7 @@ format_survey_responses <- function(survey_responses) {
 #' @param max_tokens_history Integer. Approximate token ceiling for dynamically selected history
 #'        when `n_recent` is `NULL`.
 #' @return A character string representing the formatted conversation history.
-#' @export
-#' @examples
-#' log <- list(
-#'   list(speaker_id = "Alice", text = "Hello!"),
-#'   list(speaker_id = "Bob", text = "Hi Alice!"),
-#'   list(speaker_id = "Alice", text = "How are you?")
-#' )
-#' format_conversation_history(log, n_recent = 2)
-#' format_conversation_history(log, include_summary = "They greeted each other.")
+#' @noRd
 format_conversation_history <- function(conversation_log,
                                         n_recent = NULL,
                                         include_summary = NULL,
@@ -180,34 +175,54 @@ format_conversation_history <- function(conversation_log,
 
 # ---- Token & parsing utilities ---------------------------------------------
 
-# Dispatch one model call. An injected runner receives only the active config
-# and messages; retry controls remain private to the live LLMR path.
-.fg_call_llm <- function(config, messages, runner = NULL, ...) {
-  if (is.null(runner)) {
+# Dispatch one model call. An injected runner follows the shared experiments-
+# frame contract used across the LLMR package family.
+.fg_call_llm <- function(config, messages, .runner = NULL, ...) {
+  if (is.null(.runner)) {
     return(LLMR::call_llm_robust(
       config = config,
       messages = messages,
       ...
     ))
   }
-  if (!is.function(runner)) {
-    stop("`runner` must be `NULL` or a function.", call. = FALSE)
+  if (!is.function(.runner)) {
+    stop("`.runner` must be `NULL` or a function.", call. = FALSE)
   }
-  out <- runner(config, messages)
-  valid_character <- is.character(out) && length(out) == 1L && !is.na(out)
-  if (!inherits(out, "llmr_response") && !valid_character) {
-    stop("`runner` must return a character scalar or an `llmr_response`.",
+  experiments <- data.frame(.experiment_id = 1L)
+  experiments$config <- I(list(config))
+  experiments$messages <- I(list(messages))
+  out <- .runner(experiments, ...)
+  required <- c("config", "messages", "response_text")
+  if (!is.data.frame(out) || nrow(out) != 1L ||
+      !all(required %in% names(out))) {
+    stop("`.runner` must return the experiment rows with `config`, `messages`, and `response_text` columns.",
          call. = FALSE)
+  }
+  if ("success" %in% names(out) && !isTRUE(out$success[[1]])) {
+    reason <- if ("error" %in% names(out)) as.character(out$error[[1]]) else
+      "The runner reported an unsuccessful model call."
+    stop(reason, call. = FALSE)
+  }
+  if (is.na(out$response_text[[1]])) {
+    stop("`.runner` returned a missing `response_text`.", call. = FALSE)
   }
   out
 }
 
 .fg_response_text <- function(response_obj) {
+  if (is.data.frame(response_obj) && "response_text" %in% names(response_obj)) {
+    text <- as.character(response_obj$response_text[[1]])
+    return(if (!length(text) || is.na(text)) "" else text)
+  }
   text <- as.character(response_obj)
   if (!length(text) || is.na(text[[1]])) "" else text[[1]]
 }
 
 .fg_response_finish <- function(response_obj) {
+  if (is.data.frame(response_obj) && "finish_reason" %in% names(response_obj)) {
+    out <- as.character(response_obj$finish_reason[[1]])
+    return(if (!length(out) || is.na(out)) NA_character_ else out)
+  }
   if (!inherits(response_obj, "llmr_response")) return(NA_character_)
   out <- tryCatch(LLMR::finish_reason(response_obj), error = function(...) NULL)
   if (is.null(out) || !length(out) || is.na(out[[1]])) NA_character_ else as.character(out[[1]])
@@ -215,7 +230,8 @@ format_conversation_history <- function(conversation_log,
 
 .fg_response_field <- function(response_obj, field, default = NULL) {
   if (is.list(response_obj) && field %in% names(response_obj)) {
-    response_obj[[field]] %||% default
+    value <- response_obj[[field]] %||% default
+    if (is.data.frame(response_obj) && length(value)) value[[1]] else value
   } else {
     default
   }
@@ -334,12 +350,7 @@ make_prompt_history <- function(log,
 #' @return A character string with placeholders replaced by their values. If a
 #'         placeholder is not found in `values_list` or its value is `NULL`,
 #'         it's replaced with an empty string.
-#' @export
-#' @examples
-#' replace_placeholders("Hello, {{name}}! Today is {{day}}.",
-#'                      list(name = "Alice", day = "Monday"))
-#' replace_placeholders("Topic: {{topic}}, Question: {{question}}",
-#'                      list(topic = "AI Ethics")) # {{question}} becomes ""
+#' @noRd
 replace_placeholders <- function(template_string, values_list) {
   if (is.null(template_string) || !is.character(template_string) || length(template_string) != 1) {
     stop("template_string must be a single character string.")
@@ -424,9 +435,9 @@ replace_placeholders_known <- function(template_string, values_list) {
 # for the paper experiment and for back-compat.
 
 # The message mode: "roleflip" (default) or "flat". Settable globally with
-# options(focusgroup.msg_mode = "flat") or per call.
-.fg_msg_mode <- function(mode = NULL) {
-  m <- mode %||% getOption("focusgroup.msg_mode", "roleflip")
+# options(focusgroup.message_mode = "flat") or per call.
+.fg_message_mode <- function(mode = NULL) {
+  m <- mode %||% getOption("focusgroup.message_mode", "roleflip")
   match.arg(as.character(m), c("roleflip", "flat"))
 }
 
@@ -438,7 +449,7 @@ replace_placeholders_known <- function(template_string, values_list) {
 # placeholder-free turn instruction. `templates` is fg$prompt_templates.
 .fg_pick_template <- function(templates, kind = c("utterance", "desire"), mode = NULL) {
   kind <- match.arg(kind)
-  flat <- identical(.fg_msg_mode(mode), "flat")
+  flat <- identical(.fg_message_mode(mode), "flat")
   if (kind == "utterance") {
     if (flat) templates$participant_utterance_subtle_persona %||% templates$participant_turn_instruction
     else      templates$participant_turn_instruction %||% templates$participant_utterance_subtle_persona
@@ -502,14 +513,15 @@ replace_placeholders_known <- function(template_string, values_list) {
 }
 
 # Coerce a transcript-like object to the package's conversation_log shape (a
-# list of entries with turn/speaker_id/text/is_moderator). Accepts a FocusGroup
+# list of entries with message_id/round/speaker_id/text/is_moderator). Accepts a FocusGroup
 # (its log is returned as-is), an already-shaped list, or a data frame with a
 # speaker and a text column (named explicitly or auto-detected from common
 # names). Shared by the GUI's Analyze tab and focus_group_from_transcript().
 # Data-frame rows get phase "imported" so phase-aware analyses and plots have a
 # value to group on; a speaker whose id contains "mod" (case-insensitive) is
 # flagged as the moderator, the convention human transcripts most often follow.
-.fg_as_log <- function(obj, speaker_col = NULL, text_col = NULL) {
+.fg_as_log <- function(obj, speaker_col = NULL, text_col = NULL,
+                       moderator_id = NULL) {
   if (inherits(obj, "FocusGroup")) return(obj$conversation_log)
   if (is.list(obj) && !is.data.frame(obj) && length(obj) &&
       is.list(obj[[1]]) && !is.null(obj[[1]]$text)) return(obj)
@@ -525,15 +537,23 @@ replace_placeholders_known <- function(template_string, values_list) {
     if (!all(c(sc, tc) %in% names(obj)))
       stop("Columns '", sc, "' and '", tc, "' must both be present in the transcript.",
            call. = FALSE)
+    speakers <- as.character(obj[[sc]])
+    moderator_flags <- if (!is.null(moderator_id)) {
+      speakers == moderator_id
+    } else {
+      grepl("mod", tolower(speakers))
+    }
+    rounds <- cumsum(moderator_flags)
     return(lapply(seq_len(nrow(obj)), function(i) {
       speaker <- as.character(obj[[sc]][i])
       text <- as.character(obj[[tc]][i])
       if (is.na(text)) text <- ""
       list(
-        turn = i,
+        message_id = as.integer(i),
+        round = as.integer(rounds[[i]]),
         speaker_id = speaker,
         text = text,
-        is_moderator = grepl("mod", tolower(speaker)),
+        is_moderator = isTRUE(moderator_flags[[i]]),
         timestamp = as.POSIXct(NA),
         phase = "imported",
         response_id = NA_character_,
@@ -543,7 +563,8 @@ replace_placeholders_known <- function(template_string, values_list) {
         total_tokens = 0L,
         duration_s = NA_real_,
         provider = NA_character_,
-        model = NA_character_
+        model = NA_character_,
+        metadata = list()
       )
     }))
   }
@@ -594,7 +615,7 @@ replace_placeholders_known <- function(template_string, values_list) {
 .fg_build_agent_messages <- function(transcript, speaker_id, system_text,
                                      instruction = NULL, self_state = NULL,
                                      mode = NULL) {
-  mode <- .fg_msg_mode(mode)
+  mode <- .fg_message_mode(mode)
   sys <- system_text
   if (!is.null(self_state) && nzchar(self_state)) {
     sys <- paste0(sys, "\n\n", self_state)

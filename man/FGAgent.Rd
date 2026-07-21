@@ -18,7 +18,7 @@ generate utterances and express a desire to speak.
 `FGAgent` is designed to be flexible:
 \itemize{
   \item **Per-Agent LLM Configuration**: Each agent is initialized with its own
-    `llm_config` (stored in the `model_config` field). This allows different
+    `llm_config` (stored in the `config` field). This allows different
     agents to use different LLMs, temperatures, or even providers.
   \item **Persona Definition**: The `agent_details` (containing `demographics`,
     `survey_responses`, `direct_persona_description`, and/or `communication_style`)
@@ -39,12 +39,12 @@ derived from demographics, survey responses, or direct input.}
 \item{\code{communication_style_instruction}}{Character. A specific instruction about the agent's
 communication style, to be included in prompts.}
 
-\item{\code{model_config}}{An `llm_config` object (from the `LLMR` package) specifying the
+\item{\code{config}}{An `llm_config` object (from the `LLMR` package) specifying the
 LLM provider, model, API key, and other parameters for this agent.}
 
-\item{\code{runner}}{`NULL` or a function with arguments `(config, messages)` that
-returns a character scalar or an `llmr_response`. A function provides an
-offline or otherwise caller-controlled execution path.}
+\item{\code{.runner}}{`NULL` or an experiments-frame runner. It receives a data
+frame with `config` and `messages` list-columns and returns those rows with
+at least `response_text`.}
 
 \item{\code{is_moderator}}{Logical. `TRUE` if the agent is the moderator, `FALSE` otherwise.}
 
@@ -77,7 +77,7 @@ offline or otherwise caller-controlled execution path.}
 \subsection{Method \code{new()}}{
 Initialize a new FGAgent.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FGAgent$new(id, agent_details, llm_config, is_moderator = FALSE, runner = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FGAgent$new(id, agent_details, config, is_moderator = FALSE, .runner = NULL)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
@@ -95,12 +95,13 @@ Can include:
 }
 If `is_moderator` is `TRUE` and no specific details are provided, a default moderator persona is used.}
 
-\item{\code{llm_config}}{An `llm_config` object from `LLMR::llm_config()`.}
+\item{\code{config}}{An `llm_config` object from `LLMR::llm_config()`. It may be
+`NULL` only for an analysis-only agent that will not generate output.}
 
 \item{\code{is_moderator}}{Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.}
 
-\item{\code{runner}}{`NULL` or a function `(config, messages)` returning a
-character scalar or an `llmr_response`. `NULL` uses live LLMR calls.}
+\item{\code{.runner}}{`NULL` or an experiments-frame runner. `NULL` uses live
+LLMR calls.}
 }
 \if{html}{\out{</div>}}
 }

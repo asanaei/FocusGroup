@@ -22,7 +22,9 @@ test_that("a transcript data frame becomes an analyzable FocusGroup", {
   expect_identical(fg$topic, "library hours")
   expect_length(fg$conversation_log, 7L)
   expect_identical(fg$conversation_log[[2]]$speaker_id, "Ana")
-  expect_identical(fg$conversation_log[[2]]$turn, 2L)
+  expect_identical(fg$conversation_log[[2]]$message_id, 2L)
+  expect_identical(fg$conversation_log[[2]]$round, 1L)
+  expect_false("turn" %in% names(fg$conversation_log[[2]]))
 
   # the moderator is detected from the speaker id and no synthetic MOD is added
   expect_identical(fg$moderator_id, "Moderator")
@@ -34,7 +36,7 @@ test_that("a transcript data frame becomes an analyzable FocusGroup", {
   pb <- fg$analyze_participation_balance()
   expect_setequal(pb$participation_stats$speaker_id,
                   c("Moderator", "Ana", "Ben", "Cara"))
-  expect_identical(sum(pb$participation_stats$turns), 7L)
+  expect_identical(sum(pb$participation_stats$messages), 7L)
 
   # basic analysis agrees on utterance counts
   stats <- fg$analyze()$speaker_stats
@@ -101,6 +103,23 @@ test_that("missing text becomes an empty imported utterance", {
   expect_identical(fg$conversation_log[[2]]$text, "")
   expect_identical(fg$conversation_log[[2]]$total_tokens, 0L)
   expect_true(is.na(fg$conversation_log[[2]]$provider))
+})
+
+test_that("moderator_id overrides the substring fallback", {
+  df <- data.frame(
+    speaker = c("Facilitator", "Modest", "P2"),
+    text = c("Welcome.", "My surname is Modest.", "My response."),
+    stringsAsFactors = FALSE
+  )
+  fg <- focus_group_from_transcript(df, moderator_id = "Facilitator")
+  expect_identical(fg$moderator_id, "Facilitator")
+  expect_true(fg$agents[["Facilitator"]]$is_moderator)
+  expect_false(fg$agents[["Modest"]]$is_moderator)
+
+  expect_error(
+    focus_group_from_transcript(df, moderator_id = "Absent"),
+    "moderator_id"
+  )
 })
 
 test_that("a transcript without a recognizable moderator gets a silent MOD", {

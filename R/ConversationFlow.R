@@ -13,10 +13,11 @@ NULL
 #' for selecting the next speaker.
 #'
 #' @field agents A named list of `FGAgent` objects participating in the conversation.
-#' @field agent_ids A character vector of agent identifiers (names of the `agents` list).
 #' @field participant_ids A character vector of agent identifiers, excluding the moderator.
 #' @field moderator_id Character. The ID of the moderator agent.
 #' @field last_speaker_id The ID of the agent who last spoke. Can be `NULL`.
+#' @field selection_metadata A list of provenance for the latest selection.
+#'   Desire-scoring failures record the condition and neutral fallback here.
 #'
 #' @section Methods for Subclassing:
 #' \describe{
@@ -30,10 +31,10 @@ NULL
 ConversationFlow <- R6::R6Class("ConversationFlow",
   public = list(
     agents = NULL,
-    agent_ids = NULL,
     participant_ids = NULL,
     moderator_id = NULL,
     last_speaker_id = NULL,
+    selection_metadata = NULL,
 
     #' @description Initializes the ConversationFlow object.
     #' @param agents A named list of `FGAgent` objects.
@@ -49,10 +50,11 @@ ConversationFlow <- R6::R6Class("ConversationFlow",
         stop("Flow 'moderator_id' must be a valid ID present in the agents list.")
       }
       self$agents <- agents
-      self$agent_ids <- names(agents)
+      private$agent_ids <- names(agents)
       self$moderator_id <- moderator_id
-      self$participant_ids <- setdiff(self$agent_ids, self$moderator_id)
+      self$participant_ids <- setdiff(private$agent_ids, self$moderator_id)
       self$last_speaker_id <- NULL
+      self$selection_metadata <- NULL
     },
 
     #' @description Selects the next speaker. Must be implemented by subclasses.
@@ -68,6 +70,9 @@ ConversationFlow <- R6::R6Class("ConversationFlow",
     update_state_post_selection = function(speaker_id, focus_group) {
       self$last_speaker_id <- speaker_id
     }
+  ),
+  private = list(
+    agent_ids = NULL
   )
 )
 
@@ -79,18 +84,16 @@ ConversationFlow <- R6::R6Class("ConversationFlow",
 #' so this flow focuses on cycling through non-moderator agents.
 #'
 #' @field current_participant_index Integer. Current position in the rotation of participants.
-#' @export
+#' @noRd
 RoundRobinFlow <- R6::R6Class("RoundRobinFlow",
   inherit = ConversationFlow,
   public = list(
-    current_participant_index = 0,
-
     #' @description Initialize RoundRobinFlow.
     #' @param agents A named list of `FGAgent` objects.
     #' @param moderator_id Character. The ID of the moderator agent.
     initialize = function(agents, moderator_id) {
       super$initialize(agents, moderator_id)
-      self$current_participant_index <- 0 # Start before the first participant
+      private$current_participant_index <- 0
     },
 
     #' @description Selects the next participant in round-robin order.
@@ -102,11 +105,15 @@ RoundRobinFlow <- R6::R6Class("RoundRobinFlow",
         return(NULL) # No participants to select
       }
 
-      self$current_participant_index <- (self$current_participant_index %% length(self$participant_ids)) + 1
-      next_speaker_id <- self$participant_ids[self$current_participant_index]
+      private$current_participant_index <-
+        (private$current_participant_index %% length(self$participant_ids)) + 1
+      next_speaker_id <- self$participant_ids[private$current_participant_index]
 
       return(self$agents[[next_speaker_id]])
     }
+  ),
+  private = list(
+    current_participant_index = 0
   )
 )
 
@@ -119,14 +126,10 @@ RoundRobinFlow <- R6::R6Class("RoundRobinFlow",
 #' @field propensities Named numeric vector. Current speaking propensities for each agent.
 #' @field base_propensities Named numeric vector. Base propensities for each agent.
 #' @field recovery_increment Numeric. Factor by which propensities recover towards base.
-#' @export
+#' @noRd
 ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
   inherit = ConversationFlow,
   public = list(
-    propensities = NULL,
-    base_propensities = NULL,
-    recovery_increment = 0.1, # Default recovery rate
-
     #' @description Initialize ProbabilisticFlow.
     #' @param agents A named list of `FGAgent` objects.
     #' @param moderator_id Character. The ID of the moderator agent.
@@ -136,19 +139,19 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
     #' @param recovery_increment Numeric. Rate at which propensity recovers (0 to 1).
     initialize = function(agents, moderator_id, initial_propensities = NULL, recovery_increment = 0.1) {
       super$initialize(agents, moderator_id)
-      self$recovery_increment <- recovery_increment
+      private$recovery_increment <- recovery_increment
       ids <- self$participant_ids
       if (is.null(initial_propensities)) {
-        self$base_propensities <- stats::setNames(rep(1.0, length(ids)), ids)
+        private$base_propensities <- stats::setNames(rep(1.0, length(ids)), ids)
       } else {
         if (!is.numeric(initial_propensities) || is.null(names(initial_propensities)) ||
             !all(names(initial_propensities) %in% ids) ||
             !all(ids %in% names(initial_propensities))) {
           stop("ProbabilisticFlow: initial_propensities must be named numeric for all participant_ids.")
         }
-        self$base_propensities <- initial_propensities[ids]
+        private$base_propensities <- initial_propensities[ids]
       }
-      self$propensities <- self$base_propensities
+      private$propensities <- private$base_propensities
     },
 
     #' @description Selects the next speaker based on current propensities.
@@ -159,7 +162,7 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
       
       if(length(eligible_ids) == 0) return(NULL)
 
-      current_eligible_propensities <- self$propensities[eligible_ids]
+      current_eligible_propensities <- private$propensities[eligible_ids]
       current_eligible_propensities[current_eligible_propensities < 0] <- 0
 
       if (all(current_eligible_propensities == 0)) {
@@ -187,19 +190,24 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
     update_state_post_selection = function(speaker_id, focus_group) {
       super$update_state_post_selection(speaker_id, focus_group)
 
-      if (speaker_id %in% names(self$propensities)) {
-        self$propensities[[speaker_id]] <- 0
+      if (speaker_id %in% names(private$propensities)) {
+        private$propensities[[speaker_id]] <- 0
       }
 
-      for (id in names(self$propensities)) {
+      for (id in names(private$propensities)) {
         if (id != speaker_id) {
-          self$propensities[[id]] <- min(
-            self$base_propensities[[id]],
-            self$propensities[[id]] + self$recovery_increment * self$base_propensities[[id]]
+          private$propensities[[id]] <- min(
+            private$base_propensities[[id]],
+            private$propensities[[id]] + private$recovery_increment * private$base_propensities[[id]]
           )
         }
       }
     }
+  ),
+  private = list(
+    propensities = NULL,
+    base_propensities = NULL,
+    recovery_increment = 0.1
   )
 )
 
@@ -210,27 +218,20 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
 #' The moderator's turns are primarily handled by the `FocusGroup`'s phase/script logic.
 #' This flow is mainly for choosing which participant responds to the moderator.
 #'
-#' @field last_desire_scores Named numeric vector. Stores the most recent desire scores.
-#' @field last_scoring_mode Character. How the most recent desire scores were
-#'   obtained: "broadcast_shared_config" (one config for all), "broadcast_grouped_config"
-#'   (agents grouped by differing configs), or "per_agent".
 #' @field min_desire_threshold Numeric. Minimum desire score for a participant to be considered.
-#' @export
+#' @noRd
 DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
   inherit = ConversationFlow,
   public = list(
-    last_desire_scores = NULL,
-    last_scoring_mode = NULL,
-    min_desire_threshold = 3, # Default minimum desire to speak
-
     #' @description Initialize DesireBasedFlow.
     #' @param agents A named list of `FGAgent` objects.
     #' @param moderator_id Character. The ID of the moderator agent.
     #' @param min_desire_threshold Numeric. Minimum desire score to be eligible.
     initialize = function(agents, moderator_id, min_desire_threshold = 3) {
       super$initialize(agents, moderator_id)
-      self$last_desire_scores <- stats::setNames(numeric(length(self$participant_ids)), self$participant_ids)
-      self$min_desire_threshold <- min_desire_threshold
+      private$last_desire_scores <- stats::setNames(
+        rep(NA_real_, length(self$participant_ids)), self$participant_ids)
+      private$min_desire_threshold <- min_desire_threshold
     },
 
     #' @description Selects the next participant based on desire to talk.
@@ -241,7 +242,10 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
     select_next_speaker = function(focus_group) {
       if (length(self$participant_ids) == 0) return(NULL)
 
-      desire_scores <- stats::setNames(numeric(length(self$participant_ids)), self$participant_ids)
+      self$selection_metadata <- NULL
+      desire_scores <- stats::setNames(
+        rep(NA_real_, length(self$participant_ids)), self$participant_ids)
+      failures <- list()
 
       history_string <- make_prompt_history(
         focus_group$conversation_log,
@@ -263,7 +267,9 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       score_per_agent <- function(ids) {
         for (pid in ids) {
           agent <- self$agents[[pid]]
-          sc <- tryCatch({
+          sent_before <- agent$tokens_sent_agent
+          rec_before <- agent$tokens_received_agent
+          sc <- tryCatch(
             agent$get_need_to_talk(
               topic = focus_group$topic,
               conversation_history_string = history_string,
@@ -276,9 +282,18 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
               last_speaker_id = last_utterance_info$speaker_id,
               last_utterance_text = last_utterance_info$text,
               conversation_log = focus_group$conversation_log
-            )
-          }, error = function(...) 0)
-          desire_scores[pid] <<- as.numeric(sc %||% 0)
+            ),
+            error = function(e) {
+              failures[[pid]] <<- conditionMessage(e)
+              NA_real_
+            }
+          )
+          sent_used <- .fg_tok0(agent$tokens_sent_agent - sent_before)
+          rec_used <- .fg_tok0(agent$tokens_received_agent - rec_before)
+          if ((sent_used + rec_used) > 0) {
+            .fg_add_group_usage(focus_group, sent_used, rec_used)
+          }
+          desire_scores[pid] <<- as.numeric(sc)
         }
       }
 
@@ -287,7 +302,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       # providers/models/params must be grouped separately -- otherwise every
       # agent would be scored with the first agent's model. The common case
       # (all agents share a config) is a single group, i.e. one broadcast, as
-      # before. `self$last_scoring_mode` records which path ran.
+      # before. The private scoring mode records which path ran.
       # Each pid gets a role-flipped message array (own turns -> assistant) so
       # the broadcast scores novelty from each agent's own perspective. Build the
       # transcript once and close over it. A legacy/custom desire template that
@@ -329,7 +344,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
             row_usage_found <- TRUE
             self$agents[[pid]]$tokens_sent_agent <- self$agents[[pid]]$tokens_sent_agent + usage$sent
             self$agents[[pid]]$tokens_received_agent <- self$agents[[pid]]$tokens_received_agent + usage$rec
-            if (!is.null(focus_group$record_token_usage)) focus_group$record_token_usage(usage$sent, usage$rec)
+            .fg_add_group_usage(focus_group, usage$sent, usage$rec)
           }
         }
         if (!row_usage_found) {
@@ -341,7 +356,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
               self$agents[[pid]]$tokens_sent_agent <- self$agents[[pid]]$tokens_sent_agent + sent_each
               self$agents[[pid]]$tokens_received_agent <- self$agents[[pid]]$tokens_received_agent + rec_each
             }
-            if (!is.null(focus_group$record_token_usage)) focus_group$record_token_usage(usage$sent, usage$rec)
+            .fg_add_group_usage(focus_group, usage$sent, usage$rec)
           }
         }
       }
@@ -354,7 +369,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       # and no temperature is injected (some reasoning models need their native
       # value; the score is a single integer).
       broadcast_group <- function(ids) {
-        cfg <- self$agents[[ids[1]]]$model_config
+        cfg <- self$agents[[ids[1]]]$config
         cfg$model_params$max_tokens <- focus_group$max_tokens_desire
         cfg$model_params$temperature <- NULL
         out <- tryCatch(
@@ -377,17 +392,17 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       if (length(eligible_ids) > 0) {
         used_broadcast <- FALSE
         has_runner <- vapply(eligible_ids, function(pid) {
-          !is.null(self$agents[[pid]]$runner)
+          !is.null(self$agents[[pid]]$.runner)
         }, logical(1))
         if (!any(has_runner) && requireNamespace("LLMR", quietly = TRUE) &&
             length(eligible_ids) <= 8) {
           # Group by a content hash of each agent's config so heterogeneous
           # configs each broadcast under their own model.
           gkey <- vapply(eligible_ids, function(pid)
-            tryCatch(LLMR::llm_hash(self$agents[[pid]]$model_config),
+            tryCatch(LLMR::llm_hash(self$agents[[pid]]$config),
                      error = function(...) pid), character(1))
           groups <- split(eligible_ids, gkey)
-          self$last_scoring_mode <- if (length(groups) == 1L)
+          private$last_scoring_mode <- if (length(groups) == 1L)
             "broadcast_shared_config" else "broadcast_grouped_config"
           # A group whose broadcast fails must not leave its agents at the
           # default score of 0; collect those ids and score them per-agent
@@ -401,30 +416,49 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 
         # Fallback only when broadcast did not run at all, or every group failed.
         if (!used_broadcast) {
-          self$last_scoring_mode <- "per_agent"
+          private$last_scoring_mode <- "per_agent"
           score_per_agent(eligible_ids)
         }
       }
 
-      # Mark the last speaker ineligible only after all scores are recorded.
-      if (!is.null(self$last_speaker_id) && self$last_speaker_id %in% names(desire_scores) && length(self$participant_ids) > 1) {
-        desire_scores[self$last_speaker_id] <- -1
-      }
-      self$last_desire_scores <- desire_scores
+      private$last_desire_scores <- desire_scores
 
-      eligible_participants <- desire_scores[desire_scores >= self$min_desire_threshold & desire_scores > -1]
+      if (length(failures)) {
+        reasons <- unique(unlist(failures, use.names = FALSE))
+        self$selection_metadata <- list(
+          desire_scoring_failure = list(
+            reason = paste(reasons, collapse = "; "),
+            fallback = "uniform_random",
+            candidates = unname(eligible_ids)
+          )
+        )
+        if (!private$failure_message_emitted) {
+          message(
+            "Desire scoring failed; selecting uniformly among eligible participants."
+          )
+          private$failure_message_emitted <- TRUE
+        }
+        return(self$agents[[sample(eligible_ids, 1L)]])
+      }
+
+      scored <- desire_scores[eligible_ids]
+      eligible_participants <- scored[
+        !is.na(scored) & scored >= private$min_desire_threshold
+      ]
 
       # If no one meets the threshold but there's ongoing conversation, lower the bar
       if (length(eligible_participants) == 0 && length(focus_group$conversation_log) > 2) {
         # Allow lower threshold for ongoing conversations to maintain flow
-        eligible_participants <- desire_scores[desire_scores >= (self$min_desire_threshold - 1) & desire_scores > -1]
+        eligible_participants <- scored[
+          !is.na(scored) & scored >= (private$min_desire_threshold - 1)
+        ]
       }
 
       if (length(eligible_participants) == 0) {
         # If still no one eligible, pick the highest scored participant even if 0 to keep conversation moving
-        if (length(desire_scores) > 0) {
-          max_score <- max(desire_scores, na.rm = TRUE)
-          candidates <- names(desire_scores[desire_scores == max_score])
+        if (length(scored) > 0) {
+          max_score <- max(scored, na.rm = TRUE)
+          candidates <- names(scored[scored == max_score])
           next_speaker_id <- if (length(candidates) == 1) candidates[1] else sample(candidates, 1)
           return(self$agents[[next_speaker_id]])
         }
@@ -443,13 +477,14 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         next_speaker_id <- sample(candidates, 1)
       }
       return(self$agents[[next_speaker_id]])
-    },
-
-    #' @description Get the last calculated desire scores for participants.
-    #' @return A named numeric vector of desire scores.
-    get_last_desire_scores = function() {
-      return(self$last_desire_scores)
     }
+  ),
+
+  private = list(
+    last_desire_scores = NULL,
+    last_scoring_mode = NULL,
+    min_desire_threshold = 3,
+    failure_message_emitted = FALSE
   )
 )
 

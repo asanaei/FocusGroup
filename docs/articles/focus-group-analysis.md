@@ -1,0 +1,188 @@
+# Focus Group Analysis
+
+## Analyze a simulated discussion
+
+FocusGroup stores a moderated discussion in a `FocusGroup` object. Each
+participant and the moderator is an `FGAgent`. The group object contains
+the moderator guide, conversation flow, messages, response metadata, and
+analysis methods.
+
+Provider calls use LLMR. A live session requires a provider key in its
+usual environment variable. The model configuration must be passed
+explicitly.
+
+### Run a focus group
+
+``` r
+config <- LLMR::llm_config(
+  provider = "openai",
+  model = "gpt-4o-mini",
+  temperature = 0.7
+)
+
+result <- run_focus_group(
+  topic = "Impact of Social Media on Mental Health",
+  n_participants = 5,
+  guide = c(
+    Opening = 1,
+    Icebreaker = 1,
+    Engagement = 2,
+    Exploration = 3,
+    Closing = 1
+  ),
+  flow = "desire_based",
+  config = config,
+  seed = 110,
+  message_mode = "roleflip"
+)
+
+print(result)
+print(result$focus_group)
+```
+
+The returned `focus_group_result` has six stable fields: `focus_group`,
+`transcript`, `summary`, `participants`, `usage`, and `metadata`.
+
+``` r
+head(result$transcript)
+result$participants
+result$usage
+```
+
+Each transcript row has a unique `message_id`. `round` identifies the
+moderator cycle, so a moderator question and its participant responses
+share a round. `phase` retains the guide phase. Generated rows also
+carry provider response metadata and token counts.
+
+### Run descriptive analysis offline
+
+[`analyze_focus_group()`](https://asanaei.github.io/FocusGroup/reference/analyze_focus_group.md)
+runs descriptive analyses without a model unless the caller opts in by
+supplying `config`.
+
+``` r
+analysis <- analyze_focus_group(
+  result,
+  num_topics = 4,
+  include_plots = TRUE
+)
+
+print(analysis)
+analysis$basic_stats
+analysis$tfidf
+analysis$readability
+analysis$issues
+```
+
+The `focus_group_analysis` fields are fixed: `basic_stats`, `topics`,
+`tfidf`, `readability`, `themes`, `model_summary`, `plots`, and
+`issues`. A component that cannot be computed has a typed empty value.
+For example, `plots` is an empty list if ggplot2 is unavailable.
+`issues` identifies an optional analysis that could not run and gives
+its reason.
+
+Individual descriptive analyses remain available as methods on the
+underlying `FocusGroup` object:
+
+``` r
+readability <- result$focus_group$analyze_readability()
+participation <- result$focus_group$analyze_participation_balance()
+questions <- result$focus_group$analyze_question_patterns()
+
+readability
+participation$participation_stats
+questions$question_patterns
+```
+
+### Opt in to model analysis
+
+Thematic analysis and model summaries run only when an explicit `config`
+is passed to
+[`analyze_focus_group()`](https://asanaei.github.io/FocusGroup/reference/analyze_focus_group.md).
+
+``` r
+model_analysis <- analyze_focus_group(
+  result,
+  num_topics = 4,
+  config = config
+)
+
+cat(model_analysis$themes)
+cat(model_analysis$model_summary)
+```
+
+If a requested model analysis fails, the provider condition is raised.
+The failure is not converted to a missing field or omitted from the
+result.
+
+### Import and analyze an existing transcript
+
+Importing a transcript creates no model output. Pass `moderator_id` when
+the moderator is known. If it is omitted, the importer uses the
+documented substring fallback on speaker identifiers.
+
+``` r
+transcript <- data.frame(
+  speaker = c("Facilitator", "Ana", "Ben", "Ana"),
+  text = c(
+    "What should change about the library hours?",
+    "Evening hours help working parents.",
+    "Morning crowding has become difficult.",
+    "Both schedules need enough staff."
+  )
+)
+
+imported <- focus_group_from_transcript(
+  transcript,
+  topic = "Library hours",
+  moderator_id = "Facilitator"
+)
+
+imported_analysis <- analyze_focus_group(imported, include_plots = FALSE)
+print(imported_analysis)
+```
+
+### Construct the objects directly
+
+The R6 interface exposes the parts assembled by
+[`run_focus_group()`](https://asanaei.github.io/FocusGroup/reference/run_focus_group.md).
+
+``` r
+agents <- create_agents(
+  n_participants = 3,
+  demographics = data.frame(
+    age = c(25, 35, 45),
+    gender = c("male", "female", "non-binary"),
+    education = c("high school", "bachelor's", "master's"),
+    stringsAsFactors = FALSE
+  ),
+  config = config
+)
+
+flow <- create_conversation_flow(
+  mode = "desire_based",
+  agents = agents,
+  moderator_id = "MOD"
+)
+
+fg <- FocusGroup$new(
+  topic = "Impact of Social Media on Mental Health",
+  purpose = "Explore perspectives and experiences related to social media.",
+  agents = agents,
+  moderator_id = "MOD",
+  turn_taking_flow = flow,
+  admin_config = config
+)
+```
+
+Built-in flows are available only through
+[`create_conversation_flow()`](https://asanaei.github.io/FocusGroup/reference/create_conversation_flow.md).
+`ConversationFlow` remains public as the extension base for a custom
+flow.
+
+### Interpretation
+
+A generated transcript is evidence about the specified simulation, not
+about a population. Analysis should retain the guide, participant
+records, model configuration, and message construction recorded with the
+result.

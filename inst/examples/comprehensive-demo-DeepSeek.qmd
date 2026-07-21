@@ -31,32 +31,32 @@ It runs API calls through DeepSeek and then performs a final direct LLMR analysi
 The topic is publicly funded health insurance. The script is long, and participant responses are forced to be longer than one sentence.
 
 <style>
-.turn-card {
+.message-card {
   border: 1px solid #d9d9d9;
   border-radius: 8px;
   margin-bottom: 0.65rem;
   background: #ffffff;
 }
-.turn-card summary {
+.message-card summary {
   cursor: pointer;
   padding: 0.7rem 0.85rem;
   font-weight: 600;
 }
-.turn-meta {
+.message-meta {
   color: #5e5e5e;
   font-size: 0.9rem;
   font-weight: 500;
 }
-.turn-body {
+.message-body {
   padding: 0.8rem 1rem 0.9rem 1rem;
   border-top: 1px solid #ececec;
   line-height: 1.6;
 }
-.turn-body.moderator {
+.message-body.moderator {
   border-left: 5px solid #2e8b57;
   background: #f5fbf7;
 }
-.turn-body.participant {
+.message-body.participant {
   border-left: 5px solid #1f77b4;
   background: #f8fbff;
 }
@@ -103,11 +103,12 @@ unwrap_llm_text <- function(resp) {
   as.character(resp)
 }
 
-build_turn_dataframe <- function(conversation_log) {
+build_message_dataframe <- function(conversation_log) {
   bind_rows(lapply(conversation_log, function(entry) {
     txt <- as.character(entry$text %||% "")
     tibble(
-      turn = as.integer(entry$turn %||% NA_integer_),
+      message_id = as.integer(entry$message_id %||% NA_integer_),
+      round = as.integer(entry$round %||% NA_integer_),
       speaker_id = as.character(entry$speaker_id %||% "Unknown"),
       is_moderator = isTRUE(entry$is_moderator),
       phase = as.character(entry$phase %||% "unknown"),
@@ -116,7 +117,8 @@ build_turn_dataframe <- function(conversation_log) {
       word_count = if (nchar(txt) == 0) 0L else length(strsplit(txt, "\\s+")[[1]])
     )
   })) |>
-    mutate(turn = ifelse(is.na(.data$turn), row_number(), .data$turn))
+    mutate(message_id = ifelse(is.na(.data$message_id), row_number(),
+                               .data$message_id))
 }
 ```
 
@@ -265,8 +267,8 @@ extract_frame <- function(raw_data, clean_data, rows, var_map, use_labels = FALS
 ## Build Mixed Partisan Thick Personas
 
 ```{r create-agents}
-set.seed(2026)
-options(focusgroup.seed = 2026)
+set.seed(110)
+options(focusgroup.seed = 110)
 
 anes_path <- resolve_anes_path()
 raw_data <- haven::read_dta(anes_path)
@@ -284,22 +286,12 @@ selected_rows <- sample_mixed_rows(clean_data, party_code = thin_vars[["party_id
 demo_df <- extract_frame(raw_data, clean_data, selected_rows, demo_vars, use_labels = FALSE)
 survey_df <- extract_frame(raw_data, clean_data, selected_rows, thick_health_vars, use_labels = TRUE)
 
-agents <- FocusGroup::create_diverse_agents(
+agents <- FocusGroup::create_agents(
   n_participants = n_participants,
   demographics = demo_df,
   survey_responses = survey_df,
-  llm_config = cfg_agents
+  config = cfg_agents
 )
-
-for (i in seq_along(agents)) {
-  if (!agents[[i]]$is_moderator && length(agents[[i]]$survey_responses) > 0) {
-    agents[[i]]$persona_description <- paste(
-      agents[[i]]$persona_description,
-      FocusGroup::format_survey_responses(agents[[i]]$survey_responses),
-      sep = "\n\n"
-    )
-  }
-}
 
 agents_named <- stats::setNames(agents, vapply(agents, function(a) a$id, character(1)))
 moderator_id <- if ("MOD" %in% names(agents_named)) "MOD" else tail(names(agents_named), 1)
@@ -314,7 +306,6 @@ participant_meta <- tibble(
 )
 
 options(focusgroup.seed = NULL)
-set.seed(NULL)
 ```
 
 ## Long Script and Long-Answer Prompt Controls
@@ -383,15 +374,15 @@ fg <- FocusGroup$new(
   ),
   question_script = script,
   prompt_templates = prompts,
-  llm_config_admin = cfg_admin,
+  admin_config = cfg_admin,
   max_tokens_config = list(utterance = 380, moderator = 500, desire = 22)
 )
 
 run_result <- tryCatch(
   {
-    num_turns_live <- suppressWarnings(as.integer(Sys.getenv("FG_DEMO_TURNS", "24")))
-    if (is.na(num_turns_live) || num_turns_live < 20) num_turns_live <- 24L
-    fg$run_simulation(num_turns = num_turns_live, verbose = TRUE)
+    num_rounds_live <- suppressWarnings(as.integer(Sys.getenv("FG_DEMO_ROUNDS", "24")))
+    if (is.na(num_rounds_live) || num_rounds_live < 20) num_rounds_live <- 24L
+    fg$run_simulation(num_rounds = num_rounds_live, verbose = TRUE)
   },
   error = function(e) {
     stop("Live API simulation failed: ", conditionMessage(e))
@@ -402,7 +393,7 @@ if (length(fg$conversation_log) == 0) {
   stop("Simulation returned an empty conversation log. No fallback is used in this file.")
 }
 
-turn_df <- build_turn_dataframe(fg$conversation_log)
+message_df <- build_message_dataframe(fg$conversation_log)
 analysis_core <- fg$analyze()
 full_transcript <- analysis_core$full_transcript
 ```
@@ -439,16 +430,16 @@ for (i in seq_len(length(fg$conversation_log))) {
   body_text <- escape_html(entry$text %||% "")
   body_text <- gsub("\n", "<br/>", body_text, fixed = TRUE)
 
-  cat('<details class="turn-card">\n')
+  cat('<details class="message-card">\n')
   cat(
     '<summary>',
-    "<strong>Turn ", i, " | ", speaker, "</strong>",
-    ' <span class="turn-meta">(',
+    "<strong>Message ", i, " | ", speaker, "</strong>",
+    ' <span class="message-meta">(',
     speaker_type, " | ", tools::toTitleCase(phase), " | ", stamp,
     ')</span></summary>\n',
     sep = ""
   )
-  cat('<div class="turn-body ', body_class, '">', body_text, "</div>\n", sep = "")
+  cat('<div class="message-body ', body_class, '">', body_text, "</div>\n", sep = "")
   cat("</details>\n\n")
 }
 ```
@@ -459,26 +450,26 @@ for (i in seq_len(length(fg$conversation_log))) {
 speaker_stats <- analysis_core$speaker_stats
 kable(speaker_stats, caption = "Speaker-level participation statistics")
 
-phase_stats <- turn_df |>
-  count(phase, name = "turns") |>
-  mutate(share = round(100 * turns / sum(turns), 1)) |>
-  arrange(desc(turns))
-kable(phase_stats, caption = "Turn distribution by phase")
+phase_stats <- message_df |>
+  count(phase, name = "messages") |>
+  mutate(share = round(100 * messages / sum(messages), 1)) |>
+  arrange(desc(messages))
+kable(phase_stats, caption = "Message distribution by phase")
 
-avg_turn_length <- turn_df |>
+avg_message_length <- message_df |>
   filter(!is_moderator) |>
   summarise(
     avg_words = round(mean(word_count), 1),
     median_words = round(median(word_count), 1),
     max_words = max(word_count)
   )
-kable(avg_turn_length, caption = "Participant turn length diagnostics")
+kable(avg_message_length, caption = "Participant message length diagnostics")
 ```
 
 ## Education and Party Signal Tables
 
 ```{r subgroup-signals}
-turn_with_meta <- turn_df |>
+message_with_meta <- message_df |>
   filter(!is_moderator) |>
   left_join(participant_meta, by = c("speaker_id" = "participant_id"))
 
@@ -486,7 +477,7 @@ support_pat <- regex("universal|public option|single payer|coverage guarantee|he
 concern_pat <- regex("tax burden|tax increase|wait time|bureaucracy|government inefficien|ration|provider shortage|fiscal risk", ignore_case = TRUE)
 market_pat <- regex("private insurance|competition|consumer choice|market discipline|employer plan", ignore_case = TRUE)
 
-signal_by_party <- turn_with_meta |>
+signal_by_party <- message_with_meta |>
   mutate(
     support_hits = str_count(text, support_pat),
     concern_hits = str_count(text, concern_pat),
@@ -495,7 +486,7 @@ signal_by_party <- turn_with_meta |>
   ) |>
   group_by(party_group) |>
   summarise(
-    n_turns = n(),
+    n_messages = n(),
     avg_words = round(mean(word_count), 1),
     support_hits = sum(support_hits),
     concern_hits = sum(concern_hits),
@@ -505,7 +496,7 @@ signal_by_party <- turn_with_meta |>
   ) |>
   arrange(desc(net_support))
 
-signal_by_education <- turn_with_meta |>
+signal_by_education <- message_with_meta |>
   mutate(
     support_hits = str_count(text, support_pat),
     concern_hits = str_count(text, concern_pat),
@@ -514,7 +505,7 @@ signal_by_education <- turn_with_meta |>
   ) |>
   group_by(education) |>
   summarise(
-    n_turns = n(),
+    n_messages = n(),
     avg_words = round(mean(word_count), 1),
     support_hits = sum(support_hits),
     concern_hits = sum(concern_hits),
@@ -534,7 +525,7 @@ kable(signal_by_education, caption = "Lexical policy orientation by education gr
 topic_res <- fg$analyze_topics(num_topics = 5, top_n_terms = 10)
 tfidf_res <- fg$analyze_tfidf(top_n_terms = 8)
 readability_res <- fg$analyze_readability(measures = c("Flesch", "Flesch.Kincaid", "ARI"))
-theme_res <- fg$analyze_themes(llm_config = cfg_admin)
+theme_res <- fg$analyze_themes(config = cfg_admin)
 
 print(topic_res)
 kable(tfidf_res, caption = "Top TF-IDF terms by speaker")

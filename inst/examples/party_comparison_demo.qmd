@@ -41,10 +41,10 @@ library(knitr)
 # Helper
 `%||%` <- function(x, y) if (is.null(x) || length(x) == 0) y else x
 
-set.seed(123)
+set.seed(110)
 
 # Configure LLM for agents and admin tasks
-llm_config <- LLMR::llm_config(
+config <- LLMR::llm_config(
   provider = 'deepseek',
   model = 'deepseek-chat'
 )
@@ -184,11 +184,11 @@ build_agents_from_indices <- function(indices) {
   df_svy  <- if (!is.null(df_svy_full)) df_svy_full[indices, , drop = FALSE] else NULL
 
   # Build agents directly from convenience wrapper using prepared frames
-  agents <- create_diverse_agents(
+  agents <- create_agents(
     n_participants = length(indices),
     demographics = df_demo,
     survey_responses = df_svy,
-    llm_config = llm_config
+    config = config
   )
   agents
 }
@@ -246,23 +246,11 @@ run_group <- function(agents, purpose, topic, script, flow_mode = "desire_based"
     moderator_id = moderator_id,
     turn_taking_flow = flow,
     question_script = script,
-    llm_config_admin = llm_config,
+    admin_config = config,
     max_tokens_config = list(utterance = 180, moderator = 380, desire = 14)
   )
-  res <- tryCatch({
-    fg$run_simulation(num_turns = 80, verbose = FALSE)
-    fg
-  }, error = function(e) {
-    message("LLM failure: ", conditionMessage(e), " — inserting small offline stub.")
-    now <- Sys.time()
-    fg$conversation_log <- list(
-      list(turn = 1, speaker_id = moderator_id, is_moderator = TRUE, text = "Welcome. Let's discuss the 2026 strategy.", phase = "opening", timestamp = now),
-      list(turn = 2, speaker_id = names(agents_named)[1], is_moderator = FALSE, text = "Cost of living is central; message clarity matters.", phase = "engagement_question", timestamp = now),
-      list(turn = 3, speaker_id = names(agents_named)[2], is_moderator = FALSE, text = "Speak plainly on taxes and services; avoid jargon.", phase = "exploration_question", timestamp = now)
-    )
-    fg
-  })
-  res
+  fg$run_simulation(num_rounds = 80, verbose = FALSE)
+  fg
 }
 
 fg_rep <- run_group(agents_rep, purpose_rep, topic, script)
@@ -275,7 +263,7 @@ fg_dem <- run_group(agents_dem, purpose_dem, topic, script)
 ```{r summaries}
 summarize_fg <- function(fg) {
   list(
-    summary = tryCatch(fg$summarize(summary_level = 2, max_tokens = 900), error = function(e) "Summary unavailable."),
+    summary = fg$summarize(config = config, summary_level = 2, max_tokens = 900),
     transcript = fg$analyze()$full_transcript %||% ""
   )
 }
@@ -284,11 +272,11 @@ out_rep <- summarize_fg(fg_rep)
 out_ind <- summarize_fg(fg_ind)
 out_dem <- summarize_fg(fg_dem)
 
-cat("### Republican Group — Summary\n\n")
+cat("### Republican Group - Summary\n\n")
 cat(out_rep$summary, "\n\n")
-cat("### Independent Group — Summary\n\n")
+cat("### Independent Group - Summary\n\n")
 cat(out_ind$summary, "\n\n")
-cat("### Democratic Group — Summary\n\n")
+cat("### Democratic Group - Summary\n\n")
 cat(out_dem$summary, "\n\n")
 ```
 
@@ -333,7 +321,7 @@ compare_prompt <- paste0(
 )
 
 llm_compare <- tryCatch({
-  cfg <- llm_config
+  cfg <- config
   cfg$model_params$max_tokens <- 900
   resp <- LLMR::call_llm_robust(
     config = cfg,
@@ -348,5 +336,3 @@ llm_compare <- tryCatch({
 cat("### Cross-Group Comparison (LLM)\n\n")
 cat(llm_compare)
 ```
-
-

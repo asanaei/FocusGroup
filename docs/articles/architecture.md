@@ -1,0 +1,159 @@
+# FocusGroup Architecture
+
+## Architecture
+
+FocusGroup separates a moderated discussion into agents, a turn-taking
+rule, and a group object. This separation lets a researcher change the
+moderator guide, participant source, or speaker-selection rule while
+retaining one log grammar for analysis.
+
+`FGAgent` represents a participant or moderator and generates that
+agent’s turns. Its model configuration is stored in the `config` field.
+`ConversationFlow` is the extension base for selecting the next
+participant. `FocusGroup` advances the moderator guide and records each
+message. LLMR supplies model configurations and provider calls.
+
+### Public surface
+
+[`run_focus_group()`](https://asanaei.github.io/FocusGroup/reference/run_focus_group.md)
+is the single high-level session runner. It requires an explicit
+`config`, constructs the roster and flow, performs a call-count
+preflight, runs the guide, and returns a `focus_group_result`.
+
+Its main argument grammar is consistent with the other package entry
+points:
+
+- `n_participants` is the participant count, excluding the moderator.
+- `guide` is a named vector or list of phase counts or moderator
+  scripts.
+- `flow` selects the speaker-selection rule.
+- `message_mode` selects role-flipped or flat message construction.
+- `config` is the model configuration, and `admin_config` is the
+  group-level configuration on direct `FocusGroup` construction.
+- `.runner`, when supplied, is the last execution seam.
+
+The package supplies three built-in flow modes: `"round_robin"`,
+`"probabilistic"`, and `"desire_based"`. Construct them with
+[`create_conversation_flow()`](https://asanaei.github.io/FocusGroup/reference/create_conversation_flow.md).
+Their implementation classes are internal. `ConversationFlow` remains
+public so packages and researchers can define new selection rules.
+
+[`create_agents()`](https://asanaei.github.io/FocusGroup/reference/create_agents.md),
+[`create_agents_from_data()`](https://asanaei.github.io/FocusGroup/reference/create_agents_from_data.md),
+and
+[`create_agents_from_survey()`](https://asanaei.github.io/FocusGroup/reference/create_agents_from_survey.md)
+return agent-ID-keyed lists that include the moderator `MOD`. Each
+requires an explicit `config` because the returned agents can generate
+model output.
+
+[`focus_group_from_transcript()`](https://asanaei.github.io/FocusGroup/reference/focus_group_from_transcript.md)
+creates a `FocusGroup` from an existing transcript without generating
+new turns. `moderator_id` identifies the moderator when known. If it is
+omitted, the importer falls back to finding `"mod"` within a speaker
+identifier.
+
+### Runner contract
+
+The `.runner` seam has the experiments-frame contract used across the
+LLMR family. The package calls `.runner(experiments, ...)`, where
+`experiments` is a data frame with `config` and `messages` list-columns.
+The runner returns those rows with at least `response_text`; it may also
+return `response_id`, token counts, `success`, and related diagnostics.
+
+The seam handles moderator, participant, desire-scoring, and summary
+requests. The same contract permits an archive replay runner to execute
+a full session without a live provider. A configuration remains explicit
+because it is part of the experiment record and its provenance.
+
+### Running a session
+
+`FocusGroup$run_simulation()` first records the participant roster as a
+`System` message. It then reads `question_script` in order. For each
+entry, the moderator generates one message. Question phases call
+`select_next_speaker()` and collect no more than
+`max_participant_responses` participant messages. Opening and closing
+phases do not collect participant responses.
+
+The round-robin mode cycles through participants. The probabilistic mode
+samples from speaking propensities. The desire-based mode asks eligible
+participants for model-produced scores and selects among eligible
+candidates. Provider failures in desire scoring are recorded in the
+message metadata and trigger one message to the user. Selection then
+uses a neutral draw among the candidates; a failure is never recorded as
+a score of zero.
+
+The loop stops when the script is exhausted, `num_rounds` is reached, or
+the last closing entry is processed. It stores a final summary in
+`final_summary`. The summary is not appended to `conversation_log`.
+
+A `FocusGroup` object runs once. Calling `run_simulation()` on an object
+that has already run raises an error. Construct a new object for another
+full session. Use the continuation experiment in
+[`run_focus_studio()`](https://asanaei.github.io/FocusGroup/reference/run_focus_studio.md)
+to compare a next message under original and edited histories.
+
+### Messages and prompts
+
+The default `message_mode = "roleflip"` presents an agent’s prior
+messages as assistant messages and labels other speakers’ messages as
+user messages. `message_mode = "flat"` places the transcript in one user
+message. The selected mode is recorded with the session.
+
+[`get_default_prompt_templates()`](https://asanaei.github.io/FocusGroup/reference/get_default_prompt_templates.md)
+returns only templates supported by package operations. Pass named
+replacements through `prompt_templates` in `FocusGroup$new()`. A custom
+participant template containing `{{conversation_history}}` or
+`{{persona_description}}` uses the flat message path.
+
+### Stored data
+
+`conversation_log` is an ordered list of message records. Each record
+has a unique integer `message_id`, the moderator cycle in `round`, and
+`phase`. Moderator and participant messages responding to the same
+question share a round. Response identifiers, finish reasons, token
+counts, provider and model labels, duration, and failure metadata
+accompany generated messages.
+
+[`run_focus_group()`](https://asanaei.github.io/FocusGroup/reference/run_focus_group.md)
+exposes this log as the `transcript` data frame in its result. A
+`focus_group_result` always has these fields:
+
+- `focus_group`: the underlying R6 object.
+- `transcript`: one row per logged message.
+- `summary`: the final model summary.
+- `participants`: a data frame describing the roster.
+- `usage`: token use in LLMR’s `sent`, `rec`, and `total` vocabulary.
+- `metadata`: `topic`, `purpose`, `flow`, `message_mode`,
+  `n_participants`, `estimated_calls`, `provider`, and `model`, with no
+  credentials.
+
+The class has a concise print method. `FocusGroup` also has a concise S3
+print method for direct R6 objects.
+
+### Analysis
+
+`FocusGroup$analyze()` and the descriptive text methods operate on the
+stored log.
+[`analyze_focus_group()`](https://asanaei.github.io/FocusGroup/reference/analyze_focus_group.md)
+collects the principal analyses in a `focus_group_analysis` with fixed
+fields: `basic_stats`, `topics`, `tfidf`, `readability`, `themes`,
+`model_summary`, `plots`, and `issues`.
+
+Missing optional packages and unsuitable data produce typed empty
+components and an explanatory row in `issues`. `plots` is an empty list
+when ggplot2 is unavailable. Descriptive analyses run offline. Thematic
+analysis and model summaries run only when
+[`analyze_focus_group()`](https://asanaei.github.io/FocusGroup/reference/analyze_focus_group.md)
+receives an explicit `config`. A requested model analysis that
+encounters a provider failure raises the provider condition.
+
+### Extending the package
+
+To add a turn-taking rule, subclass `ConversationFlow` and implement
+`select_next_speaker()`. Override `update_state_post_selection()` when
+the rule keeps state. An extension can construct its class directly;
+built-in modes remain available through
+[`create_conversation_flow()`](https://asanaei.github.io/FocusGroup/reference/create_conversation_flow.md).
+
+See the function and class help pages for argument defaults and return
+values.

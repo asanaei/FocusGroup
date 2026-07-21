@@ -29,38 +29,25 @@ articles:
       - focus-group-analysis
 
 reference:
-  - title: Package
-    contents:
-      - FocusGroup-package   # remove this block if you mark the topic internal
   - title: Core Classes
     contents:
       - FGAgent
       - FocusGroup
       - ConversationFlow
-      - RoundRobinFlow
-      - ProbabilisticFlow
-      - DesireBasedFlow
-  - title: High-level Wrappers
+  - title: Workflows
     contents:
       - run_focus_group
-      - focus_group_from_transcript
-      - fg_quick
-      - fg_analyze_quick
       - analyze_focus_group
-  - title: Graphical interface
+      - focus_group_from_transcript
+  - title: Agent Creation and Flows
     contents:
-      - run_focus_studio
-  - title: Agent Creation & Survey
-    contents:
-      - create_diverse_agents
-      - create_agents_from_survey
+      - create_agents
       - create_agents_from_data
+      - create_agents_from_survey
       - create_conversation_flow
-  - title: Prompts & Utilities
+  - title: Prompts
     contents:
       - get_default_prompt_templates
-      - format_demographics
-      - format_survey_responses
-      - format_conversation_history
-      - replace_placeholders
-      - default_llmr_config
+  - title: Graphical Interface
+    contents:
+      - run_focus_studio

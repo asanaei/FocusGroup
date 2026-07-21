@@ -7,11 +7,11 @@
 create_agents_from_data(
   data,
   n_participants,
+  config,
   demographic_cols = NULL,
   rows = NULL,
   weights = NULL,
-  llm_config = NULL,
-  runner = NULL
+  .runner = NULL
 )
 }
 \arguments{
@@ -19,16 +19,15 @@ create_agents_from_data(
 
 \item{n_participants}{Integer number of participants (excludes the moderator).}
 
+\item{config}{An explicit `LLMR::llm_config` for all agents.}
+
 \item{demographic_cols}{Character vector of columns to render as demographics.
 Defaults to the `data`'s `"demographic_fields"` attribute when present, else
 a small set of common demographic column names found in `data`.}
 
 \item{rows, weights}{See [create_agents_from_survey()].}
 
-\item{llm_config}{Optional `LLMR::llm_config` for all agents.}
-
-\item{runner}{`NULL` or a function `(config, messages)` returning a character
-scalar or an `llmr_response`. The function is stored on every agent.}
+\item{.runner}{Optional experiments-frame runner stored on every agent.}
 }
 \value{
 A named list of `FGAgent` objects (participants + moderator), keyed
@@ -52,6 +51,9 @@ uses the frame's structure and does not require LLMRpanel.
 \examples{
 \dontrun{
 data(anes_2024_personas, package = "LLMR")
-agents <- create_agents_from_data(anes_2024_personas, n_participants = 6)
+cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+agents <- create_agents_from_data(
+  anes_2024_personas, n_participants = 6, config = cfg
+)
 }
 }

@@ -16,11 +16,11 @@ NULL
 #'   derived from demographics, survey responses, or direct input.
 #' @field communication_style_instruction Character. A specific instruction about the agent's
 #'   communication style, to be included in prompts.
-#' @field model_config An `llm_config` object (from the `LLMR` package) specifying the
+#' @field config An `llm_config` object (from the `LLMR` package) specifying the
 #'   LLM provider, model, API key, and other parameters for this agent.
-#' @field runner `NULL` or a function with arguments `(config, messages)` that
-#'   returns a character scalar or an `llmr_response`. A function provides an
-#'   offline or otherwise caller-controlled execution path.
+#' @field .runner `NULL` or an experiments-frame runner. It receives a data
+#'   frame with `config` and `messages` list-columns and returns those rows with
+#'   at least `response_text`.
 #' @field is_moderator Logical. `TRUE` if the agent is the moderator, `FALSE` otherwise.
 #' @field history List. A log of utterances made by this agent during the simulation.
 #' @field tokens_sent_agent Numeric. Total tokens sent by this agent.
@@ -30,7 +30,7 @@ NULL
 #' `FGAgent` is designed to be flexible:
 #' \itemize{
 #'   \item **Per-Agent LLM Configuration**: Each agent is initialized with its own
-#'     `llm_config` (stored in the `model_config` field). This allows different
+#'     `llm_config` (stored in the `config` field). This allows different
 #'     agents to use different LLMs, temperatures, or even providers.
 #'   \item **Persona Definition**: The `agent_details` (containing `demographics`,
 #'     `survey_responses`, `direct_persona_description`, and/or `communication_style`)
@@ -45,8 +45,8 @@ FGAgent <- R6::R6Class("FGAgent",
     id = NULL,
     persona_description = NULL,
     communication_style_instruction = NULL,
-    model_config = NULL,
-    runner = NULL,
+    config = NULL,
+    .runner = NULL,
     #' @field role Character. "moderator" or "participant" for convenience in reports.
     role = NULL,
     #' @field demographics Named list. Raw demographics used to build persona.
@@ -69,28 +69,29 @@ FGAgent <- R6::R6Class("FGAgent",
     #'     \item `communication_style`: A character string describing the agent's communication style (e.g., "analytical and direct", "empathetic and story-driven").
     #'   }
     #'   If `is_moderator` is `TRUE` and no specific details are provided, a default moderator persona is used.
-    #' @param llm_config An `llm_config` object from `LLMR::llm_config()`.
+    #' @param config An `llm_config` object from `LLMR::llm_config()`. It may be
+    #'   `NULL` only for an analysis-only agent that will not generate output.
     #' @param is_moderator Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.
-    #' @param runner `NULL` or a function `(config, messages)` returning a
-    #'   character scalar or an `llmr_response`. `NULL` uses live LLMR calls.
-    initialize = function(id, agent_details, llm_config, is_moderator = FALSE,
-                          runner = NULL) {
+    #' @param .runner `NULL` or an experiments-frame runner. `NULL` uses live
+    #'   LLMR calls.
+    initialize = function(id, agent_details, config, is_moderator = FALSE,
+                          .runner = NULL) {
       if (!is.character(id) || length(id) != 1 || nchar(id) == 0) {
         stop("Agent 'id' must be a non-empty character string.")
       }
       if (!is.list(agent_details)) {
         stop("'agent_details' must be a list.")
       }
-      if (!inherits(llm_config, "llm_config")) {
-        stop("'llm_config' must be an 'llm_config' object from LLMR::llm_config().")
+      if (!is.null(config) && !inherits(config, "llm_config")) {
+        stop("'config' must be NULL or an 'llm_config' object from LLMR::llm_config().")
       }
-      if (!is.null(runner) && !is.function(runner)) {
-        stop("'runner' must be NULL or a function with arguments (config, messages).")
+      if (!is.null(.runner) && !is.function(.runner)) {
+        stop("'.runner' must be NULL or an experiments-frame runner.")
       }
 
       self$id <- id
-      self$model_config <- llm_config
-      self$runner <- runner
+      self$config <- config
+      self$.runner <- .runner
       self$is_moderator <- is_moderator
       self$role <- if (is_moderator) "moderator" else "participant"
       # Expose raw inputs for reporting/analysis convenience
@@ -141,6 +142,10 @@ FGAgent <- R6::R6Class("FGAgent",
                                   standing_rules = NULL,
                                   self_state = TRUE) {
 
+      if (is.null(self$config)) {
+        stop("An explicit config is required to generate an utterance.", call. = FALSE)
+      }
+
       prompt_values <- list(
         persona_description = self$persona_description,
         communication_style_instruction = self$communication_style_instruction %||% "",
@@ -167,9 +172,9 @@ FGAgent <- R6::R6Class("FGAgent",
         final_prompt <- sub("^(\n)+", "", final_prompt)
       }
 
-      current_call_config <- self$model_config
-      current_call_config$model_params$max_tokens <- max_tokens_utterance
-      current_call_config$model_params$temperature <- current_call_config$model_params$temperature %||% 0.7
+      current_config <- self$config
+      current_config$model_params$max_tokens <- max_tokens_utterance
+      current_config$model_params$temperature <- current_config$model_params$temperature %||% 0.7
 
       # Build the messages. A legacy/custom template that inlines the transcript
       # (via {{conversation_history}}/{{persona_description}}) keeps the old
@@ -200,9 +205,9 @@ FGAgent <- R6::R6Class("FGAgent",
       }
 
       response_obj <- .fg_call_llm(
-        config = current_call_config,
+        config = current_config,
         messages = msgs,
-        runner = self$runner,
+        .runner = self$.runner,
         tries = 5,
         wait_seconds = 2,
         backoff_factor = 3
@@ -253,26 +258,34 @@ FGAgent <- R6::R6Class("FGAgent",
         # so it does not sit adjacent to the prior trailing instruction.
         retry_msgs <- LLMR::ensure_alternating_messages(
           c(msgs, list(list(role = "user", content = complete_cue))))
-        current_call_config$model_params$max_tokens <- max(max_tokens_utterance, 320L)
+        current_config$model_params$max_tokens <- max(max_tokens_utterance, 320L)
         response_obj2 <- .fg_call_llm(
-          config = current_call_config,
+          config = current_config,
           messages = retry_msgs,
-          runner = self$runner,
+          .runner = self$.runner,
           tries = 3,
           wait_seconds = 2,
           backoff_factor = 2
         )
+        u2 <- extract_token_counts(response_obj2)
+        retry_sent <- .fg_tok0(u2$sent)
+        retry_rec <- .fg_tok0(u2$rec)
+        agg_sent <- agg_sent + retry_sent
+        agg_rec <- agg_rec + retry_rec
+        self$tokens_sent_agent <- self$tokens_sent_agent + retry_sent
+        self$tokens_received_agent <- self$tokens_received_agent + retry_rec
+
         cand <- trimws(.fg_response_text(response_obj2))
         cand <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cand, ignore.case = TRUE)
-        if (nzchar(cand) && nchar(cand) >= nchar(utterance_text)) {
-          utterance_text <- cand
-          u2 <- extract_token_counts(response_obj2)
-          agg_sent <- agg_sent + .fg_tok0(u2$sent)
-          agg_rec  <- agg_rec  + .fg_tok0(u2$rec)
-          self$tokens_sent_agent     <- self$tokens_sent_agent     + .fg_tok0(u2$sent)
-          self$tokens_received_agent <- self$tokens_received_agent + .fg_tok0(u2$rec)
-          final_response_obj <- response_obj2
+        retry_incomplete <- !nzchar(cand) ||
+          identical(.fg_response_finish(response_obj2), "length") ||
+          grepl("\\.\\.\\.\\s*$", cand)
+        if (retry_incomplete) {
+          stop("The model returned an incomplete utterance after retry.",
+               call. = FALSE)
         }
+        utterance_text <- cand
+        final_response_obj <- response_obj2
       }
 
       meta <- list(
@@ -282,8 +295,8 @@ FGAgent <- R6::R6Class("FGAgent",
         rec_tokens    = as.integer(agg_rec),
         total_tokens  = as.integer(agg_sent + agg_rec),
         duration_s    = .fg_response_field(final_response_obj, "duration_s", NA_real_),
-        provider      = self$model_config$provider %||% NA_character_,
-        model         = self$model_config$model %||% NA_character_
+        provider      = self$config$provider %||% NA_character_,
+        model         = self$config$model %||% NA_character_
       )
 
       self$history <- c(self$history, list(list(topic = topic, text = utterance_text, timestamp = Sys.time(), phase = current_phase)))
@@ -313,6 +326,9 @@ FGAgent <- R6::R6Class("FGAgent",
                                 last_speaker_id = "N/A",
                                 last_utterance_text = "N/A",
                                 conversation_log = NULL) {
+      if (is.null(self$config)) {
+        stop("An explicit config is required for desire scoring.", call. = FALSE)
+      }
       prompt_values <- list(
         persona_description = self$persona_description,
         topic = topic,
@@ -323,12 +339,12 @@ FGAgent <- R6::R6Class("FGAgent",
       )
       final_prompt <- replace_placeholders(desire_prompt_template, prompt_values)
 
-      current_call_config <- self$model_config
-      current_call_config$model_params$max_tokens <- max_tokens_desire
+      current_config <- self$config
+      current_config$model_params$max_tokens <- max_tokens_desire
       # Do not inject a temperature for desire scoring: some reasoning models
       # require their native temperature (e.g. 1) and the score is a single
       # integer, so the caller's sampling setting is left untouched.
-      current_call_config$model_params$temperature <- NULL
+      current_config$model_params$temperature <- NULL
 
       # Desire scoring is still an agent-perspective judgment: if it reads its own
       # prior turns as external "SpeakerID:" text it can misjudge novelty. Role-
@@ -351,7 +367,7 @@ FGAgent <- R6::R6Class("FGAgent",
       score_once <- function(cfg) {
         ro <- .fg_call_llm(
           config = cfg, messages = desire_msgs,
-          runner = self$runner,
+          .runner = self$.runner,
           tries = 5, wait_seconds = 2, backoff_factor = 3
         )
         u <- extract_token_counts(ro)
@@ -360,7 +376,7 @@ FGAgent <- R6::R6Class("FGAgent",
         ro
       }
 
-      response_obj <- score_once(current_call_config)
+      response_obj <- score_once(current_config)
       response_text <- .fg_response_text(response_obj)
 
       # A reasoning model can spend the whole token budget on hidden reasoning and
@@ -371,13 +387,26 @@ FGAgent <- R6::R6Class("FGAgent",
       truncated <- identical(.fg_response_finish(response_obj), "length")
       if ((!nzchar(trimws(response_text)) || truncated) &&
           max_tokens_desire < .fg_desire_retry_tokens) {
-        retry_cfg <- current_call_config
+        retry_cfg <- current_config
         retry_cfg$model_params$max_tokens <- .fg_desire_retry_tokens
         response_obj <- score_once(retry_cfg)
         response_text <- .fg_response_text(response_obj)
       }
 
-      # Try to parse a number from 0-10. More robust parsing.
+      fraction_score <- grepl(
+        "\\b(10|[0-9])\\s*(/|out of)\\s*10\\b",
+        response_text, ignore.case = TRUE, perl = TRUE
+      )
+      without_ranges <- gsub(
+        "\\(?\\b(10|[0-9])\\s*(-|to)\\s*(10|[0-9])\\b\\)?", " ",
+        response_text, ignore.case = TRUE
+      )
+      scalar_score <- grepl("\\b(10|[0-9])\\b", without_ranges, perl = TRUE)
+      if (!nzchar(trimws(response_text)) || !(fraction_score || scalar_score)) {
+        stop("Desire scoring returned no valid score from 0 to 10.",
+             call. = FALSE)
+      }
+
       sc <- parse_score_0_10(response_text)
       return(as.numeric(sc))
     }

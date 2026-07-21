@@ -22,9 +22,11 @@ visualization of the conversation.
 \item{\code{moderator_id}}{Character. The ID of the agent designated as the moderator.}
 
 \item{\code{conversation_log}}{List. A chronological log of all messages. Each message is a list
-that includes at least `turn`, `speaker_id`, `is_moderator`, `text`, `timestamp`, and
-`phase`, along with call metadata: `response_id`, `finish_reason`, `sent_tokens`,
-`rec_tokens`, `total_tokens`, `duration_s`, `provider`, and `model`.}
+that includes at least `message_id`, `round`, `speaker_id`, `is_moderator`,
+`text`, `timestamp`, `phase`, and `metadata`, along with call metadata:
+`response_id`, `finish_reason`, `sent_tokens`, `rec_tokens`, `total_tokens`,
+`duration_s`, `provider`, and `model`. `message_id` is unique message order;
+moderator and participant messages from one moderator cycle share `round`.}
 
 \item{\code{turn_taking_flow}}{A `ConversationFlow` object dictating participant turn-taking.}
 
@@ -33,8 +35,6 @@ that includes at least `turn`, `speaker_id`, `is_moderator`, `text`, `timestamp`
 \item{\code{question_script}}{List. A structured list defining phases and specific questions/actions for the moderator.
 Each element is a list with `phase` (e.g., "opening", "icebreaker_question") and optionally `text` (for specific questions).}
 
-\item{\code{current_phase_index}}{Integer. Tracks the current position in the `question_script`.}
-
 \item{\code{current_question_text}}{Character. Text of the current question being discussed.}
 
 \item{\code{current_conversation_summary}}{Character. An LLM-generated summary of earlier parts of the conversation,
@@ -42,11 +42,11 @@ used for managing context length in prompts.}
 
 \item{\code{final_summary}}{Character. Final LLM-generated summary from the most recent simulation run.}
 
-\item{\code{msg_mode}}{Character. The message construction used by the most recent
+\item{\code{message_mode}}{Character. The message construction used by the most recent
 `run_simulation()` ("roleflip" or "flat"), recorded so a saved object can be
 replayed (e.g. in the GUI continuation experiment) with the same construction.}
 
-\item{\code{llm_config_admin}}{An `llm_config` object for group-level LLM tasks (summarization, analysis).}
+\item{\code{admin_config}}{An `llm_config` object for group-level model tasks.}
 
 \item{\code{max_tokens_utterance}}{Integer. Default max tokens for participant utterances.}
 
@@ -65,10 +65,8 @@ replayed (e.g. in the GUI continuation experiment) with the same construction.}
 \section{Methods}{
 \subsection{Public methods}{
 \itemize{
-\item \href{#method-FocusGroup-record_token_usage}{\code{FocusGroup$record_token_usage()}}
 \item \href{#method-FocusGroup-new}{\code{FocusGroup$new()}}
 \item \href{#method-FocusGroup-run_simulation}{\code{FocusGroup$run_simulation()}}
-\item \href{#method-FocusGroup-advance_turn}{\code{FocusGroup$advance_turn()}}
 \item \href{#method-FocusGroup-summarize}{\code{FocusGroup$summarize()}}
 \item \href{#method-FocusGroup-analyze}{\code{FocusGroup$analyze()}}
 \item \href{#method-FocusGroup-analyze_topics}{\code{FocusGroup$analyze_topics()}}
@@ -83,27 +81,8 @@ replayed (e.g. in the GUI continuation experiment) with the same construction.}
 \item \href{#method-FocusGroup-plot_participation_timeline}{\code{FocusGroup$plot_participation_timeline()}}
 \item \href{#method-FocusGroup-plot_word_count_distribution}{\code{FocusGroup$plot_word_count_distribution()}}
 \item \href{#method-FocusGroup-plot_participation_by_agent}{\code{FocusGroup$plot_participation_by_agent()}}
-\item \href{#method-FocusGroup-plot_turn_length_timeline}{\code{FocusGroup$plot_turn_length_timeline()}}
+\item \href{#method-FocusGroup-plot_message_length_timeline}{\code{FocusGroup$plot_message_length_timeline()}}
 \item \href{#method-FocusGroup-clone}{\code{FocusGroup$clone()}}
-}
-}
-\if{html}{\out{<hr>}}
-\if{html}{\out{<a id="method-FocusGroup-record_token_usage"></a>}}
-\if{latex}{\out{\hypertarget{method-FocusGroup-record_token_usage}{}}}
-\subsection{Method \code{record_token_usage()}}{
-Add token usage to package-level accounting.
-\subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$record_token_usage(sent = 0L, rec = 0L)}\if{html}{\out{</div>}}
-}
-
-\subsection{Arguments}{
-\if{html}{\out{<div class="arguments">}}
-\describe{
-\item{\code{sent}}{Integer. Prompt/input tokens.}
-
-\item{\code{rec}}{Integer. Completion/output tokens.}
-}
-\if{html}{\out{</div>}}
 }
 }
 \if{html}{\out{<hr>}}
@@ -120,7 +99,7 @@ Initialize a new FocusGroup simulation.
   turn_taking_flow,
   question_script = list(),
   prompt_templates = list(),
-  llm_config_admin = NULL,
+  admin_config = NULL,
   max_tokens_config = list(),
   max_participant_responses = NULL
 )}\if{html}{\out{</div>}}
@@ -144,8 +123,8 @@ If empty, a minimal default script (opening, generic discussion, closing) is use
 
 \item{\code{prompt_templates}}{List. Custom prompt templates. Defaults are used if not provided.}
 
-\item{\code{llm_config_admin}}{An `llm_config` object for administrative LLM tasks (e.g., summarization, LLM-based analysis).
-If NULL, the moderator's `model_config` will be used for these tasks.}
+\item{\code{admin_config}}{An `llm_config` object for administrative model tasks.
+If `NULL`, the moderator's explicitly supplied `config` is used.}
 
 \item{\code{max_tokens_config}}{List. Optional. Named list with `utterance`, `moderator`, `desire`
 to override default max token limits for these LLM call types.}
@@ -161,17 +140,17 @@ Defaults to `getOption("focusgroup.max_participant_responses", 3)`.}
 \if{latex}{\out{\hypertarget{method-FocusGroup-run_simulation}{}}}
 \subsection{Method \code{run_simulation()}}{
 Run the full focus group simulation.
-Iterates through the `question_script` phases or a specified number of turns.
+Iterates through the `question_script` phases or a specified number of rounds.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$run_simulation(num_turns = NULL, verbose = FALSE)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$run_simulation(num_rounds = NULL, verbose = FALSE)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{num_turns}}{Integer. Optional. Maximum number of turns to run. If `NULL` (default),
+\item{\code{num_rounds}}{Integer. Optional. Maximum number of moderator cycles to run. If `NULL` (default),
 the simulation runs until the `question_script` is exhausted or the moderator
-decides to end. If both `num_turns` and `question_script` are provided,
+decides to end. If both `num_rounds` and `question_script` are provided,
 the simulation stops at whichever condition is met first.}
 
 \item{\code{verbose}}{Logical. If `TRUE`, prints progress and utterances to the console.}
@@ -183,54 +162,37 @@ Invisibly returns the `conversation_log`.
 }
 }
 \if{html}{\out{<hr>}}
-\if{html}{\out{<a id="method-FocusGroup-advance_turn"></a>}}
-\if{latex}{\out{\hypertarget{method-FocusGroup-advance_turn}{}}}
-\subsection{Method \code{advance_turn()}}{
-Advance the simulation by one logical step (moderator action + participant response if applicable).
-\subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$advance_turn(current_turn_number, verbose = FALSE)}\if{html}{\out{</div>}}
-}
-
-\subsection{Arguments}{
-\if{html}{\out{<div class="arguments">}}
-\describe{
-\item{\code{current_turn_number}}{Integer. The current turn number for logging.}
-
-\item{\code{verbose}}{Logical. If `TRUE`, print progress.}
-}
-\if{html}{\out{</div>}}
-}
-\subsection{Returns}{
-Logical. `TRUE` if the simulation should continue, `FALSE` if it should end.
-}
-}
-\if{html}{\out{<hr>}}
 \if{html}{\out{<a id="method-FocusGroup-summarize"></a>}}
 \if{latex}{\out{\hypertarget{method-FocusGroup-summarize}{}}}
 \subsection{Method \code{summarize()}}{
 Generate a summary of the conversation using an LLM.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{FocusGroup$summarize(
-  llm_config = NULL,
+  config,
   summary_level = 1,
   max_tokens = NULL,
   internal_call = FALSE,
-  transcript_override = NULL
+  transcript_override = NULL,
+  .runner = NULL
 )}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{llm_config}}{An `llm_config` object for the summarization LLM. If `NULL`, uses `self$llm_config_admin`.}
+\item{\code{config}}{An explicit `llm_config` object for the summarization model.}
 
 \item{\code{summary_level}}{Integer (1-3). 1: Prose overview, 2: Detailed bulleted, 3: Short bulleted takeaways.}
 
 \item{\code{max_tokens}}{Integer. Optional. Max tokens for the summary.}
 
-\item{\code{internal_call}}{Logical. If TRUE, this is an internal call (e.g. for context window management) and token counts are not added to the agent who "owns" llm_config_admin.}
+\item{\code{internal_call}}{Logical. If TRUE, this is an internal call (e.g. for context window management) and token counts are not added to the agent who owns `admin_config`.}
 
 \item{\code{transcript_override}}{Character. Optional. If provided, this transcript is summarized instead of `self$conversation_log`.}
+
+\item{\code{.runner}}{Optional experiments-frame runner. It receives a data frame
+with `config` and `messages` list-columns and returns the rows with at
+least `response_text`.}
 }
 \if{html}{\out{</div>}}
 }
@@ -244,13 +206,14 @@ Character string containing the generated summary.
 \subsection{Method \code{analyze()}}{
 Basic analysis of the conversation log.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze(turns = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze(message_ids = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze. If `NULL`, analyzes all turns.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.
+If `NULL`, all messages are analyzed.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze. If `NULL`, analyzes all speakers.}
 }
@@ -271,7 +234,7 @@ Perform LDA topic modeling on the conversation.
   num_topics = 5,
   min_doc_length = 20,
   top_n_terms = 10,
-  turns = NULL,
+  message_ids = NULL,
   speaker_ids = NULL,
   seed = 110,
   ...
@@ -287,7 +250,7 @@ Perform LDA topic modeling on the conversation.
 
 \item{\code{top_n_terms}}{Integer. Number of top terms per topic to return.}
 
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 
@@ -310,7 +273,7 @@ Calculate TF-IDF scores for terms per participant.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_tfidf(
   top_n_terms = 10,
-  turns = NULL,
+  message_ids = NULL,
   speaker_ids = NULL,
   ...
 )}\if{html}{\out{</div>}}
@@ -321,7 +284,7 @@ Calculate TF-IDF scores for terms per participant.
 \describe{
 \item{\code{top_n_terms}}{Integer. Number of top TF-IDF terms per participant.}
 
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 
@@ -341,7 +304,7 @@ Calculate readability scores for each participant's aggregated text.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_readability(
   measures = "Flesch",
-  turns = NULL,
+  message_ids = NULL,
   speaker_ids = NULL
 )}\if{html}{\out{</div>}}
 }
@@ -351,7 +314,7 @@ Calculate readability scores for each participant's aggregated text.
 \describe{
 \item{\code{measures}}{Character vector. Readability measure(s) from `quanteda.textstats::textstat_readability`.}
 
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 }
@@ -367,24 +330,32 @@ A tibble with readability scores.
 \subsection{Method \code{analyze_themes()}}{
 Perform LLM-assisted thematic analysis on the transcript.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_themes(llm_config = NULL, turns = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_themes(
+  config,
+  message_ids = NULL,
+  speaker_ids = NULL,
+  .runner = NULL
+)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{llm_config}}{An `llm_config` object for the analysis. If `NULL`, uses `self$llm_config_admin`.}
+\item{\code{config}}{An explicit `llm_config` object for thematic analysis.}
 
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
+
+\item{\code{.runner}}{Optional experiments-frame runner. It receives a data frame
+with `config` and `messages` list-columns and returns the rows with at
+least `response_text`.}
 }
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-The thematic summary as a character string, carrying the raw LLM
-  response object in its `raw_llm_response` attribute. `NULL` if there is
-  nothing to analyze.
+The thematic summary as a character string. An empty transcript
+  returns `character(0)`. Provider failures are propagated.
 }
 }
 \if{html}{\out{<hr>}}
@@ -393,13 +364,13 @@ The thematic summary as a character string, carrying the raw LLM
 \subsection{Method \code{analyze_statistics()}}{
 Perform statistical analysis on conversation patterns.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_statistics(turns = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_statistics(message_ids = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 }
@@ -415,13 +386,16 @@ A list with ANOVA results, phase participation stats, and correlations.
 \subsection{Method \code{analyze_participation_balance()}}{
 Analyze participation balance and dominance patterns.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_participation_balance(turns = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_participation_balance(
+  message_ids = NULL,
+  speaker_ids = NULL
+)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 }
@@ -437,13 +411,13 @@ A list with participation statistics and balance metrics.
 \subsection{Method \code{analyze_response_patterns()}}{
 Analyze response patterns and interaction behaviors.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_response_patterns(turns = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_response_patterns(message_ids = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 }
@@ -459,13 +433,13 @@ A list with response and interaction pattern metrics.
 \subsection{Method \code{analyze_question_patterns()}}{
 Analyze question asking patterns during the conversation.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_question_patterns(turns = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_question_patterns(message_ids = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
 \if{html}{\out{<div class="arguments">}}
 \describe{
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 }
@@ -481,7 +455,11 @@ A list with question pattern analysis.
 \subsection{Method \code{analyze_key_phrases()}}{
 Extract and analyze key phrases using n-grams.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_key_phrases(min_freq = 2, turns = NULL, speaker_ids = NULL)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$analyze_key_phrases(
+  min_freq = 2,
+  message_ids = NULL,
+  speaker_ids = NULL
+)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
@@ -489,7 +467,7 @@ Extract and analyze key phrases using n-grams.
 \describe{
 \item{\code{min_freq}}{Integer. Minimum frequency for phrases to be considered key.}
 
-\item{\code{turns}}{Integer vector. Optional. Specific turns to analyze.}
+\item{\code{message_ids}}{Integer vector. Optional `message_id` values to analyze.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 }
@@ -503,7 +481,7 @@ A list with bigram and trigram analysis.
 \if{html}{\out{<a id="method-FocusGroup-plot_participation_timeline"></a>}}
 \if{latex}{\out{\hypertarget{method-FocusGroup-plot_participation_timeline}{}}}
 \subsection{Method \code{plot_participation_timeline()}}{
-Create participation timeline plot showing cumulative turns by participant across phases.
+Create a participation timeline of cumulative messages by participant across phases.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{FocusGroup$plot_participation_timeline()}\if{html}{\out{</div>}}
 }
@@ -529,7 +507,7 @@ ggplot object
 \if{html}{\out{<a id="method-FocusGroup-plot_participation_by_agent"></a>}}
 \if{latex}{\out{\hypertarget{method-FocusGroup-plot_participation_by_agent}{}}}
 \subsection{Method \code{plot_participation_by_agent()}}{
-Create participation by agent plot showing total turns per participant.
+Create a participation by agent plot showing total messages per participant.
 \subsection{Usage}{
 \if{html}{\out{<div class="r">}}\preformatted{FocusGroup$plot_participation_by_agent()}\if{html}{\out{</div>}}
 }
@@ -539,12 +517,12 @@ ggplot object
 }
 }
 \if{html}{\out{<hr>}}
-\if{html}{\out{<a id="method-FocusGroup-plot_turn_length_timeline"></a>}}
-\if{latex}{\out{\hypertarget{method-FocusGroup-plot_turn_length_timeline}{}}}
-\subsection{Method \code{plot_turn_length_timeline()}}{
-Create turn length timeline plot showing message length evolution over time.
+\if{html}{\out{<a id="method-FocusGroup-plot_message_length_timeline"></a>}}
+\if{latex}{\out{\hypertarget{method-FocusGroup-plot_message_length_timeline}{}}}
+\subsection{Method \code{plot_message_length_timeline()}}{
+Create a timeline showing message length over message order.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$plot_turn_length_timeline()}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$plot_message_length_timeline()}\if{html}{\out{</div>}}
 }
 
 \subsection{Returns}{

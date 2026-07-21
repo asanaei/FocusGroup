@@ -7,7 +7,7 @@
 
     <a class="navbar-brand me-2" href="../index.html">FocusGroup</a>
 
-    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.2.2</small>
+    <small class="nav-text text-muted me-auto" data-bs-toggle="tooltip" data-bs-placement="bottom" title="">0.5.1</small>
 
 
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbar" aria-controls="navbar" aria-expanded="false" aria-label="Toggle navigation">
@@ -17,6 +17,7 @@
     <div id="navbar" class="collapse navbar-collapse ms-3">
       <ul class="navbar-nav me-auto"><li class="active nav-item"><a class="nav-link" href="../reference/index.html">Reference</a></li>
 <li class="nav-item"><a class="nav-link" href="../articles/index.html">Articles</a></li>
+<li class="nav-item"><a class="nav-link" href="../news/index.html">Changelog</a></li>
       </ul><ul class="navbar-nav"><li class="nav-item"><a class="external-link nav-link" href="https://github.com/asanaei/FocusGroup" aria-label="GitHub repository"><span class="fa fa-github"></span></a></li>
       </ul></div>
 
@@ -29,29 +30,11 @@
     </div>
 
     <div class="section level2">
-      <h2 id="package">Package<a class="anchor" aria-label="anchor" href="#package"></a></h2>
-
-
-
-
-    </div><div class="section level2">
-
-
-
-
-      <dl><dt>
-
-          <code><a href="FocusGroup.html">FocusGroup-package</a></code> <code><a href="FocusGroup.html">FocusGroup</a></code>
-
-        </dt>
-        <dd>FocusGroup R6 Class</dd>
-      </dl></div><div class="section level2">
       <h2 id="core-classes">Core Classes<a class="anchor" aria-label="anchor" href="#core-classes"></a></h2>
 
 
 
-
-    </div><div class="section level2">
+      <dl></dl></div><div class="section level2">
 
 
 
@@ -62,43 +45,26 @@
 
         </dt>
         <dd>FGAgent Class</dd>
-      </dl><dl><dt>
 
-          <code><a href="FocusGroup.html">FocusGroup-package</a></code> <code><a href="FocusGroup.html">FocusGroup</a></code>
+        <dt>
+
+          <code><a href="FocusGroup.html">FocusGroup</a></code>
 
         </dt>
         <dd>FocusGroup R6 Class</dd>
-      </dl><dl><dt>
+
+        <dt>
 
           <code><a href="ConversationFlow.html">ConversationFlow</a></code>
 
         </dt>
         <dd>ConversationFlow Base Class</dd>
-      </dl><dl><dt>
-
-          <code><a href="RoundRobinFlow.html">RoundRobinFlow</a></code>
-
-        </dt>
-        <dd>RoundRobinFlow Class</dd>
-      </dl><dl><dt>
-
-          <code><a href="ProbabilisticFlow.html">ProbabilisticFlow</a></code>
-
-        </dt>
-        <dd>ProbabilisticFlow Class</dd>
-      </dl><dl><dt>
-
-          <code><a href="DesireBasedFlow.html">DesireBasedFlow</a></code>
-
-        </dt>
-        <dd>DesireBasedFlow Class</dd>
       </dl></div><div class="section level2">
-      <h2 id="high-level-wrappers">High-level Wrappers<a class="anchor" aria-label="anchor" href="#high-level-wrappers"></a></h2>
+      <h2 id="workflows">Workflows<a class="anchor" aria-label="anchor" href="#workflows"></a></h2>
 
 
 
-
-    </div><div class="section level2">
+      <dl></dl></div><div class="section level2">
 
 
 
@@ -108,61 +74,64 @@
           <code><a href="run_focus_group.html">run_focus_group()</a></code>
 
         </dt>
-        <dd>Run a Simple Focus Group Simulation</dd>
-      </dl><dl><dt>
+        <dd>Run a Focus Group Simulation</dd>
 
-          <code><a href="fg_quick.html">fg_quick()</a></code>
-
-        </dt>
-        <dd>Run a focus group quickly with sensible defaults and cost controls</dd>
-      </dl><dl><dt>
-
-          <code><a href="fg_analyze_quick.html">fg_analyze_quick()</a></code>
-
-        </dt>
-        <dd>Quick analysis helper for a `fg_quick()` result</dd>
-      </dl><dl><dt>
+        <dt>
 
           <code><a href="analyze_focus_group.html">analyze_focus_group()</a></code>
 
         </dt>
         <dd>Analyze Focus Group Results</dd>
+
+        <dt>
+
+          <code><a href="focus_group_from_transcript.html">focus_group_from_transcript()</a></code>
+
+        </dt>
+        <dd>Build a FocusGroup object from an imported transcript</dd>
       </dl></div><div class="section level2">
-      <h2 id="agent-creation-survey">Agent Creation &amp; Survey<a class="anchor" aria-label="anchor" href="#agent-creation-survey"></a></h2>
+      <h2 id="agent-creation-and-flows">Agent Creation and Flows<a class="anchor" aria-label="anchor" href="#agent-creation-and-flows"></a></h2>
 
 
 
-
-    </div><div class="section level2">
+      <dl></dl></div><div class="section level2">
 
 
 
 
       <dl><dt>
 
-          <code><a href="create_diverse_agents.html">create_diverse_agents()</a></code>
+          <code><a href="create_agents.html">create_agents()</a></code>
 
         </dt>
-        <dd>Create Diverse AI Agents for Focus Group</dd>
-      </dl><dl><dt>
+        <dd>Create Focus Group Agents</dd>
+
+        <dt>
+
+          <code><a href="create_agents_from_data.html">create_agents_from_data()</a></code>
+
+        </dt>
+        <dd>Create agents from an in-memory data frame of respondents</dd>
+
+        <dt>
 
           <code><a href="create_agents_from_survey.html">create_agents_from_survey()</a></code>
 
         </dt>
-        <dd>Create agents from haven-coded survey data</dd>
-      </dl><dl><dt>
+        <dd>Create agents from a labeled survey file</dd>
+
+        <dt>
 
           <code><a href="create_conversation_flow.html">create_conversation_flow()</a></code>
 
         </dt>
         <dd>Create a Conversation Flow Object</dd>
       </dl></div><div class="section level2">
-      <h2 id="prompts-utilities">Prompts &amp; Utilities<a class="anchor" aria-label="anchor" href="#prompts-utilities"></a></h2>
+      <h2 id="prompts">Prompts<a class="anchor" aria-label="anchor" href="#prompts"></a></h2>
 
 
 
-
-    </div><div class="section level2">
+      <dl></dl></div><div class="section level2">
 
 
 
@@ -173,30 +142,22 @@
 
         </dt>
         <dd>Get Default Prompt Templates</dd>
-      </dl><dl><dt>
+      </dl></div><div class="section level2">
+      <h2 id="graphical-interface">Graphical Interface<a class="anchor" aria-label="anchor" href="#graphical-interface"></a></h2>
 
-          <code><a href="format_demographics.html">format_demographics()</a></code>
 
-        </dt>
-        <dd>Format Demographics List to Text</dd>
-      </dl><dl><dt>
 
-          <code><a href="format_survey_responses.html">format_survey_responses()</a></code>
+      <dl></dl></div><div class="section level2">
 
-        </dt>
-        <dd>Format Survey Responses to Text</dd>
-      </dl><dl><dt>
 
-          <code><a href="format_conversation_history.html">format_conversation_history()</a></code>
+
+
+      <dl><dt>
+
+          <code><a href="run_focus_studio.html">run_focus_studio()</a></code>
 
         </dt>
-        <dd>Format Conversation History for Prompts</dd>
-      </dl><dl><dt>
-
-          <code><a href="replace_placeholders.html">replace_placeholders()</a></code>
-
-        </dt>
-        <dd>Replace Placeholders in a String</dd>
+        <dd>Launch the FocusGroup Shiny GUI</dd>
       </dl></div>
   </main><aside class="col-md-3"><nav id="toc" aria-label="Table of contents"><h2>On this page</h2>
     </nav></aside></div>
@@ -207,7 +168,7 @@
 </div>
 
 <div class="pkgdown-footer-right">
-  <p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.1.3.</p>
+  <p>Site built with <a href="https://pkgdown.r-lib.org/" class="external-link">pkgdown</a> 2.2.0.</p>
 </div>
 
     </footer></div>
