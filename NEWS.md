@@ -2,22 +2,20 @@
 
 Initial CRAN release.
 
-* Simulates focus group discussions among LLM agents: a moderator guides
-  participants through scripted phases (opening, icebreaker, engagement,
-  exploration, closing), with numeric phase script banks or user-supplied scripts.
-* Participant personas come from user-supplied demographics and survey
-  responses, from labeled survey files (Stata, SPSS, SAS), or from a data
-  frame such as `LLMR::anes_2024_personas`; pre-rendered silicon panel personas
-  pass through without being recast as survey answers.
-* Three turn-taking flows: round robin, probabilistic, and desire-based
-  (participants rate their own desire to speak).
-* An optional runner supports complete offline sessions, including desire
-  scoring, moderator turns, participant turns, summaries, and thematic analysis.
-* `focus_group_from_transcript()` imports an existing human or saved transcript
-  into a `FocusGroup` object for descriptive and text analysis.
-* Analysis suite for the resulting transcripts: participation and balance
-  statistics, topic modeling, TF-IDF, readability, key phrases, and
-  LLM-assisted thematic analysis, with optional ggplot2 visualizations.
-* Optional Shiny GUI (`run_focus_studio()`, via the suggested LLMR.shiny
-  package) to run a group live, analyze a transcript offline, and run paired
-  continuation experiments on a saved conversation.
+* `run_focus_group()` and `fg_quick()` simulate moderated discussions. A
+  question script controls opening, icebreaker, engagement, exploration, and
+  closing turns. `turns_per_phase` accepts phase counts or exact instructions.
+* `create_diverse_agents()`, `create_agents_from_survey()`, and
+  `create_agents_from_data()` construct agents from data frames, labeled survey
+  files, and pre-rendered persona panels.
+* `RoundRobinFlow`, `ProbabilisticFlow`, and `DesireBasedFlow` select speakers
+  by order, propensity, or model-produced desire scores.
+* The `runner` argument routes moderator, participant, desire-scoring, summary,
+  and thematic-analysis calls through a user function. This permits a session
+  to run without a provider.
+* `focus_group_from_transcript()` imports an existing transcript into a
+  `FocusGroup` object for descriptive and text analysis.
+* `analyze_focus_group()` runs participation, topic, TF-IDF, readability,
+  key-phrase, and thematic analyses. It can also return ggplot2 plots.
+* `run_focus_studio()` starts the optional Shiny interface for running sessions,
+  reading saved transcripts, and comparing continuations from edited histories.

@@ -16,15 +16,16 @@ knitr::opts_chunk$set(
 library(FocusGroup)
 ```
 
-# Introduction
+# Analyze a simulated discussion
 
-The FocusGroup package provides tools for simulating and analyzing focus group conversations. This vignette demonstrates how to use the package to create, run, and analyze focus group simulations. The package uses `FGAgent`s as the agents who participate in a focus group study; these agents can be based on various LLM models potentially from different providers; see `LLMR` documentation for which providers have built-in support and how to add new ones. One `FGAgent` is always the moderator. 
+FocusGroup stores a moderated discussion in a `FocusGroup` object. Each
+participant and the moderator is an `FGAgent`. The group object contains the
+question script, conversation flow, messages, response metadata, and analysis
+methods.
 
-## LLMR 0.6.0 compatibility notes
-
-- Generative calls return an `llmr_response` object. Use `as.character(resp)` for text, and `LLMR::tokens(resp)` and `LLMR::finish_reason(resp)` for usage/metadata.
-- The legacy `json = TRUE` argument was removed from `LLMR::call_llm()` and `LLMR::call_llm_robust()`. You do not need to set it; FocusGroup handles responses correctly without it.
-- Recommended: set your provider API key in an environment variable (e.g., `OPENAI_API_KEY`). You can omit `api_key` in `LLMR::llm_config(...)` and LLMR will read it automatically.
+Provider calls use LLMR. Set the provider key in an environment variable before
+running a session. LLMR returns response metadata and token counts, which
+FocusGroup records with each generated message.
 
 ## Installation
 
@@ -33,9 +34,10 @@ The FocusGroup package provides tools for simulating and analyzing focus group c
 remotes::install_github("asanaei/FocusGroup")
 ```
 
-# Running a Simple Focus Group
+# Run a focus group
 
-Let's start by running a focus group with 5 participants using the high-level wrapper. Note that you need to set your OpenAI API key in the environment variable `OPENAI_API_KEY`:
+`run_focus_group()` constructs five participants, a moderator, a script, and a
+conversation flow in the following example.
 
 ```{r create_fg, eval = FALSE}
 # Set your OpenAI API key (or set it in your environment)
@@ -51,18 +53,24 @@ result <- run_focus_group(
 print(result$focus_group)
 ```
 
-# Viewing the Conversation
+# Read the conversation log
+
+`result$conversation` is a data frame with one row per stored message. It
+includes speaker and phase identifiers together with provider metadata and
+token counts.
 
 ```{r view_conversation, eval = FALSE}
 # View the conversation
 head(result$conversation)
 ```
 
-# Analyzing the Results
+# Analyze the transcript
 
-The package provides several analysis functions to help understand the conversation:
+`analyze_focus_group()` runs the main analyses and returns them in a list. Topic,
+readability, and plotting components require their suggested packages.
+Thematic analysis makes a model call.
 
-## Basic Analysis
+## Basic analysis
 
 ```{r basic_analysis, eval = FALSE}
 # Get basic statistics
@@ -70,10 +78,9 @@ stats <- analyze_focus_group(result)
 print(stats$basic_stats)
 ```
 
-## Text Analysis
+## Text analysis
 
-Several analyses are methods on the `FocusGroup` object itself, reached through
-`result$focus_group`.
+Individual analyses are methods on `result$focus_group`.
 
 ```{r text_analysis, eval = FALSE}
 # Readability scores per speaker
@@ -85,7 +92,7 @@ patterns <- result$focus_group$analyze_response_patterns()
 print(patterns$response_metrics)
 ```
 
-## Question Analysis
+## Question analysis
 
 ```{r questions, eval = FALSE}
 # Analyze question patterns
@@ -93,9 +100,10 @@ questions <- result$focus_group$analyze_question_patterns()
 print(questions$question_patterns)
 ```
 
-## Visualization
+## Plots
 
-The `FocusGroup` object provides several plotting methods:
+Plotting methods return ggplot objects. Analysis methods continue to return
+tables and lists.
 
 ```{r plots, eval = FALSE}
 # Participation timeline
@@ -106,11 +114,11 @@ print(participation_plot)
 print(result$focus_group$analyze_readability())
 ```
 
-# Advanced Usage
+# Construct the objects directly
 
-## Custom Agent Profiles and Manual Construction
-
-You can create custom agent profiles and manually construct a FocusGroup object:
+The R6 interface exposes the same parts assembled by `run_focus_group()`. Create
+the agents, name the list by agent identifier, construct a conversation flow,
+and pass both objects to `FocusGroup$new()`.
 
 ```{r custom_agents, eval = FALSE}
 # Set your OpenAI API key (or set it in your environment)
@@ -147,9 +155,9 @@ fg <- FocusGroup$new(
 )
 ```
 
-## Custom Analysis
+## Use the transcript in other computations
 
-You can perform custom analysis using the conversation data:
+The transcript data frame can be passed to ordinary R functions.
 
 ```{r custom_analysis, eval = FALSE}
 # Extract conversation data
@@ -160,23 +168,7 @@ word_counts <- sapply(conv_data$text, function(x) length(strsplit(x, "\\s+")[[1]
 summary(word_counts)
 ```
 
-# Best Practices
+# Interpretation
 
-1. Always start with a clear research question
-2. Use appropriate number of participants (typically 5-8)
-3. Set realistic duration for the simulation
-4. Review and adjust agent profiles based on your research needs
-5. Use multiple analysis methods to get a comprehensive understanding
-6. Remember to set your API key in the environment variable like `OPENAI_API_KEY`
-
-# Conclusion
-
-The FocusGroup package provides a powerful toolkit for simulating and analyzing focus group conversations. By following this vignette, you should be able to:
-
-- Create and configure focus groups
-- Run simulations with different parameters
-- Analyze conversations using various methods
-- Visualize results effectively
-- Customize the analysis to your specific needs
-
-For more information, please refer to the package documentation and examples. 
+A generated transcript records model responses under a specified script,
+persona set, and model configuration. It does not measure a population.
