@@ -43,7 +43,7 @@ RandomFlow <- R6::R6Class("RandomFlow", inherit = ConversationFlow,
 
 \item{\code{last_speaker_id}}{The ID of the agent who last spoke. Can be `NULL`.}
 
-\item{\code{selection_metadata}}{A list of provenance for the latest selection.
+\item{\code{selection_metadata}}{Details recorded for the latest selection.
 Desire-scoring failures record the condition and neutral fallback here.}
 }
 \if{html}{\out{</div>}}

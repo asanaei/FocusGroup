@@ -174,9 +174,9 @@ NULL
 #' @param max_calls Integer. Maximum estimated live model outputs allowed without
 #'   confirmation.
 #' @param confirm Logical. Permit a live run whose estimate exceeds `max_calls`.
-#' @param .runner Optional experiments-frame runner. It receives a data frame
-#'   with `config` and `messages` list-columns and returns those rows with at
-#'   least `response_text`.
+#' @param .runner Optional function used instead of live model calls. It
+#'   receives a data frame with `config` and `messages` list-columns and returns
+#'   those rows with at least `response_text`.
 #' @return A `focus_group_result` with the group, transcript, summary,
 #'   participant table, token usage, and sanitized metadata.
 #' @examples
@@ -447,7 +447,8 @@ print.focus_group_result <- function(x, ...) {
 #'   participant personas. When supplied, these descriptions are used directly
 #'   and are recycled in order if necessary. Demographics and survey responses
 #'   remain attached as raw reporting fields.
-#' @param .runner Optional experiments-frame runner stored on every agent.
+#' @param .runner Optional function used instead of live model calls and stored
+#'   on every agent.
 #'
 #' @return A named list of FGAgent objects (participants + 1 moderator), keyed
 #'   by agent ID.
@@ -601,8 +602,10 @@ create_agents <- function(n_participants, config, demographics = NULL,
 #' @param include_plots Logical. Attempt the four descriptive plots.
 #' @param config Optional explicit `LLMR::llm_config`. When supplied, thematic
 #'   analysis and a model summary are generated.
-#' @param .runner Optional experiments-frame runner for the two model analyses.
-#' @return A `focus_group_analysis` with fixed fields and an `issues` table.
+#' @param .runner Optional function used instead of live model calls for the two
+#'   model analyses.
+#' @return A `focus_group_analysis` containing returned analysis components and
+#'   an `issues` table.
 #'
 #' @examples
 #' transcript <- data.frame(
@@ -1032,7 +1035,8 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' @param na_strings Character vector of value-label substrings treated as
 #'   missing (case-insensitive). Defaults to a small common set; pass your own to
 #'   match another file's missing-data vocabulary.
-#' @param .runner Optional experiments-frame runner stored on every agent.
+#' @param .runner Optional function used instead of live model calls and stored
+#'   on every agent.
 #'
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID.
@@ -1149,7 +1153,8 @@ create_agents_from_survey <- function(n_participants,
 #'   Defaults to the `data`'s `"demographic_fields"` attribute when present, else
 #'   a small set of common demographic column names found in `data`.
 #' @param rows,weights See [create_agents_from_survey()].
-#' @param .runner Optional experiments-frame runner stored on every agent.
+#' @param .runner Optional function used instead of live model calls and stored
+#'   on every agent.
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID.
 #' @examples

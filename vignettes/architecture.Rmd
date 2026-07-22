@@ -13,24 +13,29 @@ knitr::opts_chunk$set(eval = FALSE)
 
 # Architecture
 
-FocusGroup separates a moderated discussion into agents, a turn-taking rule,
-and a group object. This separation lets a researcher change the moderator
-guide, participant source, or speaker-selection rule while retaining one log
-grammar for analysis.
+FocusGroup supports the design and examination of moderated discussions before
+fieldwork. Researchers can compare moderator guides, participant sources, and
+speaker-selection rules while retaining one transcript format for analysis. A
+generated transcript describes the specified session and does not estimate
+population attitudes.
+
+Most studies can begin with `run_focus_group()`. This article explains the
+underlying objects for researchers who need direct construction, offline
+execution, or custom turn-taking rules.
 
 `FGAgent` represents a participant or moderator and generates that agent's
 turns. Its model configuration is stored in the `config` field.
-`ConversationFlow` is the extension base for selecting the next participant.
+`ConversationFlow` is the base class for custom turn-taking rules.
 `FocusGroup` advances the moderator guide and records each message. LLMR
 supplies model configurations and provider calls.
 
-## Public surface
+## Main functions
 
 `run_focus_group()` is the single high-level session runner. It requires an
 explicit `config`, constructs the roster and flow, performs a call-count
 preflight, runs the guide, and returns a `focus_group_result`.
 
-Its main argument grammar is consistent with the other package entry points:
+Its main arguments are consistent with the other package entry points:
 
 - `n_participants` is the participant count, excluding the moderator.
 - `guide` is a named vector or list of phase counts or moderator scripts.
@@ -38,7 +43,8 @@ Its main argument grammar is consistent with the other package entry points:
 - `message_mode` selects role-flipped or flat message construction.
 - `config` is the model configuration, and `admin_config` is the group-level
   configuration on direct `FocusGroup` construction.
-- `.runner`, when supplied, is the last execution seam.
+- `.runner`, when supplied, is an optional function used instead of live model
+  calls.
 
 The package supplies three built-in flow modes: `"round_robin"`,
 `"probabilistic"`, and `"desire_based"`. Construct them with
@@ -56,18 +62,19 @@ transcript without generating new turns. `moderator_id` identifies the
 moderator when known. If it is omitted, the importer falls back to finding
 `"mod"` within a speaker identifier.
 
-## Runner contract
+## Offline execution and replay
 
-The `.runner` seam has the experiments-frame contract used across the LLMR
-family. The package calls `.runner(experiments, ...)`, where `experiments` is a
-data frame with `config` and `messages` list-columns. The runner returns those
-rows with at least `response_text`; it may also return `response_id`, token
-counts, `success`, and related diagnostics.
+The `.runner` argument accepts an optional function for offline tests or replay
+that uses the request and response data-frame format used across LLMR. The
+package calls `.runner(experiments, ...)`, where `experiments` is a data frame
+with `config` and `messages` list-columns. The function returns those rows with
+at least `response_text`; it may also return `response_id`, token counts,
+`success`, and related diagnostics.
 
-The seam handles moderator, participant, desire-scoring, and summary requests.
-The same contract permits an archive replay runner to execute a full session
-without a live provider. A configuration remains explicit because it is part
-of the experiment record and its provenance.
+The function handles moderator, participant, desire-scoring, and summary
+requests. This format permits an archive replay function to execute a full
+session without a live provider. A configuration remains explicit and is
+recorded with the experiment so readers can see how it was run.
 
 ## Running a session
 
@@ -133,15 +140,15 @@ method for direct R6 objects.
 
 `FocusGroup$analyze()` and the descriptive text methods operate on the stored
 log. `analyze_focus_group()` collects the principal analyses in a
-`focus_group_analysis` with fixed fields: `basic_stats`, `topics`, `tfidf`,
-`readability`, `themes`, `model_summary`, `plots`, and `issues`.
+`focus_group_analysis` with these returned components: `basic_stats`, `topics`,
+`tfidf`, `readability`, `themes`, `model_summary`, `plots`, and `issues`.
 
-Missing optional packages and unsuitable data produce typed empty components
-and an explanatory row in `issues`. `plots` is an empty list when ggplot2 is
-unavailable. Descriptive analyses run offline. Thematic analysis and model
-summaries run only when `analyze_focus_group()` receives an explicit `config`.
-A requested model analysis that encounters a provider failure raises the
-provider condition.
+Missing optional packages and unsuitable data produce empty components with
+consistent columns where the result is tabular, and an explanatory row in
+`issues`. `plots` is an empty list when ggplot2 is unavailable. Descriptive
+analyses run offline. Thematic analysis and model summaries run only when
+`analyze_focus_group()` receives an explicit `config`. A requested model
+analysis that encounters a provider failure raises the provider condition.
 
 ## Extending the package
 

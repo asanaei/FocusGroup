@@ -18,9 +18,9 @@ NULL
 #'   communication style, to be included in prompts.
 #' @field config An `llm_config` object (from the `LLMR` package) specifying the
 #'   LLM provider, model, API key, and other parameters for this agent.
-#' @field .runner `NULL` or an experiments-frame runner. It receives a data
-#'   frame with `config` and `messages` list-columns and returns those rows with
-#'   at least `response_text`.
+#' @field .runner `NULL` or a function used instead of live model calls. It
+#'   receives a data frame with `config` and `messages` list-columns and returns
+#'   those rows with at least `response_text`.
 #' @field is_moderator Logical. `TRUE` if the agent is the moderator, `FALSE` otherwise.
 #' @field history List. A log of utterances made by this agent during the simulation.
 #' @field tokens_sent_agent Numeric. Total tokens sent by this agent.
@@ -83,8 +83,8 @@ FGAgent <- R6::R6Class("FGAgent",
     #' @param config An `llm_config` object from `LLMR::llm_config()`. It may be
     #'   `NULL` only for an analysis-only agent that will not generate output.
     #' @param is_moderator Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.
-    #' @param .runner `NULL` or an experiments-frame runner. `NULL` uses live
-    #'   LLMR calls.
+    #' @param .runner `NULL` uses live LLMR calls; a function is used instead of
+    #'   live model calls.
     initialize = function(id, agent_details, config, is_moderator = FALSE,
                           .runner = NULL) {
       if (!is.character(id) || length(id) != 1 || nchar(id) == 0) {
@@ -97,7 +97,7 @@ FGAgent <- R6::R6Class("FGAgent",
         stop("'config' must be NULL or an 'llm_config' object from LLMR::llm_config().")
       }
       if (!is.null(.runner) && !is.function(.runner)) {
-        stop("'.runner' must be NULL or an experiments-frame runner.")
+        stop("'.runner' must be NULL or a function.")
       }
 
       self$id <- id

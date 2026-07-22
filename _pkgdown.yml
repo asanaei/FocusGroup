@@ -25,29 +25,36 @@ authors:
 articles:
   - title: Articles
     contents:
-      - architecture
       - focus-group-analysis
+      - architecture
 
 reference:
-  - title: Core Classes
-    contents:
-      - FGAgent
-      - FocusGroup
-      - ConversationFlow
-  - title: Workflows
+  - title: Run moderated focus-group studies
     contents:
       - run_focus_group
-      - analyze_focus_group
-      - focus_group_from_transcript
-  - title: Agent Creation and Flows
+
+  - title: Moderator guides and turn-taking rules
+    contents:
+      - get_default_prompt_templates
+      - create_conversation_flow
+
+  - title: Build participants from personas and respondent data
     contents:
       - create_agents
       - create_agents_from_data
       - create_agents_from_survey
-      - create_conversation_flow
-  - title: Prompts
+
+  - title: Import and analyze transcripts
     contents:
-      - get_default_prompt_templates
-  - title: Graphical Interface
+      - focus_group_from_transcript
+      - analyze_focus_group
+
+  - title: Graphical study interface
     contents:
       - run_focus_studio
+
+  - title: Advanced construction and extension
+    contents:
+      - FocusGroup
+      - FGAgent
+      - ConversationFlow

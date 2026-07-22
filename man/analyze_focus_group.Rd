@@ -22,10 +22,12 @@ analyze_focus_group(
 \item{config}{Optional explicit `LLMR::llm_config`. When supplied, thematic
 analysis and a model summary are generated.}
 
-\item{.runner}{Optional experiments-frame runner for the two model analyses.}
+\item{.runner}{Optional function used instead of live model calls for the two
+model analyses.}
 }
 \value{
-A `focus_group_analysis` with fixed fields and an `issues` table.
+A `focus_group_analysis` containing returned analysis components and
+  an `issues` table.
 }
 \description{
 Runs descriptive analyses offline. Thematic analysis and a model-generated

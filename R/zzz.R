@@ -22,8 +22,9 @@
 #' transcript without generating new turns.
 #'
 #' Model calls require an explicit `config` built with [LLMR::llm_config()].
-#' The high-level runner and agent constructors accept a `.runner` function
-#' using the experiments-frame contract for caller-controlled execution.
+#' The high-level runner and agent constructors accept `.runner`, an optional
+#' function used instead of live model calls. It uses a request and response
+#' data-frame format.
 #' Descriptive analysis of an imported transcript does not require a provider
 #' call. Model summaries and thematic analysis are opt-in through an explicit
 #' `config`.

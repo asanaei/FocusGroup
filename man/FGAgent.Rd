@@ -56,9 +56,9 @@ communication style, to be included in prompts.}
 \item{\code{config}}{An `llm_config` object (from the `LLMR` package) specifying the
 LLM provider, model, API key, and other parameters for this agent.}
 
-\item{\code{.runner}}{`NULL` or an experiments-frame runner. It receives a data
-frame with `config` and `messages` list-columns and returns those rows with
-at least `response_text`.}
+\item{\code{.runner}}{`NULL` or a function used instead of live model calls. It
+receives a data frame with `config` and `messages` list-columns and returns
+those rows with at least `response_text`.}
 
 \item{\code{is_moderator}}{Logical. `TRUE` if the agent is the moderator, `FALSE` otherwise.}
 
@@ -114,8 +114,8 @@ If `is_moderator` is `TRUE` and no specific details are provided, a default mode
 
 \item{\code{is_moderator}}{Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.}
 
-\item{\code{.runner}}{`NULL` or an experiments-frame runner. `NULL` uses live
-LLMR calls.}
+\item{\code{.runner}}{`NULL` uses live LLMR calls; a function is used instead of
+live model calls.}
 }
 \if{html}{\out{</div>}}
 }

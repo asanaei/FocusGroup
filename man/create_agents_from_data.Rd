@@ -27,7 +27,8 @@ a small set of common demographic column names found in `data`.}
 
 \item{rows, weights}{See [create_agents_from_survey()].}
 
-\item{.runner}{Optional experiments-frame runner stored on every agent.}
+\item{.runner}{Optional function used instead of live model calls and stored
+on every agent.}
 }
 \value{
 A named list of `FGAgent` objects (participants + moderator), keyed

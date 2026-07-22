@@ -210,9 +210,9 @@ Generate a summary of the conversation using an LLM.
 
 \item{\code{transcript_override}}{Character. Optional. If provided, this transcript is summarized instead of `self$conversation_log`.}
 
-\item{\code{.runner}}{Optional experiments-frame runner. It receives a data frame
-with `config` and `messages` list-columns and returns the rows with at
-least `response_text`.}
+\item{\code{.runner}}{Optional function used instead of live model calls. It
+receives a data frame with `config` and `messages` list-columns and
+returns the rows with at least `response_text`.}
 }
 \if{html}{\out{</div>}}
 }
@@ -367,9 +367,9 @@ Perform LLM-assisted thematic analysis on the transcript.
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 
-\item{\code{.runner}}{Optional experiments-frame runner. It receives a data frame
-with `config` and `messages` list-columns and returns the rows with at
-least `response_text`.}
+\item{\code{.runner}}{Optional function used instead of live model calls. It
+receives a data frame with `config` and `messages` list-columns and
+returns the rows with at least `response_text`.}
 }
 \if{html}{\out{</div>}}
 }

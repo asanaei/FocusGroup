@@ -263,9 +263,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param max_tokens Integer. Optional. Max tokens for the summary.
     #' @param internal_call Logical. If TRUE, this is an internal call (e.g. for context window management) and token counts are not added to the agent who owns `admin_config`.
     #' @param transcript_override Character. Optional. If provided, this transcript is summarized instead of `self$conversation_log`.
-    #' @param .runner Optional experiments-frame runner. It receives a data frame
-    #'   with `config` and `messages` list-columns and returns the rows with at
-    #'   least `response_text`.
+    #' @param .runner Optional function used instead of live model calls. It
+    #'   receives a data frame with `config` and `messages` list-columns and
+    #'   returns the rows with at least `response_text`.
     #' @return Character string containing the generated summary.
     summarize = function(config, summary_level = 1, max_tokens = NULL,
                          internal_call = FALSE, transcript_override = NULL,
@@ -649,9 +649,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param config An explicit `llm_config` object for thematic analysis.
     #' @param message_ids Integer vector. Optional `message_id` values to analyze.
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @param .runner Optional experiments-frame runner. It receives a data frame
-    #'   with `config` and `messages` list-columns and returns the rows with at
-    #'   least `response_text`.
+    #' @param .runner Optional function used instead of live model calls. It
+    #'   receives a data frame with `config` and `messages` list-columns and
+    #'   returns the rows with at least `response_text`.
     #' @return The thematic summary as a character string. An empty transcript
     #'   returns `character(0)`. Provider failures are propagated.
     analyze_themes = function(config, message_ids = NULL, speaker_ids = NULL,

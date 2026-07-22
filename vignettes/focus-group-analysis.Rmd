@@ -16,15 +16,17 @@ knitr::opts_chunk$set(
 library(FocusGroup)
 ```
 
-# Analyze a simulated discussion
+# Analyze simulated and imported transcripts
 
-FocusGroup stores a moderated discussion in a `FocusGroup` object. Each
-participant and the moderator is an `FGAgent`. The group object contains the
-moderator guide, conversation flow, messages, response metadata, and analysis
-methods.
+How much did each speaker contribute? Which terms and topics distinguished
+their turns? How did moderator questions organize the discussion, and where do
+readability, recurring themes, or participation patterns differ? FocusGroup
+addresses these questions for simulated sessions and imported transcripts.
 
-Provider calls use LLMR. A live session requires a provider key in its usual
-environment variable. The model configuration must be passed explicitly.
+Descriptive analysis runs offline. Thematic analysis and model summaries are
+separate, opt-in model tasks. A live session or requested model analysis uses
+LLMR, requires a provider key in its usual environment variable, and receives
+an explicit model configuration.
 
 ## Run a focus group
 
@@ -55,7 +57,7 @@ print(result)
 print(result$focus_group)
 ```
 
-The returned `focus_group_result` has six stable fields:
+The returned `focus_group_result` has six returned components:
 `focus_group`, `transcript`, `summary`, `participants`, `usage`, and
 `metadata`.
 
@@ -89,11 +91,12 @@ analysis$readability
 analysis$issues
 ```
 
-The `focus_group_analysis` fields are fixed: `basic_stats`, `topics`, `tfidf`,
-`readability`, `themes`, `model_summary`, `plots`, and `issues`. A component
-that cannot be computed has a typed empty value. For example, `plots` is an
-empty list if ggplot2 is unavailable. `issues` identifies an optional analysis
-that could not run and gives its reason.
+The `focus_group_analysis` returned components are `basic_stats`, `topics`,
+`tfidf`, `readability`, `themes`, `model_summary`, `plots`, and `issues`. A
+component that cannot be computed is an empty component with consistent
+columns where it is tabular. For example, `plots` is an empty list if ggplot2
+is unavailable. `issues` identifies an optional analysis that could not run
+and gives its reason.
 
 Individual descriptive analyses remain available as methods on the underlying
 `FocusGroup` object:
@@ -187,7 +190,7 @@ fg <- FocusGroup$new(
 ```
 
 Built-in flows are available only through `create_conversation_flow()`.
-`ConversationFlow` remains public as the extension base for a custom flow.
+`ConversationFlow` is the base class for custom turn-taking rules.
 
 ## Interpretation
 

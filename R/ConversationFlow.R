@@ -16,7 +16,7 @@ NULL
 #' @field participant_ids A character vector of agent identifiers, excluding the moderator.
 #' @field moderator_id Character. The ID of the moderator agent.
 #' @field last_speaker_id The ID of the agent who last spoke. Can be `NULL`.
-#' @field selection_metadata A list of provenance for the latest selection.
+#' @field selection_metadata Details recorded for the latest selection.
 #'   Desire-scoring failures record the condition and neutral fallback here.
 #'
 #' @section Methods for Subclassing:

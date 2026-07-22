@@ -54,9 +54,9 @@ confirmation.}
 
 \item{confirm}{Logical. Permit a live run whose estimate exceeds `max_calls`.}
 
-\item{.runner}{Optional experiments-frame runner. It receives a data frame
-with `config` and `messages` list-columns and returns those rows with at
-least `response_text`.}
+\item{.runner}{Optional function used instead of live model calls. It
+receives a data frame with `config` and `messages` list-columns and returns
+those rows with at least `response_text`.}
 }
 \value{
 A `focus_group_result` with the group, transcript, summary,
