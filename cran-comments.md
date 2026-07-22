@@ -10,7 +10,7 @@ such as piloting a moderator guide before fielding a study with human
 participants.
 
 FocusGroup Imports LLMR (on CRAN) for all model calls. It Suggests LLMR.shiny
-(submitted to CRAN in sequence) for the optional GUI; every use of LLMR.shiny
+(on CRAN) for the optional GUI; every use of LLMR.shiny
 and of the other suggested packages is guarded with requireNamespace() and
 skipped when the package is absent. The test suite is fully offline (all LLM
 entry points are mocked); no test, example, or vignette makes a network call.
@@ -22,7 +22,7 @@ entry points are mocked); no test, example, or vignette makes a network call.
 
 ## R CMD check results
 
-0 errors | 0 warnings | 2 notes
+0 errors | 0 warnings | 3 notes
 
 - "checking CRAN incoming feasibility ... NOTE: New submission" and
   "Suggests or Enhances not in mainstream repositories: LLMR.shiny".
@@ -30,3 +30,6 @@ entry points are mocked); no test, example, or vignette makes a network call.
   all uses are guarded as described above.
 - "checking for future file timestamps ... NOTE: unable to verify current
   time". Environmental; does not reproduce on CRAN.
+- "checking HTML version of manual ... NOTE": emitted by an older
+  system `tidy` that does not recognize the HTML5 elements R generates;
+  it does not reproduce on CRAN.
