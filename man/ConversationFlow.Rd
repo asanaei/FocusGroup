@@ -3,6 +3,11 @@
 \name{ConversationFlow}
 \alias{ConversationFlow}
 \title{ConversationFlow Base Class}
+\value{
+An R6 generator meant for subclassing; instances are built by
+  [create_conversation_flow()], which returns a `ConversationFlow`
+  subclass object ready for [FocusGroup].
+}
 \description{
 `ConversationFlow` is an R6 base class defining the interface for turn-taking
 mechanisms in a focus group simulation. Subclasses implement specific strategies
@@ -19,6 +24,14 @@ for selecting the next speaker.
 }
 }
 
+\examples{
+RandomFlow <- R6::R6Class("RandomFlow", inherit = ConversationFlow,
+  public = list(
+    select_next_speaker = function(focus_group) {
+      ids <- self$participant_ids
+      self$agents[[sample(ids, 1)]]
+    }))
+}
 \section{Public fields}{
 \if{html}{\out{<div class="r6-fields">}}
 \describe{

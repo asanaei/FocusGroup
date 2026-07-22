@@ -3,12 +3,32 @@
 \name{FocusGroup}
 \alias{FocusGroup}
 \title{FocusGroup R6 Class}
+\value{
+An R6 generator. `FocusGroup$new()` returns a session object;
+  most analyses run through [run_focus_group()], which builds, runs, and
+  returns one. Construction alone makes no model call.
+}
 \description{
 Main R6 class for managing and running a focus group simulation.
 It orchestrates the simulation through distinct phases (Opening, Icebreaker,
 Engagement, Exploration, Closing) guided by a question script, manages agent
 interactions via a turn-taking flow, and provides methods for analysis and
 visualization of the conversation.
+}
+\examples{
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                        api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
+agents <- create_agents(
+  n_participants = 2, config = cfg,
+  direct_persona_descriptions = c("A retired teacher.",
+                                  "A night-shift nurse."))
+flow <- create_conversation_flow("round_robin", agents, "MOD")
+fg <- FocusGroup$new(topic = "Neighborhood safety",
+                     purpose = "Pilot the moderator guide.",
+                     agents = agents,
+                     moderator_id = "MOD",
+                     turn_taking_flow = flow)
+fg$topic
 }
 \section{Public fields}{
 \if{html}{\out{<div class="r6-fields">}}

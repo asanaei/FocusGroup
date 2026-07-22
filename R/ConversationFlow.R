@@ -27,6 +27,16 @@ NULL
 #'   \item{`update_state_post_selection(speaker_id, focus_group)`}{Optional. Updates internal state
 #'     after a speaker has spoken. Base implementation updates `self$last_speaker_id`.}
 #' }
+#' @return An R6 generator meant for subclassing; instances are built by
+#'   [create_conversation_flow()], which returns a `ConversationFlow`
+#'   subclass object ready for [FocusGroup].
+#' @examples
+#' RandomFlow <- R6::R6Class("RandomFlow", inherit = ConversationFlow,
+#'   public = list(
+#'     select_next_speaker = function(focus_group) {
+#'       ids <- self$participant_ids
+#'       self$agents[[sample(ids, 1)]]
+#'     }))
 #' @export
 ConversationFlow <- R6::R6Class("ConversationFlow",
   public = list(

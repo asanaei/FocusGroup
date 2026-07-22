@@ -39,6 +39,17 @@ NULL
 #'     methods or add new fields.
 #' }
 #'
+#' @return An R6 generator. `FGAgent$new(id, agent_details, config,
+#'   is_moderator = FALSE, .runner = NULL)` returns an `FGAgent`;
+#'   [create_agents()] and its relatives construct whole rosters.
+#' @examples
+#' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+#'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
+#' a <- FGAgent$new(
+#'   id = "P1",
+#'   agent_details = list(direct_persona_description = "A retired teacher."),
+#'   config = cfg)
+#' a$persona_description
 #' @export
 FGAgent <- R6::R6Class("FGAgent",
   public = list(

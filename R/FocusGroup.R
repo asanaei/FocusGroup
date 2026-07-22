@@ -45,6 +45,23 @@ NULL
 #' @field total_tokens_sent Numeric. Total tokens sent across all LLM calls in the group.
 #' @field total_tokens_received Numeric. Total tokens received across all LLM calls.
 #'
+#' @return An R6 generator. `FocusGroup$new()` returns a session object;
+#'   most analyses run through [run_focus_group()], which builds, runs, and
+#'   returns one. Construction alone makes no model call.
+#' @examples
+#' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+#'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
+#' agents <- create_agents(
+#'   n_participants = 2, config = cfg,
+#'   direct_persona_descriptions = c("A retired teacher.",
+#'                                   "A night-shift nurse."))
+#' flow <- create_conversation_flow("round_robin", agents, "MOD")
+#' fg <- FocusGroup$new(topic = "Neighborhood safety",
+#'                      purpose = "Pilot the moderator guide.",
+#'                      agents = agents,
+#'                      moderator_id = "MOD",
+#'                      turn_taking_flow = flow)
+#' fg$topic
 #' @export
 FocusGroup <- R6::R6Class("FocusGroup",
   public = list(

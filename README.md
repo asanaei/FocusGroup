@@ -20,21 +20,16 @@ before fieldwork. A generated transcript records model responses under a
 specified guide, persona set, and model configuration. It is not an estimate of
 public opinion.
 
-The principal public objects are:
-
-- `run_focus_group()`, which constructs and runs a complete session.
-- `FGAgent`, which represents one participant or moderator and stores its
-  `config`.
-- `FocusGroup`, which owns the roster, guide, flow, prompts, and session log.
-- `ConversationFlow`, the extension base class for speaker-selection rules.
-- `create_agents()`, `create_agents_from_data()`, and
-  `create_agents_from_survey()`, which construct agents from supplied personas
-  or respondent records.
-- `create_conversation_flow()`, which constructs a built-in flow from a mode
-  name.
-- `focus_group_from_transcript()`, which imports an existing transcript.
-- `analyze_focus_group()`, which runs the main transcript analyses.
-- `run_focus_studio()`, which starts the optional Shiny interface.
+A study starts from personas: `create_agents()` and its data- and
+survey-reading relatives turn persona descriptions or respondent records
+into a roster of agents, each holding its own model configuration.
+`run_focus_group()` puts that roster through a moderated session under a
+question script and a speaker-selection rule and returns the session
+object with its transcript. `analyze_focus_group()` runs the transcript
+analyses, on simulated sessions or on a transcript imported with
+`focus_group_from_transcript()`; `run_focus_studio()` starts the optional
+Shiny interface. The reference index documents the underlying classes for
+users who need to extend them.
 
 FocusGroup is experimental. Its public interface may change before a stable
 release.
