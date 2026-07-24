@@ -307,6 +307,17 @@ passed as `prompt_templates` to `FocusGroup$new()`. See `?run_focus_group`,
 `?FocusGroup`, `?FGAgent`, and `?ConversationFlow` for the direct API and return
 values.
 
+## Related packages
+
+FocusGroup uses [LLMR](https://asanaei.github.io/LLMR/), the common provider
+interface on CRAN. [LLMRcontent](https://asanaei.github.io/LLMRcontent/) codes
+text with codebooks and builds replication archives.
+[LLMRpanel](https://asanaei.github.io/LLMRpanel/) administers survey and
+experimental instruments to panels of model personas.
+[LLMRagent](https://asanaei.github.io/LLMRagent/) provides tools for agent
+experiments. The [ecosystem page](https://asanaei.github.io/LLMR-ecosystem/)
+describes the package boundaries.
+
 ## Contributing
 
 Report bugs and feature requests in the
