@@ -66,7 +66,7 @@ run_focus_studio <- function(...) {
     id = "main_nav",
     selected = "run",
     fillable = TRUE,
-    theme = bslib::bs_theme(version = 5, bootswatch = "sandstone"),
+    theme = LLMR.shiny::llmr_theme("focus"),
     sidebar = LLMR.shiny::shell_sidebar(),
     bslib::nav_panel("Run a focus group", value = "run", .fg_run_ui("run")),
     bslib::nav_panel("Analyze transcript", value = "analyze", .fg_analyze_ui("analyze")),
@@ -76,10 +76,17 @@ run_focus_studio <- function(...) {
 
 .fg_gui_server <- function(input, output, session) {
   shared <- LLMR.shiny::shell_context(input, output, session)
+  shared$active_tab <- shiny::reactive(input$main_nav)
+  shiny::observe({
+    if (identical(input$main_nav, "analyze")) shared$set_plan(0L)
+  })
   .fg_run_server("run", shared)
   .fg_analyze_server("analyze", shared)
   .fg_experiment_server("experiment", shared)
 }
+
+# Live runs above this planned API-call count require explicit confirmation.
+.fg_large_run_threshold <- 50L
 
 # A live focus-group action is allowed only in live mode WITH a key. The shared
 # substrate's can_run() is TRUE in demo mode by design, but the GUI does not
@@ -135,7 +142,7 @@ run_focus_studio <- function(...) {
 # indices into `data` (empty selects a seeded sample of `n_participants`).
 .fg_run_from_personas <- function(topic, n_participants, rows, flow, message_mode,
                                    seed, max_participant_responses,
-                                   config, data = NULL) {
+                                   config, data = NULL, .runner = NULL) {
   data <- data %||% .fg_personas()
   chosen <- if (length(rows)) data[rows, , drop = FALSE] else data
   n <- if (length(rows)) length(rows) else n_participants
@@ -147,7 +154,7 @@ run_focus_studio <- function(...) {
     list(focusgroup.message_mode = message_mode, focusgroup.seed = seed),
     {
       agents <- create_agents_from_data(chosen, n_participants = n,
-                                        config = config)
+                                        config = config, .runner = .runner)
       flow_obj <- create_conversation_flow(flow, agents, "MOD")
       script <- .fg_build_question_script(.fg_gui_guide(topic), topic)
       fg <- FocusGroup$new(topic = topic,
@@ -184,26 +191,48 @@ run_focus_studio <- function(...) {
   persona_run_fun <- persona_run_fun %||% .fg_run_from_personas
   shiny::moduleServer(id, function(input, output, session) {
     ns <- session$ns
-    result <- shiny::reactiveVal(NULL); err <- shiny::reactiveVal(NULL)
+    result <- shiny::reactiveVal(NULL)
+    err <- shiny::reactiveVal(NULL)
+    pending_run <- shiny::reactiveVal(NULL)
     warn_card <- function(m) bslib::card(class = "border-warning", bslib::card_body(m))
+    warn_user <- function(message, ui = warn_card(message)) {
+      err(ui)
+      shiny::showNotification(message, type = "warning")
+      invisible(NULL)
+    }
 
-    # Baseline model-output estimate for the GUI's seven-message guide.
-    est_calls <- function() {
+    estimate_run <- function() {
       p <- as.integer(input$n_participants %||% 3L)
       mr <- as.integer(input$max_resp %||% 1L)
       replies <- 5L * mr
       desire <- if (identical(input$flow %||% "round_robin", "desire_based"))
         replies * p else 0L
-      7L + replies + desire + 1L
+      list(
+        calls = as.integer(7L + replies + desire + 1L),
+        utterances = as.integer(7L + replies),
+        desire_calls = as.integer(desire)
+      )
     }
 
     output$module_ui <- shiny::renderUI({
+      demo_mode <- identical(shared$mode(), "demo")
       bslib::card(
         bslib::card_header("Run a focus group"),
         bslib::card_body(
           shiny::uiOutput(ns("err")),
           shiny::tags$p(class = "text-muted",
-            "Run a fresh moderated session live, then download it as an .rds to reuse in the Continuation experiment tab. Running generates text and needs an API key; the provider and model come from the sidebar."),
+            if (demo_mode) {
+              paste(
+                "Configure a session and inspect the bundled example below.",
+                "The example is deterministic and makes no model or API calls."
+              )
+            } else {
+              paste(
+                "Run a moderated session, then download the saved focus group",
+                "for use in the Continuation Experiment tab.",
+                "The provider and model come from the sidebar."
+              )
+            }),
           shiny::fluidRow(
             shiny::column(8, shiny::textInput(ns("topic"), "Topic",
               value = "public libraries", width = "100%")),
@@ -220,21 +249,28 @@ run_focus_studio <- function(...) {
             LLMR.shiny::persona_selector_ui(ns("personas"))),
           shiny::fluidRow(
             shiny::column(4, shiny::selectInput(ns("flow"), "Turn-taking flow",
-              choices = c("round_robin", "desire_based", "probabilistic"),
+              choices = c("Round robin" = "round_robin",
+                          "Desire based" = "desire_based",
+                          "Probabilistic" = "probabilistic"),
               selected = "round_robin")),
             shiny::column(4, shiny::selectInput(ns("message_mode"), "Message construction",
-              choices = c("roleflip", "flat"), selected = "roleflip")),
+              choices = c("Role flip" = "roleflip", "Flat" = "flat"),
+              selected = "roleflip")),
             shiny::column(4, shiny::numericInput(ns("max_resp"),
               "Max responses per question", value = 1, min = 1, max = 3, step = 1))),
           shiny::fluidRow(
             shiny::column(4, shiny::numericInput(ns("seed"),
               "Seed (speaker order only; not LLM output)", value = 110, step = 1))),
           shiny::uiOutput(ns("cost_note")),
-          if (identical(shared$mode(), "demo"))
-            warn_card("Demo mode shows an example transcript below; running a focus group needs a key. Switch to live mode and set a key to run your own.")
+          if (demo_mode)
+            shiny::tags$p(class = "text-muted small",
+              "Switch to Live mode to run this configuration.")
           else if (!shared$can_run())
             LLMR.shiny::live_run_blocker_ui(shared$key()),
-          shiny::actionButton(ns("run"), "Run focus group", class = "btn-primary"),
+          shiny::actionButton(
+            ns("run"), "Run focus group", class = "btn-primary",
+            disabled = demo_mode
+          ),
           shiny::tags$hr(), shiny::uiOutput(ns("results"))))
     })
 
@@ -244,58 +280,239 @@ run_focus_studio <- function(...) {
     # liberal -> conservative, multi-select, returning the chosen row indices.
     persona_rows <- LLMR.shiny::persona_selector_server("personas", .fg_personas())
 
-    # A rough live-call estimate so the user is not surprised by the bill.
+    plan_label <- function(plan) {
+      sprintf(
+        "Focus group, up to %d transcript utterances; retries excluded",
+        plan$utterances
+      )
+    }
+
     output$cost_note <- shiny::renderUI({
       flow <- input$flow %||% "round_robin"
       extra <- if (identical(flow, "desire_based"))
-        " The desire_based flow adds one score output per eligible participant before each response." else ""
+        paste(
+          "Desire based adds one scoring call per eligible participant",
+          "before each response."
+        ) else ""
+      plan <- estimate_run()
+      scale <- if (identical(shared$mode(), "demo")) {
+        sprintf(
+          "In Live mode, this configuration would make %d API calls and produce up to %d transcript utterances.",
+          plan$calls, plan$utterances
+        )
+      } else {
+        sprintf(
+          "This configuration plans %d API calls and up to %d transcript utterances.",
+          plan$calls, plan$utterances
+        )
+      }
       shiny::tags$p(class = "text-muted small",
-        sprintf("Estimated %d model outputs. Incomplete utterances and retries can add more.%s",
-                est_calls(), extra))
+        paste(
+          scale,
+          "Retries and incomplete-utterance continuations are excluded and can add calls.",
+          sprintf(
+            "Live runs above %d planned calls require confirmation.",
+            .fg_large_run_threshold
+          ),
+          extra
+        ))
     })
 
-    shiny::observeEvent(input$run, {
-      err(NULL); result(NULL)
-      if (!.fg_live_ok(shared)) {
-        err(LLMR.shiny::live_run_blocker_ui(shared$key())); return()
-      }
-      topic <- trimws(input$topic %||% "")
-      if (!nzchar(topic)) { err(warn_card("Enter a topic first.")); return() }
-      cfg <- LLMR.shiny::build_llm_config(shared$provider(), shared$model(), temperature = 0.7)
-      calls_est <- est_calls()
-      res <- if (identical(input$source %||% "synthetic", "anes")) {
-        LLMR.shiny::safe_llmr_call(
-          persona_run_fun(
-            topic = topic,
-            n_participants = as.integer(input$n_participants %||% 3L),
-            rows = persona_rows(),
-            flow = input$flow %||% "round_robin",
-            message_mode = input$message_mode %||% "roleflip",
-            seed = as.integer(input$seed %||% 110L),
-            max_participant_responses = as.integer(input$max_resp %||% 1L),
-            config = cfg),
-          shared$provider())
+    shiny::observe({
+      if (!identical(shared$active_tab(), "run")) return()
+      plan <- estimate_run()
+      if (identical(shared$mode(), "live")) {
+        shared$set_plan(plan$calls, plan_label(plan))
       } else {
-        LLMR.shiny::safe_llmr_call(
-          run_fun(
-            topic = topic,
-            config = cfg,
-            n_participants = as.integer(input$n_participants %||% 3L),
-            guide = .fg_gui_guide(topic),
-            flow = input$flow %||% "round_robin",
-            seed = as.integer(input$seed %||% 110L),
-            message_mode = input$message_mode %||% "roleflip",
-            verbose = FALSE,
-            max_participant_responses = as.integer(input$max_resp %||% 1L),
-            confirm = TRUE),
-          shared$provider())
+        shared$set_plan(0L)
       }
-      if (!res$ok) { err(res$ui); return() }
+    })
+
+    prepare_run <- function() {
+      err(NULL)
+      result(NULL)
+      pending_run(NULL)
+      if (identical(shared$mode(), "demo")) {
+        warn_user("Switch to Live mode to run a focus group.")
+        return(NULL)
+      }
+      if (!isTRUE(shared$can_run())) {
+        warn_user(
+          "Live mode requires an API key for the selected provider.",
+          LLMR.shiny::live_run_blocker_ui(shared$key())
+        )
+        return(NULL)
+      }
+
+      topic <- trimws(input$topic %||% "")
+      if (!nzchar(topic)) {
+        warn_user("Enter a topic before running the focus group.")
+        return(NULL)
+      }
+      model <- trimws(shared$model() %||% "")
+      if (!nzchar(model)) {
+        warn_user("Enter a model in the sidebar before running the focus group.")
+        return(NULL)
+      }
+      provider <- shared$provider()
+      cfg_result <- LLMR.shiny::safe_llmr_call(
+        LLMR.shiny::build_llm_config(provider, model, temperature = 0.7),
+        provider
+      )
+      if (!cfg_result$ok) {
+        err(cfg_result$ui)
+        return(NULL)
+      }
+
+      plan <- estimate_run()
+      shared$set_plan(plan$calls, plan_label(plan))
+      list(
+        topic = topic,
+        provider = provider,
+        config = cfg_result$value,
+        plan = plan,
+        source = input$source %||% "synthetic",
+        n_participants = as.integer(input$n_participants %||% 3L),
+        rows = persona_rows(),
+        flow = input$flow %||% "round_robin",
+        message_mode = input$message_mode %||% "roleflip",
+        seed = as.integer(input$seed %||% 110L),
+        max_responses = as.integer(input$max_resp %||% 1L)
+      )
+    }
+
+    execute_run <- function(request) {
+      planned <- request$plan$calls
+      completed <- 0L
+      run_output <- shiny::withProgress(
+        message = "Running Focus Group", value = 0,
+        {
+          live_runner <- LLMR.shiny::build_runner("live")
+          progress_runner <- function(experiments, ...) {
+            rows <- lapply(seq_len(NROW(experiments)), function(i) {
+              out <- live_runner(experiments[i, , drop = FALSE], ...)
+              before <- completed
+              completed <<- completed + 1L
+              amount <- (
+                min(completed, planned) - min(before, planned)
+              ) / planned
+              detail <- if (completed <= planned) {
+                sprintf(
+                  "Completed %d of %d planned API calls",
+                  completed, planned
+                )
+              } else {
+                sprintf(
+                  "Completed %d API calls; %d were planned",
+                  completed, planned
+                )
+              }
+              shiny::incProgress(amount, detail = detail)
+              out
+            })
+            do.call(rbind, rows)
+          }
+
+          res <- if (identical(request$source, "anes")) {
+            LLMR.shiny::safe_llmr_call(
+              persona_run_fun(
+                topic = request$topic,
+                n_participants = request$n_participants,
+                rows = request$rows,
+                flow = request$flow,
+                message_mode = request$message_mode,
+                seed = request$seed,
+                max_participant_responses = request$max_responses,
+                config = request$config,
+                .runner = progress_runner
+              ),
+              request$provider
+            )
+          } else {
+            LLMR.shiny::safe_llmr_call(
+              run_fun(
+                topic = request$topic,
+                config = request$config,
+                n_participants = request$n_participants,
+                guide = .fg_gui_guide(request$topic),
+                flow = request$flow,
+                seed = request$seed,
+                message_mode = request$message_mode,
+                verbose = FALSE,
+                max_participant_responses = request$max_responses,
+                confirm = TRUE,
+                .runner = progress_runner
+              ),
+              request$provider
+            )
+          }
+          if (isTRUE(res$ok) && completed < planned) {
+            shiny::incProgress(
+              (planned - completed) / planned,
+              detail = if (completed > 0L) {
+                sprintf(
+                  "Run complete after %d API calls; %d were planned",
+                  completed, planned
+                )
+              } else {
+                "Run complete"
+              }
+            )
+          }
+          list(
+            result = res,
+            completed = if (completed > 0L) completed else planned
+          )
+        }
+      )
+
+      res <- run_output$result
+      if (!res$ok) {
+        err(res$ui)
+        return()
+      }
       result(res$value)
       usage <- res$value$usage %||% list()
-      shared$add_usage(list(calls = calls_est,
+      shared$add_usage(list(calls = run_output$completed,
                             sent = usage$sent %||% 0L,
                             received = usage$rec %||% 0L))
+    }
+
+    shiny::observeEvent(input$run, {
+      request <- prepare_run()
+      if (is.null(request)) return()
+      if (request$plan$calls > .fg_large_run_threshold) {
+        pending_run(request)
+        shiny::showModal(shiny::modalDialog(
+          title = "Confirm Large Live Run",
+          shiny::tags$p(sprintf(
+            "This run plans %d API calls and up to %d transcript utterances.",
+            request$plan$calls, request$plan$utterances
+          )),
+          shiny::tags$p(
+            "Retries and incomplete-utterance continuations are excluded and can add calls."
+          ),
+          footer = shiny::tagList(
+            shiny::modalButton("Cancel"),
+            shiny::actionButton(
+              ns("confirm_run"),
+              sprintf("Run %d Calls", request$plan$calls),
+              class = "btn-primary"
+            )
+          ),
+          easyClose = FALSE
+        ))
+        return()
+      }
+      execute_run(request)
+    })
+
+    shiny::observeEvent(input$confirm_run, {
+      request <- pending_run()
+      shiny::req(request)
+      pending_run(NULL)
+      shiny::removeModal()
+      execute_run(request)
     })
 
     # The object to download: the FocusGroup R6, which the Continuation tab loads.
@@ -313,12 +530,15 @@ run_focus_studio <- function(...) {
             shiny::tags$h5("Example transcript (demo)"),
             DT::DTOutput(ns("demo_transcript"))))
         }
-        return(NULL)
+        return(shiny::tags$p(
+          class = "text-muted",
+          "Run the configured focus group to produce a transcript."
+        ))
       }
       shiny::tagList(
         shiny::tags$h5("Transcript"), DT::DTOutput(ns("transcript")),
         shiny::tags$h5("Usage"), shiny::verbatimTextOutput(ns("usage")),
-        shiny::downloadButton(ns("download"), "Download this focus group (.rds)"))
+        shiny::downloadButton(ns("download"), "Download Saved Focus Group"))
     })
 
     output$demo_transcript <- DT::renderDT({
@@ -335,9 +555,9 @@ run_focus_studio <- function(...) {
     output$usage <- shiny::renderPrint({
       shiny::req(result())
       usage <- result()$usage
-      cat("messages:     ", nrow(result()$transcript), "\n")
-      cat("tokens sent:  ", usage$sent %||% NA, "\n")
-      cat("tokens rec:   ", usage$rec %||% NA, "\n")
+      cat("Transcript utterances:", nrow(result()$transcript), "\n")
+      cat("Sent tokens:", usage$sent %||% NA, "\n")
+      cat("Received tokens:", usage$rec %||% NA, "\n")
     })
   })
 }
@@ -385,7 +605,8 @@ run_focus_studio <- function(...) {
 # have built; pass `summary`/`phase` explicitly to override.
 .fg_run_experiment <- function(fg, log, speaker_id, perturb_message_id,
                                perturb_text,
-                               question = "N/A", summary = NULL, phase = NULL) {
+                               question = "N/A", summary = NULL, phase = NULL,
+                               .progress = NULL) {
   agent <- fg$agents[[speaker_id]]
   if (is.null(agent)) stop("No agent with id '", speaker_id, "'.", call. = FALSE)
   # Replay the SAME message construction the saved run used (recorded on the
@@ -412,15 +633,25 @@ run_focus_studio <- function(...) {
   control_hist <- .fg_history_string(log)
   perturbed_hist <- .fg_history_string(perturbed_log)
 
+  control <- .fg_utterance_text(.fg_generate_once(
+    agent, fg$topic, control_hist, template,
+    question, summary, phase, max_tokens,
+    conversation_log = log
+  ))
+  if (is.function(.progress)) .progress("Control response complete")
+
+  perturbed <- .fg_utterance_text(.fg_generate_once(
+    agent, fg$topic, perturbed_hist, template,
+    question, summary, phase, max_tokens,
+    conversation_log = perturbed_log
+  ))
+  if (is.function(.progress)) .progress("Perturbed response complete")
+
   list(
     speaker_id = speaker_id,
     perturb_message_id = as.integer(perturb_message_id),
-    control = .fg_utterance_text(.fg_generate_once(agent, fg$topic, control_hist, template,
-                                                   question, summary, phase, max_tokens,
-                                                   conversation_log = log)),
-    perturbed = .fg_utterance_text(.fg_generate_once(agent, fg$topic, perturbed_hist, template,
-                                                     question, summary, phase, max_tokens,
-                                                     conversation_log = perturbed_log))
+    control = control,
+    perturbed = perturbed
   )
 }
 
@@ -444,14 +675,14 @@ run_focus_studio <- function(...) {
 .fg_demo_transcript <- function() {
   data.frame(
     speaker = c("Moderator","P1","P2","P3","P1","Moderator","P2","P3"),
-    text = c("Welcome. Today we discuss public transit. What comes to mind?",
-             "Buses are unreliable in my neighborhood; I gave up and drive.",
-             "For me it is the cost. Fares went up twice this year.",
-             "I like the train, but the last mile is the problem.",
-             "Right, even when the bus comes the connection is hard.",
-             "So reliability and cost both came up. Anything else?",
-             "Safety at night, honestly. I avoid the late routes.",
-             "Agreed, lighting at the stops would help a lot."),
+    text = c("Welcome. Today we discuss public libraries. What comes to mind?",
+             "The library is one of the few quiet public places in my neighborhood.",
+             "For me it is internet access. I used it when my service was interrupted.",
+             "The children's programs matter, but their schedule is hard for working parents.",
+             "Right, longer evening hours would make the building more useful.",
+             "Access, programs, and hours have come up. What else should we consider?",
+             "The collection needs more books in the languages people speak nearby.",
+             "Staff help matters too. Finding public records can be difficult."),
     stringsAsFactors = FALSE)
 }
 
@@ -473,8 +704,17 @@ run_focus_studio <- function(...) {
         bslib::card_body(
           shiny::uiOutput(ns("err")),
           shiny::fluidRow(
-            shiny::column(6, shiny::fileInput(ns("file"), "Transcript (.csv or .rds)", accept = c(".csv",".rds"))),
-            shiny::column(6, shiny::actionButton(ns("load_demo"), "Load demo transcript"))),
+            shiny::column(6, shiny::fileInput(
+              ns("file"), "Transcript File", accept = c(".csv", ".rds")
+            )),
+            shiny::column(
+              6,
+              shiny::actionButton(ns("load_demo"), "Load demo transcript")
+            )),
+          shiny::tags$p(
+            class = "text-muted small",
+            "Upload a CSV transcript or saved focus group, or load the bundled demo."
+          ),
           shiny::uiOutput(ns("map_ui")),
           shiny::actionButton(ns("analyze"), "Analyze", class = "btn-primary"),
           shiny::tags$hr(), shiny::uiOutput(ns("results"))))
@@ -482,13 +722,21 @@ run_focus_studio <- function(...) {
 
     output$err <- shiny::renderUI(err())
     warn_card <- function(m) bslib::card(class = "border-warning", bslib::card_body(m))
+    warn_user <- function(message) {
+      err(warn_card(message))
+      shiny::showNotification(message, type = "warning")
+      invisible(NULL)
+    }
 
     shiny::observeEvent(input$file, {
       err(NULL); log(NULL)
       obj <- tryCatch(
         if (grepl("\\.rds$", input$file$name, ignore.case = TRUE)) readRDS(input$file$datapath)
         else LLMR.shiny::read_csv_upload(input$file),
-        error = function(e) { err(warn_card(conditionMessage(e))); NULL })
+        error = function(e) {
+          warn_user(conditionMessage(e))
+          NULL
+        })
       raw(obj)
     })
     shiny::observeEvent(input$load_demo, { err(NULL); raw(.fg_demo_transcript()); log(NULL) })
@@ -504,14 +752,23 @@ run_focus_studio <- function(...) {
 
     shiny::observeEvent(input$analyze, {
       err(NULL); obj <- raw()
-      if (is.null(obj)) { err(warn_card("Load a transcript first.")); return() }
+      if (is.null(obj)) {
+        warn_user("Load a transcript or the bundled demo before analyzing.")
+        return()
+      }
       l <- tryCatch(.fg_as_log(obj, input$speaker_col, input$text_col),
-                    error = function(e) { err(warn_card(conditionMessage(e))); NULL })
+                    error = function(e) {
+                      warn_user(conditionMessage(e))
+                      NULL
+                    })
       log(l)
     })
 
     output$results <- shiny::renderUI({
-      if (is.null(log())) return(NULL)
+      shiny::validate(shiny::need(
+        !is.null(log()),
+        "Load a transcript or the bundled demo, then select Analyze."
+      ))
       shiny::tagList(
         shiny::tags$h5("Transcript"), DT::DTOutput(ns("transcript")),
         shiny::tags$h5("Participation"), DT::DTOutput(ns("participation")),
@@ -552,15 +809,31 @@ run_focus_studio <- function(...) {
     ns <- session$ns
     fg <- shiny::reactiveVal(NULL); result <- shiny::reactiveVal(NULL); err <- shiny::reactiveVal(NULL)
     warn_card <- function(m) bslib::card(class = "border-warning", bslib::card_body(m))
+    warn_user <- function(message, ui = warn_card(message)) {
+      err(ui)
+      shiny::showNotification(message, type = "warning")
+      invisible(NULL)
+    }
 
     output$module_ui <- shiny::renderUI({
+      demo_mode <- identical(shared$mode(), "demo")
       bslib::card(
         bslib::card_header("Continuation experiment"),
         bslib::card_body(
           shiny::uiOutput(ns("err")),
           shiny::tags$p(class = "text-muted",
-            "Load a saved FocusGroup (.rds). It carries the agents and the conversation. Generating the next message is a live operation and needs an API key."),
-          shiny::fileInput(ns("file"), "Saved FocusGroup (.rds)", accept = ".rds"),
+            if (demo_mode) {
+              paste(
+                "Load a saved focus group to inspect the comparison controls.",
+                "Generating continuation responses requires Live mode."
+              )
+            } else {
+              paste(
+                "Load a saved focus group containing the agents and conversation.",
+                "The comparison generates one control response and one perturbed response."
+              )
+            }),
+          shiny::fileInput(ns("file"), "Saved Focus Group", accept = ".rds"),
           shiny::uiOutput(ns("controls")),
           shiny::tags$hr(), shiny::uiOutput(ns("results"))))
     })
@@ -569,14 +842,26 @@ run_focus_studio <- function(...) {
 
     shiny::observeEvent(input$file, {
       err(NULL); result(NULL)
-      obj <- tryCatch(readRDS(input$file$datapath), error = function(e) { err(warn_card(conditionMessage(e))); NULL })
+      obj <- tryCatch(
+        readRDS(input$file$datapath),
+        error = function(e) {
+          warn_user(conditionMessage(e))
+          NULL
+        }
+      )
       if (!is.null(obj) && !inherits(obj, "FocusGroup")) {
-        err(warn_card("The .rds must contain a FocusGroup object.")); obj <- NULL }
+        warn_user("The selected file must contain a saved focus group.")
+        obj <- NULL
+      }
       fg(obj)
     })
 
     output$controls <- shiny::renderUI({
-      g <- fg(); if (is.null(g)) return(NULL)
+      g <- fg()
+      shiny::validate(shiny::need(
+        !is.null(g),
+        "Load a saved focus group to configure the comparison."
+      ))
       # Index off speaker messages only; the System roster row is dropped.
       dt <- .fg_display_messages(g$conversation_log)
       n <- nrow(dt)
@@ -600,7 +885,28 @@ run_focus_studio <- function(...) {
         shiny::textInput(ns("question"), "Moderator question in context (optional)", value = "N/A"),
         if (identical(shared$mode(), "live") && !shared$can_run())
           LLMR.shiny::live_run_blocker_ui(shared$key()),
-        shiny::actionButton(ns("run"), "Generate next message under both histories", class = "btn-primary"))
+        if (identical(shared$mode(), "demo"))
+          shiny::tags$p(
+            class = "text-muted small",
+            "Switch to Live mode to generate the two continuation responses."
+          ),
+        shiny::actionButton(
+          ns("run"), "Generate next message under both histories",
+          class = "btn-primary",
+          disabled = identical(shared$mode(), "demo")
+        ))
+    })
+
+    shiny::observe({
+      if (!identical(shared$active_tab(), "experiment")) return()
+      if (identical(shared$mode(), "live") && !is.null(fg())) {
+        shared$set_plan(
+          2L,
+          "Continuation comparison, 2 model responses; retries excluded"
+        )
+      } else {
+        shared$set_plan(0L)
+      }
     })
 
     # Keep the perturbed-message ceiling in lockstep with the cut, so the UI cannot
@@ -622,38 +928,89 @@ run_focus_studio <- function(...) {
 
     shiny::observeEvent(input$run, {
       err(NULL); g <- fg()
-      if (is.null(g)) { err(warn_card("Load a focus group first.")); return() }
+      if (is.null(g)) {
+        warn_user("Load a saved focus group before generating continuations.")
+        return()
+      }
       # Gate on live mode AND a key: shared$can_run() is TRUE in demo mode, but
       # the continuation always makes a live call, so demo must not run it.
-      if (!.fg_live_ok(shared)) { err(LLMR.shiny::live_run_blocker_ui(shared$key())); return() }
+      if (identical(shared$mode(), "demo")) {
+        warn_user("Switch to Live mode to generate continuation responses.")
+        return()
+      }
+      if (!isTRUE(shared$can_run())) {
+        warn_user(
+          "Live mode requires an API key for the selected provider.",
+          LLMR.shiny::live_run_blocker_ui(shared$key())
+        )
+        return()
+      }
       dt <- .fg_display_messages(g$conversation_log)
       k <- as.integer(input$cut); j <- as.integer(input$perturb_message_id)
       # Refuse a perturbation outside the cut prefix: otherwise control and
       # treatment histories would be identical and the experiment would report a
       # null effect that is really a null treatment.
-      if (is.na(j) || j < 1L || j > k || k > nrow(dt)) {
-        err(warn_card(sprintf(
+      if (anyNA(c(j, k)) || k < 1L || k > nrow(dt) || j < 1L || j > k) {
+        warn_user(sprintf(
           "Perturbed message j (%s) must be between 1 and the cut k (%s); otherwise the treatment falls outside the history and does nothing.",
-          j, k)))
+          j, k))
+        return()
+      }
+      perturb_text <- trimws(input$perturb_text %||% "")
+      if (!nzchar(perturb_text)) {
+        warn_user("Enter replacement text for message j.")
+        return()
+      }
+      speaker <- input$speaker %||% ""
+      if (!nzchar(speaker)) {
+        warn_user("Select the participant who speaks next.")
         return()
       }
       # Map display messages to log indices and slice the cut prefix.
       log_idx <- dt$log_index[seq_len(k)]
       log_k <- g$conversation_log[log_idx]
-      res <- LLMR.shiny::safe_llmr_call(
-        .fg_run_experiment(g, log_k, input$speaker, j,
-                           input$perturb_text %||% "", input$question %||% "N/A"),
-        shared$provider())
+      shared$set_plan(
+        2L,
+        "Continuation comparison, 2 model responses; retries excluded"
+      )
+      completed <- 0L
+      res <- shiny::withProgress(
+        message = "Running Continuation Experiment", value = 0,
+        {
+          progress <- function(detail) {
+            completed <<- completed + 1L
+            shiny::incProgress(
+              1 / 2,
+              detail = sprintf(
+                "%s (%d of 2 planned API calls)",
+                detail, completed
+              )
+            )
+          }
+          LLMR.shiny::safe_llmr_call(
+            .fg_run_experiment(
+              g, log_k, speaker, j, perturb_text,
+              input$question %||% "N/A",
+              .progress = progress
+            ),
+            shared$provider()
+          )
+        }
+      )
       if (!res$ok) { err(res$ui); return() }
       result(res$value); shared$add_usage(list(calls = 2L))
     })
 
     output$results <- shiny::renderUI({
-      r <- result(); if (is.null(r)) return(NULL)
+      r <- result()
+      shiny::validate(shiny::need(
+        !is.null(r),
+        "Load a saved focus group and generate the continuation comparison."
+      ))
       bslib::layout_column_wrap(width = 1/2,
-        bslib::card(bslib::card_header(paste0("Control - ", r$speaker_id, " says next")),
+        bslib::card(bslib::card_header(paste0("Control: ", r$speaker_id, " Speaks Next")),
                     bslib::card_body(shiny::tags$p(r$control))),
-        bslib::card(bslib::card_header(paste0("Perturbed (message ", r$perturb_message_id, " changed)")),
+        bslib::card(bslib::card_header(paste0("Perturbed: Message ", r$perturb_message_id, " Changed")),
                     bslib::card_body(shiny::tags$p(r$perturbed))))
     })
   })

@@ -43,12 +43,18 @@ test_that("perturbing a message changes only that message", {
 })
 
 test_that("the paired experiment produces diverging control and perturbed messages", {
+  progress <- character()
   res <- FocusGroup:::.fg_run_experiment(
     fake_fg(), sample_fg_log(), "P1", perturb_message_id = 2,
-    perturb_text = "I LOVE THE BUS NOW")
+    perturb_text = "I LOVE THE BUS NOW",
+    .progress = function(detail) progress <<- c(progress, detail))
   expect_false(identical(res$control, res$perturbed))
   expect_true(grepl("unreliable", res$control))
   expect_true(grepl("I LOVE THE BUS NOW", res$perturbed))
+  expect_identical(
+    progress,
+    c("Control response complete", "Perturbed response complete")
+  )
 })
 
 test_that("a CSV transcript coerces to a conversation log", {
@@ -82,14 +88,19 @@ test_that(".fg_display_messages drops System and numbers real messages", {
 
 # A minimal fake `shared` context (the shape shell_context returns: reactives
 # plus add_usage/can_run). Lets us drive the run module offline.
-fake_shared <- function(mode = "live", can_run = TRUE) {
+fake_shared <- function(mode = "live", can_run = TRUE, active_tab = "run") {
   usage <- new.env(); usage$last <- NULL
+  tab <- active_tab
   list(
     provider = function() "groq",
     model = function() "openai/gpt-oss-20b",
     mode = function() mode,
+    active_tab = function() tab,
     key = function() list(found = can_run, var = "GROQ_API_KEY"),
     can_run = function() can_run,
+    set_plan = function(calls, label = "Next run") {
+      usage$plan <- list(calls = calls, label = label)
+    },
     add_usage = function(tokens) usage$last <- tokens,
     .usage = usage)
 }
@@ -131,6 +142,8 @@ test_that("the run module runs via an injected fake and stores the focus group",
       expect_equal(shared$.usage$last$sent, 100L)
       expect_equal(shared$.usage$last$received, 20L)
       expect_true(shared$.usage$last$calls >= 1L)
+      expect_true(shared$.usage$plan$calls >= 1L)
+      expect_match(shared$.usage$plan$label, "utterances; retries excluded")
     })
 })
 
@@ -159,7 +172,8 @@ test_that("the run module uses the persona runner when source = anes", {
   shared <- fake_shared("live", TRUE)
   seen <- new.env()
   fake_persona <- function(topic, n_participants, rows, flow, message_mode, seed,
-                           max_participant_responses, config, data = NULL) {
+                           max_participant_responses, config, data = NULL,
+                           .runner = NULL) {
     seen$rows <- rows; seen$topic <- topic
     structure(list(
       focus_group = structure(list(topic = topic), class = "FocusGroup"),
