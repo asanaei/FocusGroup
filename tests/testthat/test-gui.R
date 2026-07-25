@@ -197,6 +197,74 @@ test_that("persona columns default to all fields and support a subset", {
   )
 })
 
+test_that("the guide editor supports every phase and variable question counts", {
+  defaults <- FocusGroup:::.fg_gui_guide("rail service")
+  expect_named(
+    defaults,
+    c("Opening", "Icebreaker", "Engagement", "Exploration", "Closing")
+  )
+  expect_true(all(lengths(defaults) > 0L))
+  expect_match(defaults$Icebreaker, "rail service", fixed = TRUE)
+  expect_true(all(grepl("rail service", defaults$Engagement, fixed = TRUE)))
+  expect_true(all(grepl("rail service", defaults$Exploration, fixed = TRUE)))
+
+  values <- lapply(defaults, FocusGroup:::.fg_guide_text)
+  values$Icebreaker <- ""
+  values$Engagement <- "First engagement question?\n\nSecond engagement question?"
+  included <- stats::setNames(as.list(rep(TRUE, 5L)), names(defaults))
+  included$Exploration <- FALSE
+  guide <- FocusGroup:::.fg_guide_from_text(values, included)
+
+  expect_named(guide, c("Opening", "Engagement", "Closing"))
+  expect_identical(
+    guide$Engagement,
+    c("First engagement question?", "Second engagement question?")
+  )
+
+  ui <- as.character(
+    FocusGroup:::.fg_guide_editor_ui(shiny::NS("guide-test"))
+  )
+  expect_equal(lengths(regmatches(ui, gregexpr("<textarea", ui, fixed = TRUE))),
+               5L)
+  expect_match(ui, "one per line", fixed = TRUE)
+})
+
+test_that("run planning follows the edited guide", {
+  guide <- list(
+    Opening = "Open.",
+    Engagement = c("Question one?", "Question two?"),
+    Closing = "Close."
+  )
+  round_robin <- FocusGroup:::.fg_gui_run_plan(
+    guide,
+    "topic",
+    n_participants = 3L,
+    flow = "round_robin",
+    max_participant_responses = 2L
+  )
+  expect_identical(round_robin$moderator_turns, 4L)
+  expect_identical(round_robin$question_rounds, 2L)
+  expect_identical(round_robin$participant_outputs, 4L)
+  expect_identical(round_robin$utterances, 8L)
+  expect_identical(round_robin$calls, 9L)
+
+  desire <- FocusGroup:::.fg_gui_run_plan(
+    guide,
+    "topic",
+    n_participants = 3L,
+    flow = "desire_based",
+    max_participant_responses = 2L
+  )
+  expect_identical(desire$desire_calls, 12L)
+  expect_identical(desire$calls, 21L)
+  expect_identical(
+    FocusGroup:::.fg_gui_run_plan(
+      list(), "topic", 3L, "round_robin", 1L
+    )$calls,
+    0L
+  )
+})
+
 test_that("timing statistics report wall time and per-speaker durations", {
   started <- as.POSIXct("2026-01-01 12:00:00", tz = "UTC")
   transcript <- data.frame(
@@ -220,6 +288,66 @@ test_that("timing statistics report wall time and per-speaker durations", {
   )
   expect_false(unavailable$has_wall_time)
   expect_false(unavailable$has_durations)
+})
+
+test_that("transcript table columns favor text and retain hidden identifiers", {
+  transcript <- data.frame(
+    message_id = 1:2,
+    round = c(1L, 1L),
+    speaker_id = c("MOD", "P1"),
+    text = c("A moderator question.", "A participant response."),
+    duration_s = c(0.123456, 1.987654),
+    stringsAsFactors = FALSE
+  )
+  arranged <- FocusGroup:::.fg_table_columns(transcript)
+  expect_identical(
+    names(arranged$data),
+    c("round", "speaker_id", "text", "duration_s", "message_id")
+  )
+  expect_identical(arranged$text_col, "text")
+  expect_identical(arranged$id_cols, "message_id")
+
+  code <- paste(deparse(body(FocusGroup:::.fg_datatable)), collapse = "\n")
+  expect_match(code, "as_display_table", fixed = TRUE)
+  expect_match(code, "render.text", fixed = TRUE)
+  expect_match(code, "autoWidth", fixed = TRUE)
+  expect_match(code, "colvis", fixed = TRUE)
+  expect_match(code, "formatRound", fixed = TRUE)
+
+  widget <- FocusGroup:::.fg_datatable(
+    transcript,
+    round_cols = "duration_s",
+    round_digits = 2L
+  )
+  expect_true(widget$x$options$autoWidth)
+  expect_true(any(vapply(
+    widget$x$options$columnDefs,
+    function(definition) identical(definition$visible, FALSE),
+    logical(1)
+  )))
+  expect_identical(
+    widget$x$data$duration_s,
+    transcript$duration_s
+  )
+})
+
+test_that("TF-IDF display selects a ranked top N for each speaker", {
+  tfidf <- data.frame(
+    speaker_id = rep(c("P1", "P2"), each = 4L),
+    term = c("bus", "fare", "route", "stop", "book", "hours", "staff", "wifi"),
+    tf_idf = c(0.8, 0.2, 0.5, 0.1, 0.3, 0.9, 0.4, 0.6),
+    stringsAsFactors = FALSE
+  )
+  shown <- FocusGroup:::.fg_top_tfidf(tfidf, top_n = 2L)
+  expect_equal(nrow(shown), 4L)
+  expect_identical(shown$speaker_id, c("P1", "P1", "P2", "P2"))
+  expect_identical(shown$rank, c(1L, 2L, 1L, 2L))
+  expect_identical(shown$term, c("bus", "route", "hours", "wifi"))
+  expect_equal(shown$tf_idf, c(0.8, 0.5, 0.9, 0.6))
+
+  if (requireNamespace("ggplot2", quietly = TRUE)) {
+    expect_s3_class(FocusGroup:::.fg_tfidf_plot(shown), "ggplot")
+  }
 })
 
 test_that("the GUI assembles when its suggested packages are present", {
@@ -294,9 +422,10 @@ test_that("the run module runs via an injected fake and stores the focus group",
   shared <- fake_shared("live", TRUE)
   seen <- new.env()
   fake_run <- function(topic, n_participants, flow, config, seed,
-                       message_mode = "roleflip", verbose,
+                       guide, message_mode = "roleflip", verbose,
                        max_participant_responses, ...) {
     seen$config <- config
+    seen$guide <- guide
     structure(list(
       focus_group = structure(list(topic = topic, message_mode = message_mode),
                               class = "FocusGroup"),
@@ -314,20 +443,45 @@ test_that("the run module runs via an injected fake and stores the focus group",
     {
       session$setInputs(topic = "public libraries", n_participants = 3,
                         flow = "round_robin", message_mode = "roleflip",
-                        max_resp = 1, seed = 110)
+                        max_resp = 1, seed = 110,
+                        guide_opening_included = FALSE,
+                        guide_icebreaker_included = FALSE,
+                        guide_engagement_included = TRUE,
+                        guide_engagement = paste(
+                          "What changed?",
+                          "What should happen next?",
+                          sep = "\n"
+                        ),
+                        guide_exploration_included = FALSE,
+                        guide_closing_included = TRUE,
+                        guide_closing = "Close the session.")
       session$setInputs(run = 1)
       expect_true(inherits(result()$focus_group, "FocusGroup"))
       # real token totals propagate to usage; calls is the estimate
       expect_equal(shared$.usage$last$sent, 100L)
       expect_equal(shared$.usage$last$received, 20L)
       expect_true(shared$.usage$last$calls >= 1L)
-      expect_true(shared$.usage$plan$calls >= 1L)
+      expect_identical(shared$.usage$plan$calls, 6L)
       expect_match(shared$.usage$plan$label, "utterances; retries excluded")
       expect_identical(seen$config$model_params$temperature, 0.4)
       expect_identical(seen$config$model_params$max_tokens, 480L)
       expect_identical(seen$config$model_params$reasoning_effort, "low")
+      expect_named(seen$guide, c("Engagement", "Closing"))
+      expect_identical(
+        seen$guide$Engagement,
+        c("What changed?", "What should happen next?")
+      )
       expect_identical(shiny::isolate(shared$finished_session()), result())
 
+      module_ui <- as.character(output$module_ui)[[1]]
+      expect_match(module_ui, "accordion", fixed = TRUE)
+      expect_match(module_ui, "personas-selection_count", fixed = TRUE)
+      expect_match(module_ui, "Questions or instructions, one per line",
+                   fixed = TRUE)
+      cost_ui <- as.character(output$cost_note)[[1]]
+      expect_match(cost_ui, "Run preview", fixed = TRUE)
+      expect_match(cost_ui, "3 moderator turns in 2 included phases",
+                   fixed = TRUE)
       result_ui <- as.character(output$results)[[1]]
       expect_match(result_ui, "Download full session")
       expect_match(result_ui, "Download transcript")
@@ -368,10 +522,12 @@ test_that("the run module uses the persona runner when source = anes", {
   fake_persona <- function(topic, n_participants, rows, flow, message_mode, seed,
                            max_participant_responses, config, data = NULL,
                            persona_cols = NULL,
+                           guide = NULL,
                            .runner = NULL) {
     seen$rows <- rows
     seen$topic <- topic
     seen$persona_cols <- persona_cols
+    seen$guide <- guide
     structure(list(
       focus_group = structure(list(topic = topic), class = "FocusGroup"),
       transcript = data.frame(message_id = 1L, round = 1L,
@@ -399,6 +555,10 @@ test_that("the run module uses the persona runner when source = anes", {
       expect_equal(seen$topic, "trust")
       expect_true(is.integer(seen$rows) || is.null(seen$rows))
       expect_identical(seen$persona_cols, chosen_cols)
+      expect_named(
+        seen$guide,
+        c("Opening", "Icebreaker", "Engagement", "Exploration", "Closing")
+      )
     })
 })
 

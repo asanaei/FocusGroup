@@ -127,6 +127,125 @@ run_focus_studio <- function(...) {
   transcript[, keep, drop = FALSE]
 }
 
+.fg_table_columns <- function(data, text_col = NULL, id_cols = NULL) {
+  data <- as.data.frame(data, stringsAsFactors = FALSE)
+  if (is.null(text_col)) {
+    text_col <- intersect(
+      c("text", "response_text", "utterance", "message", "content", "reason"),
+      names(data)
+    )
+    text_col <- if (length(text_col)) text_col[[1]] else character()
+  } else {
+    text_col <- intersect(text_col, names(data))
+  }
+  if (is.null(id_cols)) {
+    id_cols <- intersect(
+      c(
+        "message_id", "response_id", "display_message_id", "log_index",
+        "perturb_message_id", "arm_id"
+      ),
+      names(data)
+    )
+  } else {
+    id_cols <- intersect(id_cols, names(data))
+  }
+
+  preferred <- intersect(
+    c("round", "speaker_id", "speaker", "role", "phase", text_col),
+    names(data)
+  )
+  remaining <- setdiff(names(data), c(preferred, id_cols))
+  order <- c(preferred, remaining, id_cols)
+  list(data = data[, order, drop = FALSE], text_col = text_col,
+       id_cols = id_cols)
+}
+
+.fg_datatable <- function(data, text_col = NULL, id_cols = NULL,
+                          digits = 3L, page_length = 8L, dom = NULL,
+                          round_cols = character(), round_digits = 2L) {
+  arranged <- .fg_table_columns(data, text_col, id_cols)
+  shown <- LLMR.shiny::as_display_table(arranged$data, digits = digits)
+  round_cols <- intersect(round_cols, names(shown))
+  if (length(round_cols)) {
+    shown[round_cols] <- arranged$data[round_cols]
+  }
+  text_target <- match(arranged$text_col, names(shown)) - 1L
+  id_targets <- match(arranged$id_cols, names(shown)) - 1L
+  short_targets <- match(
+    intersect(
+      c("round", "speaker_id", "speaker", "role", "phase", "rank", "status"),
+      names(shown)
+    ),
+    names(shown)
+  ) - 1L
+
+  column_defs <- list()
+  if (length(text_target)) {
+    column_defs <- c(column_defs, list(list(
+      targets = unname(text_target),
+      width = "65%",
+      className = "fg-dt-wrap",
+      render = DT::JS(paste(
+        "function(data, type, row, meta) {",
+        "if (type !== 'display') return data;",
+        "var safe = $.fn.dataTable.render.text().display(data);",
+        paste0(
+          "return '<div style=\"white-space:normal;",
+          "overflow-wrap:break-word;word-break:normal\">' + safe + '</div>';"
+        ),
+        "}"
+      ))
+    )))
+  }
+  if (length(short_targets)) {
+    column_defs <- c(column_defs, list(list(
+      targets = unname(short_targets),
+      width = "12%"
+    )))
+  }
+  if (length(id_targets)) {
+    column_defs <- c(column_defs, list(list(
+      targets = unname(id_targets),
+      visible = FALSE
+    )))
+  }
+
+  if (is.null(dom)) dom <- if (length(id_targets)) "Blfrtip" else "lfrtip"
+  options <- list(
+    pageLength = as.integer(page_length),
+    scrollX = TRUE,
+    autoWidth = TRUE,
+    dom = dom,
+    columnDefs = column_defs
+  )
+  extensions <- list()
+  if (length(id_targets)) {
+    extensions <- "Buttons"
+    options$buttons <- list(list(extend = "colvis", text = "Columns"))
+  }
+
+  widget <- DT::datatable(
+    shown,
+    rownames = FALSE,
+    escape = setdiff(names(shown), arranged$text_col),
+    extensions = extensions,
+    options = options
+  )
+  if (length(arranged$text_col)) {
+    widget <- DT::formatStyle(
+      widget,
+      arranged$text_col,
+      whiteSpace = "normal",
+      wordBreak = "normal",
+      overflowWrap = "break-word"
+    )
+  }
+  if (length(round_cols)) {
+    widget <- DT::formatRound(widget, round_cols, digits = round_digits)
+  }
+  widget
+}
+
 .fg_timing_stats <- function(transcript) {
   df <- if (is.data.frame(transcript)) {
     transcript
@@ -288,10 +407,17 @@ run_focus_studio <- function(...) {
   generate_persona(values(demographic_cols), values(survey_cols))
 }
 
-# The compact moderator guide used by the GUI.
+.fg_gui_phases <- function() {
+  c("Opening", "Icebreaker", "Engagement", "Exploration", "Closing")
+}
+
+# The compact moderator guide shown in the editor before a user changes it.
 .fg_gui_guide <- function(topic) {
   list(
     Opening = "Welcome the participants and state the ground rules.",
+    Icebreaker = paste0(
+      "What first comes to mind when you think about ", topic, "?"
+    ),
     Engagement = c(
       paste0("From your perspective, what matters most about ", topic,
              " in the next year?"),
@@ -306,16 +432,117 @@ run_focus_studio <- function(...) {
   )
 }
 
+.fg_guide_text <- function(questions) {
+  paste(as.character(questions), collapse = "\n")
+}
+
+.fg_split_guide_text <- function(value) {
+  value <- gsub("\r\n?", "\n", as.character(value %||% ""))
+  lines <- trimws(strsplit(value, "\n", fixed = TRUE)[[1]])
+  lines[nzchar(lines)]
+}
+
+.fg_guide_from_text <- function(values, included) {
+  phases <- .fg_gui_phases()
+  out <- stats::setNames(lapply(phases, function(phase) {
+    .fg_split_guide_text(values[[phase]] %||% "")
+  }), phases)
+  included <- vapply(phases, function(phase) {
+    isTRUE(included[[phase]])
+  }, logical(1))
+  out[included & lengths(out) > 0L]
+}
+
+.fg_guide_editor_ui <- function(ns, topic = "public libraries") {
+  defaults <- .fg_gui_guide(topic)
+  shiny::tagList(
+    shiny::tags$p(
+      class = "text-muted small",
+      paste(
+        "Use one moderator question or instruction per line.",
+        "Clear a field or remove its phase to skip it."
+      )
+    ),
+    lapply(.fg_gui_phases(), function(phase) {
+      key <- tolower(phase)
+      bslib::card(
+        class = "mb-2",
+        bslib::card_header(phase),
+        bslib::card_body(
+          shiny::checkboxInput(
+            ns(paste0("guide_", key, "_included")),
+            paste("Include", tolower(phase), "phase"),
+            value = TRUE
+          ),
+          shiny::textAreaInput(
+            ns(paste0("guide_", key)),
+            "Questions or instructions, one per line",
+            value = .fg_guide_text(defaults[[phase]]),
+            rows = max(3L, length(defaults[[phase]]) + 1L),
+            width = "100%",
+            placeholder = paste(
+              "Leave empty to skip the", tolower(phase), "phase"
+            )
+          )
+        )
+      )
+    }),
+    shiny::uiOutput(ns("guide_preview"))
+  )
+}
+
+.fg_gui_run_plan <- function(guide, topic, n_participants, flow,
+                             max_participant_responses) {
+  script <- if (length(guide)) {
+    .fg_build_question_script(guide, topic)
+  } else {
+    list()
+  }
+  response_phases <- c(
+    "icebreaker_question", "engagement_question", "exploration_question"
+  )
+  phases <- if (length(script)) {
+    vapply(script, `[[`, character(1), "phase")
+  } else {
+    character()
+  }
+  question_rounds <- sum(phases %in% response_phases)
+  moderator_outputs <- length(script)
+  participant_outputs <- question_rounds *
+    as.integer(max_participant_responses)
+  desire_outputs <- if (identical(flow, "desire_based")) {
+    participant_outputs * as.integer(n_participants)
+  } else {
+    0L
+  }
+  list(
+    calls = if (moderator_outputs) {
+      as.integer(
+        moderator_outputs + participant_outputs + desire_outputs + 1L
+      )
+    } else {
+      0L
+    },
+    utterances = as.integer(moderator_outputs + participant_outputs),
+    moderator_turns = as.integer(moderator_outputs),
+    question_rounds = as.integer(question_rounds),
+    participant_outputs = as.integer(participant_outputs),
+    desire_calls = as.integer(desire_outputs),
+    phases = names(guide)
+  )
+}
+
 # Build agents from chosen persona rows and run a focus group. `rows` are row
 # indices into `data` (empty selects a seeded sample of `n_participants`).
 .fg_run_from_personas <- function(topic, n_participants, rows, flow, message_mode,
                                    seed, max_participant_responses,
                                    config, data = NULL, persona_cols = NULL,
-                                   .runner = NULL) {
+                                   guide = NULL, .runner = NULL) {
   data <- data %||% .fg_personas()
   data <- .fg_persona_columns(data, persona_cols)
   chosen <- if (length(rows)) data[rows, , drop = FALSE] else data
   n <- if (length(rows)) length(rows) else n_participants
+  guide <- guide %||% .fg_gui_guide(topic)
 
   # focusgroup.seed must be in place BEFORE the agents are built: the diverse
   # draw inside create_agents_from_data() reads it. Setting it only around
@@ -326,7 +553,7 @@ run_focus_studio <- function(...) {
       agents <- create_agents_from_data(chosen, n_participants = n,
                                         config = config, .runner = .runner)
       flow_obj <- create_conversation_flow(flow, agents, "MOD")
-      script <- .fg_build_question_script(.fg_gui_guide(topic), topic)
+      script <- .fg_build_question_script(guide, topic)
       fg <- FocusGroup$new(topic = topic,
                            purpose = paste("Explore perspectives on", topic),
                            agents = agents, moderator_id = "MOD",
@@ -335,14 +562,19 @@ run_focus_studio <- function(...) {
       fg$run_simulation(verbose = FALSE)
       fg
     })
-  replies <- 5L * as.integer(max_participant_responses)
-  desire_outputs <- if (identical(flow, "desire_based")) replies * n else 0L
+  plan <- .fg_gui_run_plan(
+    guide,
+    topic,
+    n_participants = n,
+    flow = flow,
+    max_participant_responses = max_participant_responses
+  )
   .fg_focus_group_result(
     focus_group = fg,
     flow = flow,
     message_mode = message_mode,
     n_participants = n,
-    estimated_calls = 7L + replies + desire_outputs + 1L
+    estimated_calls = plan$calls
   )
 }
 
@@ -371,16 +603,82 @@ run_focus_studio <- function(...) {
       invisible(NULL)
     }
 
+    # The selectable persona table is the shared LLMR.shiny module: rows run
+    # liberal -> conservative, multi-select, returning the chosen row indices.
+    persona_rows <- LLMR.shiny::persona_selector_server(
+      "personas", .fg_personas()
+    )
+
+    guide_edited <- shiny::reactiveValues()
+    guide_last_default <- shiny::reactiveValues()
+    initial_guide <- .fg_gui_guide("public libraries")
+    for (phase in .fg_gui_phases()) {
+      local({
+        current_phase <- phase
+        key <- tolower(current_phase)
+        input_id <- paste0("guide_", key)
+        guide_edited[[key]] <- FALSE
+        guide_last_default[[key]] <- .fg_guide_text(
+          initial_guide[[current_phase]]
+        )
+        shiny::observeEvent(input[[input_id]], {
+          value <- gsub("\r\n?", "\n", input[[input_id]] %||% "")
+          expected <- gsub(
+            "\r\n?", "\n", guide_last_default[[key]] %||% ""
+          )
+          guide_edited[[key]] <- !identical(value, expected)
+        }, ignoreInit = TRUE)
+      })
+    }
+
+    shiny::observeEvent(input$topic, {
+      topic <- trimws(input$topic %||% "")
+      if (!nzchar(topic)) topic <- "public libraries"
+      defaults <- .fg_gui_guide(topic)
+      for (phase in .fg_gui_phases()) {
+        key <- tolower(phase)
+        if (!isTRUE(guide_edited[[key]])) {
+          value <- .fg_guide_text(defaults[[phase]])
+          guide_last_default[[key]] <- value
+          shiny::updateTextAreaInput(
+            session,
+            paste0("guide_", key),
+            value = value
+          )
+        }
+      }
+    }, ignoreInit = TRUE)
+
+    guide_for_run <- shiny::reactive({
+      topic <- trimws(input$topic %||% "")
+      if (!nzchar(topic)) topic <- "public libraries"
+      defaults <- .fg_gui_guide(topic)
+      values <- stats::setNames(lapply(.fg_gui_phases(), function(phase) {
+        input[[paste0("guide_", tolower(phase))]] %||%
+          .fg_guide_text(defaults[[phase]])
+      }), .fg_gui_phases())
+      included <- stats::setNames(lapply(.fg_gui_phases(), function(phase) {
+        input[[paste0("guide_", tolower(phase), "_included")]] %||% TRUE
+      }), .fg_gui_phases())
+      .fg_guide_from_text(values, included)
+    })
+
     estimate_run <- function() {
       p <- as.integer(input$n_participants %||% 3L)
+      selected_rows <- persona_rows()
+      if (identical(input$source %||% "synthetic", "anes") &&
+          length(selected_rows)) {
+        p <- length(selected_rows)
+      }
       mr <- as.integer(input$max_resp %||% 1L)
-      replies <- 5L * mr
-      desire <- if (identical(input$flow %||% "round_robin", "desire_based"))
-        replies * p else 0L
-      list(
-        calls = as.integer(7L + replies + desire + 1L),
-        utterances = as.integer(7L + replies),
-        desire_calls = as.integer(desire)
+      topic <- trimws(input$topic %||% "")
+      if (!nzchar(topic)) topic <- "public libraries"
+      .fg_gui_run_plan(
+        guide_for_run(),
+        topic,
+        n_participants = p,
+        flow = input$flow %||% "round_robin",
+        max_participant_responses = mr
       )
     }
 
@@ -403,105 +701,163 @@ run_focus_studio <- function(...) {
                 "The provider and model come from the sidebar."
               )
             }),
-          shiny::fluidRow(
-            shiny::column(8, shiny::textInput(ns("topic"), "Topic",
-              value = "public libraries", width = "100%")),
-            shiny::column(4, shiny::numericInput(ns("n_participants"), "Participants",
-              value = 3, min = 2, max = 6, step = 1))),
-          shiny::radioButtons(
-            ns("source"),
-            shiny::tagList(
-              "Participants drawn from ",
-              LLMR.shiny::help_tip(
-                "Synthetic creates generated profiles; ANES uses selected or sampled survey respondents."
+          bslib::accordion(
+            id = ns("run_sections"),
+            open = "study",
+            bslib::accordion_panel(
+              "1. Study",
+              value = "study",
+              shiny::textInput(
+                ns("topic"),
+                "Topic",
+                value = "public libraries",
+                width = "100%"
               )
             ),
-            choices = c("Synthetic personas" = "synthetic",
-                        "ANES 2024 personas" = "anes"),
-            selected = "synthetic", inline = TRUE),
-          shiny::conditionalPanel(
-            condition = sprintf("input['%s'] == 'anes'", ns("source")),
-            shiny::tags$p(class = "text-muted small",
-              "Pick rows to use as participants (click to toggle; the list runs from most liberal at the top to most conservative at the bottom). Select none to draw a diverse sample automatically."),
-            LLMR.shiny::persona_selector_ui(ns("personas")),
-            shiny::tags$style(
-              ".fg-persona-column-picker .selectize-input {",
-              "max-height: 10rem; overflow-y: auto;",
-              "}"
+            bslib::accordion_panel(
+              "2. Discussion guide",
+              value = "guide",
+              .fg_guide_editor_ui(ns)
             ),
-            shiny::tags$div(
-              class = "fg-persona-column-picker",
-              shiny::selectizeInput(
-                ns("persona_cols"),
-                "Columns rendered into each persona",
-                choices = names(.fg_personas()),
-                selected = names(.fg_personas()),
-                multiple = TRUE,
-                options = list(
-                  plugins = list("remove_button"),
-                  maxOptions = ncol(.fg_personas())
-                )
+            bslib::accordion_panel(
+              "3. Participants",
+              value = "participants",
+              shiny::numericInput(
+                ns("n_participants"),
+                "Participants",
+                value = 3,
+                min = 2,
+                max = 6,
+                step = 1
+              ),
+              shiny::radioButtons(
+                ns("source"),
+                shiny::tagList(
+                  "Participants drawn from ",
+                  LLMR.shiny::help_tip(
+                    "Synthetic creates generated profiles; ANES uses selected or sampled survey respondents."
+                  )
+                ),
+                choices = c(
+                  "Synthetic personas" = "synthetic",
+                  "ANES 2024 personas" = "anes"
+                ),
+                selected = "synthetic",
+                inline = TRUE
+              ),
+              shiny::conditionalPanel(
+                condition = sprintf("input['%s'] == 'anes'", ns("source")),
+                shiny::tags$p(
+                  class = "text-muted small",
+                  paste(
+                    "Pick rows to use as participants. The list runs from",
+                    "most liberal at the top to most conservative at the",
+                    "bottom. Select none to draw a diverse sample",
+                    "automatically."
+                  )
+                ),
+                LLMR.shiny::persona_selector_ui(ns("personas")),
+                shiny::tags$style(
+                  ".fg-persona-column-picker .selectize-input {",
+                  "max-height: 10rem; overflow-y: auto;",
+                  "}"
+                ),
+                shiny::tags$div(
+                  class = "fg-persona-column-picker",
+                  shiny::selectizeInput(
+                    ns("persona_cols"),
+                    "Columns rendered into each persona",
+                    choices = names(.fg_personas()),
+                    selected = names(.fg_personas()),
+                    multiple = TRUE,
+                    options = list(
+                      plugins = list("remove_button"),
+                      maxOptions = ncol(.fg_personas())
+                    )
+                  )
+                ),
+                shiny::uiOutput(ns("persona_detail_ui"))
               )
             ),
-            shiny::uiOutput(ns("persona_detail_ui"))),
-          shiny::fluidRow(
-            shiny::column(4, shiny::selectInput(
-              ns("flow"),
-              shiny::tagList(
-                "Turn-taking flow ",
-                LLMR.shiny::help_tip(
-                  "Determines how the next participant is selected."
-                )
+            bslib::accordion_panel(
+              "4. Conversation",
+              value = "conversation",
+              shiny::fluidRow(
+                shiny::column(4, shiny::selectInput(
+                  ns("flow"),
+                  shiny::tagList(
+                    "Turn-taking flow ",
+                    LLMR.shiny::help_tip(
+                      "Determines how the next participant is selected."
+                    )
+                  ),
+                  choices = c(
+                    "Round robin" = "round_robin",
+                    "Desire based" = "desire_based",
+                    "Probabilistic" = "probabilistic"
+                  ),
+                  selected = "round_robin"
+                )),
+                shiny::column(4, shiny::selectInput(
+                  ns("message_mode"),
+                  shiny::tagList(
+                    "Message construction ",
+                    LLMR.shiny::help_tip(
+                      "Role flip preserves each speaker's voice; flat sends one labeled transcript prompt."
+                    )
+                  ),
+                  choices = c("Role flip" = "roleflip", "Flat" = "flat"),
+                  selected = "roleflip"
+                )),
+                shiny::column(4, shiny::numericInput(
+                  ns("max_resp"),
+                  shiny::tagList(
+                    "Max responses per question ",
+                    LLMR.shiny::help_tip(
+                      "Sets how many participant replies follow each moderator question."
+                    )
+                  ),
+                  value = 1,
+                  min = 1,
+                  max = 3,
+                  step = 1
+                ))
               ),
-              choices = c("Round robin" = "round_robin",
-                          "Desire based" = "desire_based",
-                          "Probabilistic" = "probabilistic"),
-              selected = "round_robin")),
-            shiny::column(4, shiny::selectInput(
-              ns("message_mode"),
-              shiny::tagList(
-                "Message construction ",
-                LLMR.shiny::help_tip(
-                  "Role flip preserves each speaker's voice; flat sends one labeled transcript prompt."
-                )
-              ),
-              choices = c("Role flip" = "roleflip", "Flat" = "flat"),
-              selected = "roleflip")),
-            shiny::column(4, shiny::numericInput(ns("max_resp"),
-              shiny::tagList(
-                "Max responses per question ",
-                LLMR.shiny::help_tip(
-                  "Sets how many participant replies follow each moderator question."
-                )
-              ),
-              value = 1, min = 1, max = 3, step = 1))),
-          shiny::fluidRow(
-            shiny::column(4, shiny::numericInput(ns("seed"),
-              shiny::tagList(
-                "Seed ",
-                LLMR.shiny::help_tip(
-                  "Controls participant sampling and speaker-order randomness, not model output."
-                )
-              ),
-              value = 110, step = 1))),
+              shiny::numericInput(
+                ns("seed"),
+                shiny::tagList(
+                  "Seed ",
+                  LLMR.shiny::help_tip(
+                    "Controls participant sampling and speaker-order randomness, not model output."
+                  )
+                ),
+                value = 110,
+                step = 1
+              )
+            )
+          ),
           shiny::uiOutput(ns("cost_note")),
-          if (demo_mode)
-            shiny::tags$p(class = "text-muted small",
-              "Switch to Live mode to run this configuration.")
-          else if (!shared$can_run())
-            LLMR.shiny::live_run_blocker_ui(shared$key()),
+          if (demo_mode) {
+            shiny::tags$p(
+              class = "text-muted small",
+              "Switch to Live mode to run this configuration."
+            )
+          } else if (!shared$can_run()) {
+            LLMR.shiny::live_run_blocker_ui(shared$key())
+          },
           shiny::actionButton(
-            ns("run"), "Run focus group", class = "btn-primary",
+            ns("run"),
+            "Run focus group",
+            class = "btn-primary",
             disabled = demo_mode
           ),
-          shiny::tags$hr(), shiny::uiOutput(ns("results"))))
+          shiny::tags$hr(),
+          shiny::uiOutput(ns("results"))
+        )
+      )
     })
 
     output$err <- shiny::renderUI(err())
-
-    # The selectable persona table is the shared LLMR.shiny module: rows run
-    # liberal -> conservative, multi-select, returning the chosen row indices.
-    persona_rows <- LLMR.shiny::persona_selector_server("personas", .fg_personas())
 
     output$persona_detail_ui <- shiny::renderUI({
       rows <- persona_rows()
@@ -534,10 +890,36 @@ run_focus_studio <- function(...) {
 
     plan_label <- function(plan) {
       sprintf(
-        "Focus group, up to %d transcript utterances; retries excluded",
+        paste(
+          "Focus group, %d moderator turns and up to %d transcript",
+          "utterances; retries excluded"
+        ),
+        plan$moderator_turns,
         plan$utterances
       )
     }
+
+    output$guide_preview <- shiny::renderUI({
+      plan <- estimate_run()
+      if (!plan$moderator_turns) {
+        return(shiny::tags$p(
+          class = "text-warning small",
+          "The current guide has no moderator turns. Include a non-empty phase before running."
+        ))
+      }
+      shiny::tags$p(
+        class = "text-muted small",
+        sprintf(
+          paste(
+            "Current guide: %d included phase(s), %d moderator turn(s),",
+            "and %d participant-facing question(s)."
+          ),
+          length(plan$phases),
+          plan$moderator_turns,
+          plan$question_rounds
+        )
+      )
+    })
 
     output$cost_note <- shiny::renderUI({
       flow <- input$flow %||% "round_robin"
@@ -558,16 +940,27 @@ run_focus_studio <- function(...) {
           plan$calls, plan$utterances
         )
       }
-      shiny::tags$p(class = "text-muted small",
-        paste(
-          scale,
-          "Retries and incomplete-utterance continuations are excluded and can add calls.",
-          sprintf(
-            "Live runs above %d planned calls require confirmation.",
-            .fg_large_run_threshold
-          ),
-          extra
-        ))
+      shiny::tags$div(
+        class = "border rounded p-2 my-2",
+        shiny::tags$strong("Run preview"),
+        shiny::tags$p(
+          class = "text-muted small mb-0",
+          paste(
+            scale,
+            sprintf(
+              "The guide contains %d moderator turns in %d included phases.",
+              plan$moderator_turns,
+              length(plan$phases)
+            ),
+            "Retries and incomplete-utterance continuations are excluded and can add calls.",
+            sprintf(
+              "Live runs above %d planned calls require confirmation.",
+              .fg_large_run_threshold
+            ),
+            extra
+          )
+        )
+      )
     })
 
     shiny::observe({
@@ -599,6 +992,13 @@ run_focus_studio <- function(...) {
       topic <- trimws(input$topic %||% "")
       if (!nzchar(topic)) {
         warn_user("Enter a topic before running the focus group.")
+        return(NULL)
+      }
+      guide <- guide_for_run()
+      if (!length(guide)) {
+        warn_user(
+          "Include at least one guide phase with a moderator question or instruction."
+        )
         return(NULL)
       }
       model <- trimws(shared$model() %||% "")
@@ -636,6 +1036,7 @@ run_focus_studio <- function(...) {
         provider = provider,
         config = cfg_result$value,
         plan = plan,
+        guide = guide,
         source = input$source %||% "synthetic",
         n_participants = as.integer(input$n_participants %||% 3L),
         rows = persona_rows(),
@@ -691,6 +1092,7 @@ run_focus_studio <- function(...) {
                 max_participant_responses = request$max_responses,
                 config = request$config,
                 persona_cols = request$persona_cols,
+                guide = request$guide,
                 .runner = progress_runner
               ),
               request$provider
@@ -701,7 +1103,7 @@ run_focus_studio <- function(...) {
                 topic = request$topic,
                 config = request$config,
                 n_participants = request$n_participants,
-                guide = .fg_gui_guide(request$topic),
+                guide = request$guide,
                 flow = request$flow,
                 seed = request$seed,
                 message_mode = request$message_mode,
@@ -895,14 +1297,24 @@ run_focus_studio <- function(...) {
     })
 
     output$demo_transcript <- DT::renderDT({
-      DT::datatable(.fg_demo_transcript(), options = list(pageLength = 8, scrollX = TRUE))
+      .fg_datatable(
+        .fg_demo_transcript(),
+        text_col = "text",
+        id_cols = character(),
+        page_length = 8L
+      )
     })
 
     output$transcript <- DT::renderDT({
       shiny::req(result())
       tr <- result()$transcript
       cols <- intersect(c("message_id", "round", "speaker_id", "text"), names(tr))
-      DT::datatable(tr[, cols, drop = FALSE], options = list(pageLength = 10, scrollX = TRUE))
+      .fg_datatable(
+        tr[, cols, drop = FALSE],
+        text_col = "text",
+        id_cols = "message_id",
+        page_length = 10L
+      )
     })
 
     output$usage <- shiny::renderPrint({
@@ -917,13 +1329,13 @@ run_focus_studio <- function(...) {
       shiny::req(result())
       timing <- .fg_timing_stats(result()$transcript)
       shiny::req(timing$has_durations)
-      shown <- timing$speaker_stats
-      shown$total_seconds <- round(shown$total_seconds, 2)
-      shown$mean_seconds <- round(shown$mean_seconds, 2)
-      DT::datatable(
-        shown,
-        rownames = FALSE,
-        options = list(pageLength = 8, dom = "tip")
+      .fg_datatable(
+        timing$speaker_stats,
+        id_cols = character(),
+        page_length = 8L,
+        dom = "tip",
+        round_cols = c("total_seconds", "mean_seconds"),
+        round_digits = 2L
       )
     })
 
@@ -1280,6 +1692,87 @@ run_focus_studio <- function(...) {
   )
 }
 
+.fg_top_tfidf <- function(tfidf, top_n = 8L) {
+  empty <- data.frame(
+    speaker_id = character(),
+    rank = integer(),
+    term = character(),
+    tf_idf = double(),
+    stringsAsFactors = FALSE
+  )
+  tfidf <- as.data.frame(tfidf, stringsAsFactors = FALSE)
+  if (!nrow(tfidf)) return(empty)
+
+  keep <- !is.na(tfidf$speaker_id) & nzchar(trimws(tfidf$speaker_id)) &
+    !is.na(tfidf$term) & nzchar(trimws(tfidf$term)) &
+    is.finite(tfidf$tf_idf)
+  tfidf <- tfidf[keep, c("speaker_id", "term", "tf_idf"), drop = FALSE]
+  if (!nrow(tfidf)) return(empty)
+
+  speakers <- unique(tfidf$speaker_id)
+  rows <- lapply(speakers, function(speaker) {
+    current <- tfidf[tfidf$speaker_id == speaker, , drop = FALSE]
+    current <- current[
+      order(-current$tf_idf, current$term, na.last = NA),
+      ,
+      drop = FALSE
+    ]
+    current <- utils::head(current, as.integer(top_n))
+    current$rank <- seq_len(nrow(current))
+    current[, c("speaker_id", "rank", "term", "tf_idf"), drop = FALSE]
+  })
+  out <- do.call(rbind, rows)
+  rownames(out) <- NULL
+  out
+}
+
+.fg_tfidf_plot <- function(top_terms) {
+  plot_data <- top_terms[
+    order(top_terms$speaker_id, top_terms$rank),
+    ,
+    drop = FALSE
+  ]
+  plot_data$term_key <- paste(
+    plot_data$speaker_id,
+    plot_data$rank,
+    plot_data$term,
+    sep = "\r"
+  )
+  plot_data$term_key <- factor(
+    plot_data$term_key,
+    levels = rev(unique(plot_data$term_key))
+  )
+
+  ggplot2::ggplot(
+    plot_data,
+    ggplot2::aes(x = .data$term_key, y = .data$tf_idf)
+  ) +
+    ggplot2::geom_col(fill = "#2C6E8F", width = 0.75) +
+    ggplot2::coord_flip() +
+    ggplot2::facet_wrap(
+      ggplot2::vars(.data$speaker_id),
+      scales = "free_y"
+    ) +
+    ggplot2::scale_x_discrete(
+      labels = function(value) sub("^[^\r]+\r[^\r]+\r", "", value)
+    ) +
+    ggplot2::scale_y_continuous(
+      labels = function(value) {
+        format(signif(value, 3L), trim = TRUE, scientific = FALSE)
+      }
+    ) +
+    ggplot2::labs(
+      x = NULL,
+      y = "TF-IDF",
+      title = "Top terms by speaker"
+    ) +
+    ggplot2::theme_minimal(base_size = 13) +
+    ggplot2::theme(
+      panel.grid.major.y = ggplot2::element_blank(),
+      strip.text = ggplot2::element_text(size = 11)
+    )
+}
+
 # ---- analyze module ---------------------------------------------------------
 
 .fg_analyze_ui <- function(id) {
@@ -1297,7 +1790,8 @@ run_focus_studio <- function(...) {
     analysis <- shiny::reactiveVal(NULL)
     analysis_settings <- shiny::reactiveVal(list(
       num_topics = 5L,
-      include_plots = TRUE
+      include_plots = TRUE,
+      text_col = NULL
     ))
     source_label <- shiny::reactiveVal("No transcript loaded")
     err <- shiny::reactiveVal(NULL)
@@ -1437,7 +1931,11 @@ run_focus_studio <- function(...) {
       focus_group(NULL)
       transcript(NULL)
       analysis(NULL)
-      analysis_settings(list(num_topics = 5L, include_plots = TRUE))
+      analysis_settings(list(
+        num_topics = 5L,
+        include_plots = TRUE,
+        text_col = NULL
+      ))
     }
 
     shiny::observeEvent(input$file, {
@@ -1545,7 +2043,8 @@ run_focus_studio <- function(...) {
       analysis(result$value)
       analysis_settings(list(
         num_topics = input$num_topics %||% 5L,
-        include_plots = isTRUE(input$include_plots)
+        include_plots = isTRUE(input$include_plots),
+        text_col = text_col
       ))
     })
 
@@ -1613,9 +2112,11 @@ run_focus_studio <- function(...) {
         return()
       }
       analysis(result$value)
+      current_settings <- analysis_settings()
       analysis_settings(list(
         num_topics = input$num_topics %||% 5L,
-        include_plots = isTRUE(input$include_plots)
+        include_plots = isTRUE(input$include_plots),
+        text_col = current_settings$text_col
       ))
       shared$add_usage(list(calls = 2L, sent = 0L, received = 0L))
     })
@@ -1630,6 +2131,13 @@ run_focus_studio <- function(...) {
       } else {
         shared$set_plan(0L)
       }
+    })
+
+    tfidf_top_terms <- shiny::reactive({
+      shiny::req(analysis(), nrow(analysis()$tfidf))
+      top_n <- as.integer(input$tfidf_top_n %||% 8L)
+      if (length(top_n) != 1L || is.na(top_n) || top_n < 1L) top_n <- 8L
+      .fg_top_tfidf(analysis()$tfidf, top_n)
     })
 
     output$results <- shiny::renderUI({
@@ -1673,7 +2181,31 @@ run_focus_studio <- function(...) {
         },
         shiny::tags$h5("TF-IDF"),
         if (nrow(result$tfidf)) {
-          DT::DTOutput(ns("tfidf"))
+          available_terms <- max(
+            as.integer(table(result$tfidf$speaker_id)),
+            1L
+          )
+          shiny::tagList(
+            shiny::numericInput(
+              ns("tfidf_top_n"),
+              "Terms shown per speaker",
+              value = min(8L, available_terms),
+              min = 1,
+              max = available_terms,
+              step = 1,
+              width = "14rem"
+            ),
+            shiny::tags$h6("Top terms per speaker"),
+            DT::DTOutput(ns("tfidf")),
+            if (requireNamespace("ggplot2", quietly = TRUE)) {
+              shiny::plotOutput(ns("tfidf_plot"), height = "440px")
+            } else {
+              LLMR.shiny::install_guidance_ui(
+                "ggplot2",
+                "TF-IDF plot"
+              )
+            }
+          )
         } else {
           shiny::tags$p(
             class = "text-muted",
@@ -1774,19 +2306,25 @@ run_focus_studio <- function(...) {
 
     output$analysis_transcript <- DT::renderDT({
       shiny::req(transcript())
-      DT::datatable(
-        .fg_transcript_csv(transcript()),
-        rownames = FALSE,
-        options = list(scrollX = TRUE, pageLength = 8)
+      shown <- .fg_transcript_csv(transcript())
+      .fg_datatable(
+        shown,
+        text_col = analysis_settings()$text_col,
+        page_length = 8L,
+        round_cols = intersect(
+          c("duration_s", "elapsed_seconds"),
+          names(shown)
+        ),
+        round_digits = 2L
       )
     })
 
     output$basic_stats <- DT::renderDT({
       shiny::req(analysis())
-      DT::datatable(
+      .fg_datatable(
         as.data.frame(analysis()$basic_stats$speaker_stats),
-        rownames = FALSE,
-        options = list(pageLength = 8, scrollX = TRUE)
+        id_cols = character(),
+        page_length = 8L
       )
     })
 
@@ -1797,46 +2335,62 @@ run_focus_studio <- function(...) {
 
     output$topic_labels <- DT::renderDT({
       shiny::req(analysis(), length(analysis()$topics))
-      DT::datatable(
+      .fg_datatable(
         as.data.frame(analysis()$topics$topic_labels),
-        rownames = FALSE,
-        options = list(pageLength = 8)
+        id_cols = character(),
+        page_length = 8L
       )
     })
 
     output$topic_terms <- DT::renderDT({
       shiny::req(analysis(), length(analysis()$topics))
-      DT::datatable(
+      .fg_datatable(
         as.data.frame(analysis()$topics$top_terms),
-        rownames = FALSE,
-        options = list(pageLength = 10, scrollX = TRUE)
+        id_cols = character(),
+        page_length = 10L
       )
     })
 
     output$document_topics <- DT::renderDT({
       shiny::req(analysis(), length(analysis()$topics))
-      DT::datatable(
-        as.data.frame(analysis()$topics$document_topics),
-        rownames = FALSE,
-        options = list(pageLength = 10, scrollX = TRUE)
+      shown <- as.data.frame(analysis()$topics$document_topics)
+      .fg_datatable(
+        shown,
+        id_cols = intersect(
+          c("document", "document_id", "doc_id", "message_id"),
+          names(shown)
+        ),
+        digits = 3L,
+        page_length = 10L
       )
     })
 
     output$tfidf <- DT::renderDT({
-      shiny::req(analysis(), nrow(analysis()$tfidf))
-      DT::datatable(
-        as.data.frame(analysis()$tfidf),
-        rownames = FALSE,
-        options = list(pageLength = 10, scrollX = TRUE)
+      shown <- tfidf_top_terms()
+      shiny::req(nrow(shown))
+      names(shown) <- c("Speaker", "Rank", "Term", "TF-IDF")
+      .fg_datatable(
+        shown,
+        id_cols = character(),
+        digits = 3L,
+        page_length = min(12L, nrow(shown))
       )
+    })
+
+    output$tfidf_plot <- shiny::renderPlot({
+      shiny::req(requireNamespace("ggplot2", quietly = TRUE))
+      shown <- tfidf_top_terms()
+      shiny::req(nrow(shown))
+      print(.fg_tfidf_plot(shown))
     })
 
     output$readability <- DT::renderDT({
       shiny::req(analysis(), nrow(analysis()$readability))
-      DT::datatable(
+      .fg_datatable(
         as.data.frame(analysis()$readability),
-        rownames = FALSE,
-        options = list(pageLength = 8, scrollX = TRUE)
+        id_cols = character(),
+        digits = 3L,
+        page_length = 8L
       )
     })
 
@@ -1868,13 +2422,13 @@ run_focus_studio <- function(...) {
       shiny::req(transcript())
       timing <- .fg_timing_stats(transcript())
       shiny::req(timing$has_durations)
-      shown <- timing$speaker_stats
-      shown$total_seconds <- round(shown$total_seconds, 2)
-      shown$mean_seconds <- round(shown$mean_seconds, 2)
-      DT::datatable(
-        shown,
-        rownames = FALSE,
-        options = list(pageLength = 8, dom = "tip")
+      .fg_datatable(
+        timing$speaker_stats,
+        id_cols = character(),
+        page_length = 8L,
+        dom = "tip",
+        round_cols = c("total_seconds", "mean_seconds"),
+        round_digits = 2L
       )
     })
 
@@ -1889,10 +2443,11 @@ run_focus_studio <- function(...) {
       shiny::req(analysis())
       issue_table <- .fg_analysis_issue_table(analysis())
       shiny::req(nrow(issue_table))
-      DT::datatable(
+      .fg_datatable(
         issue_table,
-        rownames = FALSE,
-        options = list(pageLength = 8, scrollX = TRUE)
+        text_col = "reason",
+        id_cols = character(),
+        page_length = 8L
       )
     })
 
@@ -2438,12 +2993,13 @@ run_focus_studio <- function(...) {
     output$experiment_summary <- DT::renderDT({
       shiny::req(result())
       summary <- .fg_experiment_summary(result())
-      summary$mean_words <- round(summary$mean_words, 1)
-      summary$sd_words <- round(summary$sd_words, 1)
-      DT::datatable(
+      .fg_datatable(
         summary,
-        rownames = FALSE,
-        options = list(dom = "t", pageLength = nrow(summary))
+        id_cols = character(),
+        page_length = nrow(summary),
+        dom = "t",
+        round_cols = c("mean_words", "sd_words"),
+        round_digits = 1L
       )
     })
 

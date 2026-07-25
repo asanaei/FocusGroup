@@ -43,3 +43,13 @@ Initial CRAN release.
   response-length comparisons.
 * Studio live paths honor the shared temperature, maximum output token, and
   reasoning-effort settings; long text results use scrollable output blocks.
+* The Run tab now provides a topic-aware, line-based editor for all five
+  moderator-guide phases. Included phases, question counts, call estimates,
+  and both participant-source paths use the edited guide.
+* Run configuration is grouped in collapsible sections while the run action
+  remains outside the sections.
+* Transcript tables give text most of the available width, wrap complete
+  words, and retain hidden identifiers in a column-visibility menu. Numeric
+  tables use display-only rounding from `LLMR.shiny`.
+* TF-IDF results now show a user-selected number of ranked terms per speaker
+  in a table and, when ggplot2 is installed, a faceted bar chart.
