@@ -32,3 +32,14 @@ Initial CRAN release.
 * `run_focus_studio()` starts the optional Shiny interface for running
   sessions, reading transcripts, and comparing continuations from edited
   histories.
+* The studio now exports both complete `.rds` sessions and transcript-only
+  CSV files, and a finished run can be passed directly to the Analyze tab.
+* ANES participant selection now includes full rendered-persona inspection and
+  control over which respondent columns enter each persona.
+* The Analyze tab now presents `analyze_focus_group()` components, optional
+  model themes and summaries, package guidance, source provenance, and timing.
+* Continuation experiments now support three labeled treatment arms, repeated
+  runs per arm, true planned-call counts, retained responses, summaries, and
+  response-length comparisons.
+* Studio live paths honor the shared temperature, maximum output token, and
+  reasoning-effort settings; long text results use scrollable output blocks.

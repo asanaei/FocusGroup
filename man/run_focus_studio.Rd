@@ -16,11 +16,12 @@ Invisibly, the value of \code{shiny::runApp()}; called for the side
 \description{
 A point-and-click front end with three tabs. Run a focus group starts a fresh
 moderated session live from a topic and a handful of participants, shows the
-transcript, and offers it as a downloadable \code{.rds}. Analyze loads a
-transcript and reads its participation and word statistics offline. The
-continuation experiment takes a saved focus group up to a message, perturbs
-an earlier message, and generates the next message under the original and
-perturbed histories, so the downstream message can be compared.
+transcript, and offers a complete \code{.rds} session and transcript CSV.
+Analyze accepts a finished run, saved session, CSV, or bundled example and
+runs the package's descriptive analyses offline; thematic analysis and a
+model summary are optional live actions. The continuation experiment takes a
+saved focus group up to a message and compares repeated next-message
+responses under one control history and several labeled treatment histories.
 Running and the continuation experiment generate text and need an API key;
 analysis works offline.
 }

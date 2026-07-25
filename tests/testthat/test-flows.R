@@ -103,6 +103,47 @@ test_that("a failed config group is rescored per agent, not left at zero", {
   expect_identical(selected$id, "pb")
 })
 
+test_that("desire broadcasts keep the desire budget and send no temperature", {
+  skip_if_not_installed("LLMR")
+  config <- LLMR::llm_config(
+    "openai", "gpt-4o-mini", temperature = 0.25, max_tokens = 77L
+  )
+  agents <- list(
+    mod = make_agent("mod", config),
+    pa = make_agent("pa", config)
+  )
+  flow <- create_conversation_flow("desire_based", agents, "mod")
+  fg <- list(
+    topic = "library hours",
+    conversation_log = list(),
+    current_conversation_summary = NULL,
+    current_question_text = "Which hours matter?",
+    max_tokens_desire = 16L,
+    total_tokens_sent = 0,
+    total_tokens_received = 0,
+    prompt_templates = list(
+      participant_desire_to_talk_nuanced = "Rate 0-10: {{topic}}"
+    )
+  )
+  seen <- NULL
+
+  testthat::local_mocked_bindings(
+    call_llm_broadcast = function(config, messages, ...) {
+      seen <<- config$model_params
+      list(success = TRUE, response_text = "8")
+    },
+    .package = "LLMR"
+  )
+
+  selected <- flow$select_next_speaker(fg)
+  expect_identical(selected$id, "pa")
+  # The score is one integer, so desire keeps its own small budget rather than
+  # the caller's prose-sized setting, and no temperature is injected because
+  # some reasoning models require their native value.
+  expect_identical(seen$max_tokens, 16L)
+  expect_null(seen$temperature)
+})
+
 test_that("the score_per_agent fallback uses each agent's own config (no shared override)", {
   # Sanity: two agents with different configs must each be reachable for
   # per-agent scoring. We confirm the agents retain their distinct configs

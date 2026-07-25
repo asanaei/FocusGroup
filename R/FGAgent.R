@@ -184,7 +184,9 @@ FGAgent <- R6::R6Class("FGAgent",
       }
 
       current_config <- self$config
-      current_config$model_params$max_tokens <- max_tokens_utterance
+      configured_max_tokens <- current_config$model_params$max_tokens
+      current_config$model_params$max_tokens <-
+        configured_max_tokens %||% max_tokens_utterance
       current_config$model_params$temperature <- current_config$model_params$temperature %||% 0.7
 
       # Build the messages. A legacy/custom template that inlines the transcript
@@ -269,7 +271,12 @@ FGAgent <- R6::R6Class("FGAgent",
         # so it does not sit adjacent to the prior trailing instruction.
         retry_msgs <- LLMR::ensure_alternating_messages(
           c(msgs, list(list(role = "user", content = complete_cue))))
-        current_config$model_params$max_tokens <- max(max_tokens_utterance, 320L)
+        # The retry exists because the first reply was cut off, so it always
+        # raises the budget, including above a caller's own setting. Reasoning
+        # models spend most of a small budget before emitting any text, so the
+        # floor is generous; max_tokens caps a reply rather than lengthening it.
+        current_config$model_params$max_tokens <-
+          max(configured_max_tokens %||% max_tokens_utterance, 1024L)
         response_obj2 <- .fg_call_llm(
           config = current_config,
           messages = retry_msgs,
@@ -351,6 +358,8 @@ FGAgent <- R6::R6Class("FGAgent",
       final_prompt <- replace_placeholders(desire_prompt_template, prompt_values)
 
       current_config <- self$config
+      # Desire scoring asks for one integer, so it keeps its own small budget
+      # rather than a caller's generation setting, which is sized for prose.
       current_config$model_params$max_tokens <- max_tokens_desire
       # Do not inject a temperature for desire scoring: some reasoning models
       # require their native temperature (e.g. 1) and the score is a single

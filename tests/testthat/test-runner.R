@@ -118,6 +118,166 @@ test_that("runner response columns become call metadata", {
   expect_identical(out$meta$total_tokens, 7L)
 })
 
+test_that("utterance uses the configured budget and raises it on a retry", {
+  seen <- list()
+  calls <- 0L
+  scripted_runner <- function(experiments, ...) {
+    calls <<- calls + 1L
+    seen[[calls]] <<- experiments$config[[1]]$model_params
+    experiments$response_text <- if (calls == 1L) {
+      "An unfinished response..."
+    } else {
+      paste("This complete response states a position about library hours",
+            "and gives a concrete reason for it.")
+    }
+    experiments$finish_reason <- if (calls == 1L) "length" else "stop"
+    experiments$success <- TRUE
+    experiments
+  }
+  config <- LLMR::llm_config(
+    "openai", "gpt-4o-mini", temperature = 0.25, max_tokens = 77L
+  )
+  agent <- FGAgent$new(
+    id = "P1",
+    agent_details = list(direct_persona_description = "A participant."),
+    config = config,
+    .runner = scripted_runner
+  )
+
+  agent$generate_utterance(
+    topic = "libraries",
+    conversation_history_string = "No prior discussion.",
+    utterance_prompt_template = "State your view.",
+    max_tokens_utterance = 150L,
+    conversation_log = list()
+  )
+
+  expect_identical(calls, 2L)
+  # The first call honors the caller's budget; the truncation retry raises it,
+  # because a reasoning model can spend a small budget before emitting text.
+  expect_identical(seen[[1]]$max_tokens, 77L)
+  expect_gte(seen[[2]]$max_tokens, 1024)
+  expect_true(all(vapply(seen, function(params) {
+    identical(params$temperature, 0.25)
+  }, logical(1))))
+})
+
+test_that("desire calls keep their own budget and escalate it on a retry", {
+  seen <- list()
+  calls <- 0L
+  scripted_runner <- function(experiments, ...) {
+    calls <<- calls + 1L
+    seen[[calls]] <<- experiments$config[[1]]$model_params
+    experiments$response_text <- if (calls == 1L) "" else "8"
+    experiments$finish_reason <- if (calls == 1L) "length" else "stop"
+    experiments$success <- TRUE
+    experiments
+  }
+  config <- LLMR::llm_config(
+    "openai", "gpt-4o-mini", temperature = 0.25, max_tokens = 77L
+  )
+  agent <- FGAgent$new(
+    id = "P1",
+    agent_details = list(direct_persona_description = "A participant."),
+    config = config,
+    .runner = scripted_runner
+  )
+
+  score <- agent$get_need_to_talk(
+    topic = "libraries",
+    conversation_history_string = "No prior discussion.",
+    desire_prompt_template = "Return one score from 0 to 10.",
+    max_tokens_desire = 20L,
+    conversation_log = list()
+  )
+
+  expect_identical(score, 8)
+  expect_identical(calls, 2L)
+  # First call uses the supplied desire budget; the truncated reply triggers a
+  # retry at the larger escalation budget. Neither call carries a temperature.
+  expect_identical(seen[[1]]$max_tokens, 20L)
+  expect_gt(seen[[2]]$max_tokens, 20L)
+  expect_true(all(vapply(seen, function(p) is.null(p$temperature), logical(1))))
+})
+
+test_that("model analyses use their own budgets unless the caller overrides them", {
+  transcript <- data.frame(
+    speaker = c("Moderator", "P1"),
+    text = c("Which hours matter?", "Evening hours matter after work."),
+    stringsAsFactors = FALSE
+  )
+  fg <- focus_group_from_transcript(transcript, moderator_id = "Moderator")
+  seen <- list()
+  scripted_runner <- function(experiments, ...) {
+    seen[[length(seen) + 1L]] <<- experiments$config[[1]]$model_params
+    experiments$response_text <- "The transcript emphasizes evening access."
+    experiments$success <- TRUE
+    experiments
+  }
+  config <- LLMR::llm_config(
+    "openai", "gpt-4o-mini", temperature = 0.25, max_tokens = 77L
+  )
+
+  fg$analyze_themes(config = config, .runner = scripted_runner)
+  fg$summarize(config = config, .runner = scripted_runner)
+  fg$summarize(config = config, max_tokens = 91L,
+               .runner = scripted_runner)
+
+  # Themes and summaries are prose tasks with budgets sized for the operation;
+  # only an explicit `max_tokens` argument replaces them.
+  expect_equal(
+    vapply(seen, function(p) as.numeric(p$max_tokens), numeric(1)),
+    c(800, 400, 91)
+  )
+  expect_true(all(vapply(seen, function(params) {
+    identical(params$temperature, 0.25)
+  }, logical(1))))
+})
+
+test_that("operation token defaults still apply when configs omit a limit", {
+  seen <- list()
+  scripted_runner <- function(experiments, ...) {
+    seen[[length(seen) + 1L]] <<- experiments$config[[1]]$model_params
+    experiments$response_text <- paste(
+      "This complete response states a position about library hours",
+      "and gives a concrete reason for it."
+    )
+    experiments$success <- TRUE
+    experiments
+  }
+  config <- LLMR::llm_config("openai", "gpt-4o-mini")
+  agent <- FGAgent$new(
+    id = "P1",
+    agent_details = list(direct_persona_description = "A participant."),
+    config = config,
+    .runner = scripted_runner
+  )
+  agent$generate_utterance(
+    topic = "libraries",
+    conversation_history_string = "No prior discussion.",
+    utterance_prompt_template = "State your view.",
+    conversation_log = list()
+  )
+
+  transcript <- data.frame(
+    speaker = c("Moderator", "P1"),
+    text = c("Which hours matter?", "Evening hours matter after work."),
+    stringsAsFactors = FALSE
+  )
+  fg <- focus_group_from_transcript(transcript, moderator_id = "Moderator")
+  fg$analyze_themes(config = config, .runner = scripted_runner)
+  fg$summarize(config = config, summary_level = 2,
+               .runner = scripted_runner)
+
+  expect_identical(
+    vapply(seen, `[[`, numeric(1), "max_tokens"),
+    c(150, 800, 1000)
+  )
+  expect_identical(seen[[1L]]$temperature, 0.7)
+  expect_null(seen[[2L]]$temperature)
+  expect_null(seen[[3L]]$temperature)
+})
+
 test_that("an incomplete retry errors and all retry usage is counted", {
   calls <- 0L
   scripted_runner <- function(experiments, ...) {
