@@ -5,7 +5,10 @@ Version: 0.5.1
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
 Description: Moderated focus group discussions simulated with large language
-    model personas.
+    models. Participants carry personas built from respondent records or
+    labeled survey files. A session runs under a specified turn-taking rule,
+    and one turn can be experimentally manipulated to measure its effect on
+    the next.
 License: MIT + file LICENSE
 Encoding: UTF-8
 RoxygenNote: 7.3.3
