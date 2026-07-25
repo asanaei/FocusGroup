@@ -28,9 +28,10 @@ install.packages("LLMR")
 remotes::install_github("asanaei/FocusGroup")
 ```
 
-API operations that generate model output require an explicit `config`. Set the
-provider key in an environment variable before making a live call. For an
-OpenAI model, LLMR reads `OPENAI_API_KEY`.
+API operations that generate model output require an explicit `config`. Under
+the hood, FocusGroup calls language models through the LLMR package, which reads
+your API key from an environment variable such as `OPENAI_API_KEY`. Set it once
+in your `~/.Renviron` file, a plain text file in your home directory.
 
 ```r
 library(FocusGroup)
