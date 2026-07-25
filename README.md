@@ -21,6 +21,11 @@ configuration, and turn-taking rule. It does not estimate public opinion.
 
 FocusGroup is experimental. Its interface may change before a stable release.
 
+To work without writing code, `run_focus_studio()` opens a point-and-click
+interface that runs a session, analyzes a transcript, and compares
+continuations. It has an offline demonstration mode, so it can be explored
+without a provider key. See "Use Focus Studio" below.
+
 ## Install and configure a model
 
 ```r
