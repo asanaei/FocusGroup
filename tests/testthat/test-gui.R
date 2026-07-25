@@ -25,6 +25,27 @@ sample_fg_log <- function() {
        list(message_id = 3L, round = 1L, speaker_id = "P2", text = "Cost is my issue."))
 }
 
+gui_button_tag <- function(html, input_id) {
+  pattern <- sprintf(
+    "<button[^>]*id=\"[^\"]*-%s\"[^>]*>",
+    input_id
+  )
+  match <- regmatches(html, regexpr(pattern, html, perl = TRUE))
+  if (!length(match)) "" else match
+}
+
+expect_gui_button_disabled <- function(html, input_id) {
+  tag <- gui_button_tag(html, input_id)
+  expect_true(nzchar(tag))
+  expect_match(tag, " disabled", fixed = TRUE)
+}
+
+expect_gui_button_enabled <- function(html, input_id) {
+  tag <- gui_button_tag(html, input_id)
+  expect_true(nzchar(tag))
+  expect_false(grepl(" disabled", tag, fixed = TRUE))
+}
+
 test_that("run_focus_studio errors helpfully when GUI packages are missing", {
   need <- c("shiny", "bslib", "DT", "LLMR.shiny")
   if (all(vapply(need, requireNamespace, logical(1), quietly = TRUE))) {
@@ -331,6 +352,35 @@ test_that("transcript table columns favor text and retain hidden identifiers", {
   )
 })
 
+test_that("transcript mapping defaults use names and keep roles distinct", {
+  skip_if_not_installed("LLMR.shiny")
+  defaults <- FocusGroup:::.fg_analysis_column_defaults(data.frame(
+    id = 1:2,
+    body = c("Question", "Answer"),
+    role = c("Moderator", "P1")
+  ))
+  expect_identical(defaults$text, "body")
+  expect_identical(defaults$speaker, "role")
+  expect_false(identical(defaults$text, defaults$speaker))
+
+  case_defaults <- FocusGroup:::.fg_analysis_column_defaults(data.frame(
+    UNIT_ID = 1:2,
+    CONTENT = c("Question", "Answer"),
+    SPEAKER_ID = c("Moderator", "P1")
+  ))
+  expect_identical(case_defaults$text, "CONTENT")
+  expect_identical(case_defaults$speaker, "SPEAKER_ID")
+
+  utterance_defaults <- FocusGroup:::.fg_analysis_column_defaults(data.frame(
+    row_id = 1:2,
+    timestamp = c("10:00", "10:01"),
+    speaker = c("Moderator", "P1"),
+    utterance = c("Question", "Answer")
+  ))
+  expect_identical(utterance_defaults$text, "utterance")
+  expect_identical(utterance_defaults$speaker, "speaker")
+})
+
 test_that("TF-IDF display selects a ranked top N for each speaker", {
   tfidf <- data.frame(
     speaker_id = rep(c("P1", "P2"), each = 4L),
@@ -414,6 +464,200 @@ test_that(".fg_live_ok requires live mode AND a key (demo never runs)", {
   expect_true(FocusGroup:::.fg_live_ok(fake_shared("live", TRUE)))
   expect_false(FocusGroup:::.fg_live_ok(fake_shared("live", FALSE)))
   expect_false(FocusGroup:::.fg_live_ok(fake_shared("demo", TRUE)))  # demo: no live call
+})
+
+test_that("run actions expose disabled states and their reasons", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("LLMR.shiny")
+
+  blocked <- fake_shared("live", FALSE)
+  shiny::testServer(
+    FocusGroup:::.fg_run_server,
+    args = list(shared = blocked, run_fun = function(...) NULL),
+    {
+      session$flushReact()
+      ui <- as.character(output$run_action)[[1]]
+      expect_gui_button_disabled(ui, "run")
+      expect_match(ui, "API key", fixed = TRUE)
+    }
+  )
+
+  no_model <- fake_shared("live", TRUE)
+  no_model$model <- function() ""
+  shiny::testServer(
+    FocusGroup:::.fg_run_server,
+    args = list(shared = no_model, run_fun = function(...) NULL),
+    {
+      session$flushReact()
+      ui <- as.character(output$run_action)[[1]]
+      expect_gui_button_disabled(ui, "run")
+      expect_match(ui, "Enter a model in the sidebar", fixed = TRUE)
+    }
+  )
+
+  ready <- fake_shared("live", TRUE)
+  shiny::testServer(
+    FocusGroup:::.fg_run_server,
+    args = list(shared = ready, run_fun = function(...) NULL),
+    {
+      session$flushReact()
+      expect_gui_button_enabled(
+        as.character(output$run_action)[[1]],
+        "run"
+      )
+
+      session$setInputs(n_participants = NA_real_)
+      session$flushReact()
+      invalid <- as.character(output$run_action)[[1]]
+      expect_gui_button_disabled(invalid, "run")
+      expect_match(
+        invalid,
+        "Set participants to an integer from 2 through 6.",
+        fixed = TRUE
+      )
+    }
+  )
+})
+
+test_that("analysis actions enable only when their inputs are ready", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("LLMR.shiny")
+  shared <- fake_shared("live", TRUE, active_tab = "analyze")
+  valid_group <- structure(
+    list(conversation_log = sample_fg_log()),
+    class = "FocusGroup"
+  )
+  valid_result <- structure(
+    list(
+      focus_group = valid_group,
+      transcript = data.frame(
+        speaker_id = c("Moderator", "P1", "P2"),
+        text = c("Question", "Answer one", "Answer two")
+      )
+    ),
+    class = c("focus_group_result", "list")
+  )
+
+  shiny::testServer(
+    FocusGroup:::.fg_analyze_server,
+    args = list(shared = shared, analysis_fun = function(...) NULL),
+    {
+      session$flushReact()
+      initial <- as.character(output$analysis_actions)[[1]]
+      expect_gui_button_disabled(initial, "analyze")
+      expect_gui_button_disabled(initial, "model_analyze")
+      expect_match(
+        initial,
+        "Load a transcript or the bundled demo before running descriptive analysis.",
+        fixed = TRUE
+      )
+      expect_match(
+        initial,
+        "Run descriptive analysis before generating themes and a model summary.",
+        fixed = TRUE
+      )
+
+      raw(structure(list(), class = "focus_group_result"))
+      session$flushReact()
+      incomplete <- as.character(output$analysis_actions)[[1]]
+      expect_gui_button_disabled(incomplete, "analyze")
+      expect_match(
+        incomplete,
+        "The saved focus-group result is incomplete.",
+        fixed = TRUE
+      )
+
+      raw(valid_result)
+      session$flushReact()
+      source_ready <- as.character(output$analysis_actions)[[1]]
+      expect_gui_button_enabled(source_ready, "analyze")
+      expect_gui_button_disabled(source_ready, "model_analyze")
+
+      raw(data.frame(text = c("one", "two")))
+      session$flushReact()
+      invalid_mapping <- as.character(output$analysis_actions)[[1]]
+      expect_gui_button_disabled(invalid_mapping, "analyze")
+      expect_match(
+        invalid_mapping,
+        "Select a speaker column before running descriptive analysis.",
+        fixed = TRUE
+      )
+
+      raw(valid_result)
+      focus_group(valid_group)
+      session$flushReact()
+      expect_gui_button_enabled(
+        as.character(output$analysis_actions)[[1]],
+        "model_analyze"
+      )
+    }
+  )
+})
+
+test_that("continuation generation reflects configuration readiness", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("LLMR.shiny")
+  shared <- fake_shared("live", TRUE, active_tab = "experiment")
+  group <- fake_fg()
+  group$conversation_log <- sample_fg_log()
+  group$moderator_id <- "Moderator"
+
+  shiny::testServer(
+    FocusGroup:::.fg_experiment_server,
+    args = list(shared = shared),
+    {
+      session$flushReact()
+      initial <- as.character(output$continuation_action)[[1]]
+      expect_gui_button_disabled(initial, "run")
+      expect_match(
+        initial,
+        "Load a saved focus group before generating continuations.",
+        fixed = TRUE
+      )
+
+      fg(group)
+      session$setInputs(
+        cut = 3L,
+        perturb_message_id = 2L,
+        arm_1_enabled = TRUE,
+        arm_1_label = "Reliable buses",
+        arm_1_text = "The buses are reliable now.",
+        arm_2_enabled = FALSE,
+        arm_3_enabled = FALSE,
+        runs_per_arm = 1L,
+        speaker = "P1"
+      )
+      session$flushReact()
+      expect_gui_button_enabled(
+        as.character(output$continuation_action)[[1]],
+        "run"
+      )
+
+      session$setInputs(speaker = "missing")
+      session$flushReact()
+      invalid <- as.character(output$continuation_action)[[1]]
+      expect_gui_button_disabled(invalid, "run")
+      expect_match(
+        invalid,
+        "Select an available participant to speak next.",
+        fixed = TRUE
+      )
+
+      session$setInputs(speaker = "P1")
+      session$setInputs(arm_1_text = "")
+      session$flushReact()
+      invalid <- as.character(output$continuation_action)[[1]]
+      expect_gui_button_disabled(invalid, "run")
+      expect_match(
+        invalid,
+        "Enter replacement text for every included treatment arm.",
+        fixed = TRUE
+      )
+    }
+  )
 })
 
 test_that("the run module runs via an injected fake and stores the focus group", {

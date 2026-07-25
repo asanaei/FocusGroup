@@ -682,6 +682,88 @@ run_focus_studio <- function(...) {
       )
     }
 
+    run_action_state <- shiny::reactive({
+      if (identical(shared$mode(), "demo")) {
+        return(list(
+          disabled = TRUE,
+          reason = "Switch to Live mode to run this focus group."
+        ))
+      }
+      if (!isTRUE(shared$can_run())) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "Set the selected provider's API key in the environment to run",
+            "this focus group."
+          )
+        ))
+      }
+      if (!nzchar(trimws(shared$model() %||% ""))) {
+        return(list(
+          disabled = TRUE,
+          reason = "Enter a model in the sidebar to run this focus group."
+        ))
+      }
+      selected_rows <- persona_rows()
+      source <- input$source %||% "synthetic"
+      participants <- suppressWarnings(
+        as.numeric(input$n_participants %||% 3L)
+      )
+      if (!(identical(source, "anes") && length(selected_rows)) &&
+          (length(participants) != 1L || is.na(participants) ||
+           !is.finite(participants) || participants < 2L ||
+           participants > 6L || participants != floor(participants))) {
+        return(list(
+          disabled = TRUE,
+          reason = "Set participants to an integer from 2 through 6."
+        ))
+      }
+      max_responses <- suppressWarnings(
+        as.numeric(input$max_resp %||% 1L)
+      )
+      if (length(max_responses) != 1L || is.na(max_responses) ||
+          !is.finite(max_responses) || max_responses < 1L ||
+          max_responses > 3L || max_responses != floor(max_responses)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Set maximum responses to an integer from 1 through 3."
+        ))
+      }
+      seed <- suppressWarnings(as.numeric(input$seed %||% 110L))
+      if (length(seed) != 1L || !is.finite(seed) ||
+          seed < 0 || seed != floor(seed)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Set the seed to one nonnegative integer."
+        ))
+      }
+      if (!nzchar(trimws(input$topic %||% "public libraries"))) {
+        return(list(
+          disabled = TRUE,
+          reason = "Enter a topic to run this focus group."
+        ))
+      }
+      if (!length(guide_for_run())) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "Include a guide phase with a moderator question or instruction",
+            "to run this focus group."
+          )
+        ))
+      }
+      persona_cols <- input$persona_cols
+      if (is.null(persona_cols)) persona_cols <- names(.fg_personas())
+      if (identical(input$source %||% "synthetic", "anes") &&
+          !length(persona_cols)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Select at least one persona column for ANES participants."
+        ))
+      }
+      list(disabled = FALSE, reason = NULL)
+    })
+
     output$module_ui <- shiny::renderUI({
       demo_mode <- identical(shared$mode(), "demo")
       bslib::card(
@@ -845,15 +927,28 @@ run_focus_studio <- function(...) {
           } else if (!shared$can_run()) {
             LLMR.shiny::live_run_blocker_ui(shared$key())
           },
-          shiny::actionButton(
-            ns("run"),
-            "Run focus group",
-            class = "btn-primary",
-            disabled = demo_mode
-          ),
+          shiny::uiOutput(ns("run_action")),
           shiny::tags$hr(),
           shiny::uiOutput(ns("results"))
         )
+      )
+    })
+
+    output$run_action <- shiny::renderUI({
+      action_state <- run_action_state()
+      shiny::tagList(
+        shiny::actionButton(
+          ns("run"),
+          "Run focus group",
+          class = "btn-primary",
+          disabled = action_state$disabled
+        ),
+        if (action_state$disabled) {
+          shiny::tags$p(
+            class = "text-muted small mt-2",
+            action_state$reason
+          )
+        }
       )
     })
 
@@ -1775,6 +1870,52 @@ run_focus_studio <- function(...) {
 
 # ---- analyze module ---------------------------------------------------------
 
+.fg_analysis_column_defaults <- function(df) {
+  columns <- LLMR.shiny::column_names_for_mapping(df)
+  if (!length(columns)) {
+    return(list(
+      columns = character(),
+      speaker = NULL,
+      text = NULL
+    ))
+  }
+
+  normalize <- function(x) {
+    gsub("[^[:alnum:]]", "", tolower(trimws(x)))
+  }
+  speaker_variants <- c(
+    "speaker_id", "speaker", "agent", "role",
+    "id", "doc_id", "unit_id"
+  )
+  matched <- match(
+    normalize(speaker_variants),
+    normalize(columns),
+    nomatch = 0L
+  )
+  matched <- matched[matched > 0L]
+  speaker <- if (length(matched)) {
+    columns[[matched[[1L]]]]
+  } else {
+    NULL
+  }
+  text <- LLMR.shiny::guess_column(
+    columns,
+    kind = "text",
+    exclude = speaker %||% character()
+  )
+  speaker <- if (is.null(speaker)) {
+    LLMR.shiny::guess_column(
+      columns,
+      kind = "id",
+      exclude = text %||% character()
+    )
+  } else {
+    speaker
+  }
+
+  list(columns = columns, speaker = speaker, text = text)
+}
+
 .fg_analyze_ui <- function(id) {
   ns <- shiny::NS(id)
   shiny::uiOutput(ns("module_ui"))
@@ -1806,27 +1947,110 @@ run_focus_studio <- function(...) {
     model_ready <- shiny::reactive({
       .fg_live_ok(shared) && nzchar(trimws(shared$model() %||% ""))
     })
-    column_defaults <- function(df) {
-      columns <- LLMR.shiny::column_names_for_mapping(df)
-      speaker <- intersect(
-        c("speaker_id", "speaker", "agent", "role"), columns
-      )
-      text <- intersect(
-        c("text", "utterance", "message", "content"), columns
-      )
-      list(
-        columns = columns,
-        speaker = if (length(speaker)) speaker[[1]] else columns[[1]],
-        text = if (length(text)) {
-          text[[1]]
-        } else {
-          columns[[min(2L, length(columns))]]
+    descriptive_action_state <- shiny::reactive({
+      value <- raw()
+      if (is.null(value)) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "Load a transcript or the bundled demo before running",
+            "descriptive analysis."
+          )
+        ))
+      }
+      if (!is.data.frame(value)) {
+        if (inherits(value, "FocusGroup")) {
+          if (!length(value$conversation_log)) {
+            return(list(
+              disabled = TRUE,
+              reason = "The saved focus group has no conversation messages."
+            ))
+          }
+          return(list(disabled = FALSE, reason = NULL))
         }
+        if (inherits(value, "focus_group_result")) {
+          if (!inherits(value$focus_group, "FocusGroup") ||
+              !length(value$focus_group$conversation_log) ||
+              !is.data.frame(value$transcript)) {
+            return(list(
+              disabled = TRUE,
+              reason = "The saved focus-group result is incomplete."
+            ))
+          }
+          return(list(disabled = FALSE, reason = NULL))
+        }
+        return(list(
+          disabled = TRUE,
+          reason = "Load a transcript data frame or a saved focus group."
+        ))
+      }
+      defaults <- .fg_analysis_column_defaults(value)
+      speaker <- input$speaker_col %||% defaults$speaker
+      text <- input$text_col %||% defaults$text
+      if (is.null(speaker) || !speaker %in% names(value)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Select a speaker column before running descriptive analysis."
+        ))
+      }
+      if (is.null(text) || !text %in% names(value)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Select a text column before running descriptive analysis."
+        ))
+      }
+      if (identical(speaker, text)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Select different speaker and text columns."
+        ))
+      }
+      list(disabled = FALSE, reason = NULL)
+    })
+    model_action_state <- shiny::reactive({
+      if (is.null(focus_group())) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "Run descriptive analysis before generating themes and a model",
+            "summary."
+          )
+        ))
+      }
+      if (identical(shared$mode(), "demo")) {
+        return(list(
+          disabled = TRUE,
+          reason = "Switch to Live mode to generate themes and a model summary."
+        ))
+      }
+      if (!isTRUE(shared$can_run())) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "Set the selected provider's API key in the environment to",
+            "generate themes and a model summary."
+          )
+        ))
+      }
+      if (!nzchar(trimws(shared$model() %||% ""))) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "Enter a model in the sidebar to generate themes and a model",
+            "summary."
+          )
+        ))
+      }
+      list(
+        disabled = FALSE,
+        reason = paste(
+          "Model analysis uses the live provider and generation settings in",
+          "the sidebar."
+        )
       )
-    }
+    })
 
     output$module_ui <- shiny::renderUI({
-      can_model <- model_ready()
       bslib::card(
         bslib::card_header("Analyze a focus-group transcript"),
         bslib::card_body(
@@ -1885,37 +2109,42 @@ run_focus_studio <- function(...) {
               )
             )
           ),
-          shiny::actionButton(
-            ns("analyze"),
-            "Run descriptive analysis",
-            class = "btn-primary"
-          ),
-          shiny::actionButton(
-            ns("model_analyze"),
-            shiny::tagList(
-              "Generate themes and model summary ",
-              LLMR.shiny::help_tip(
-                "Runs the package's thematic analysis and model summary as two live calls."
-              )
-            ),
-            class = "btn-secondary",
-            disabled = !can_model
-          ),
+          shiny::uiOutput(ns("analysis_actions")),
+          shiny::tags$hr(), shiny::uiOutput(ns("results"))))
+    })
+
+    output$analysis_actions <- shiny::renderUI({
+      descriptive_state <- descriptive_action_state()
+      model_state <- model_action_state()
+      shiny::tagList(
+        shiny::actionButton(
+          ns("analyze"),
+          "Run descriptive analysis",
+          class = "btn-primary",
+          disabled = descriptive_state$disabled
+        ),
+        if (descriptive_state$disabled) {
           shiny::tags$p(
             class = "text-muted small mt-2",
-            if (can_model) {
-              paste(
-                "Model analysis is available with the live provider and",
-                "generation settings in the sidebar."
-              )
-            } else {
-              paste(
-                "Model themes and the model summary are disabled in Demo mode",
-                "or when the selected live provider has no key or model."
-              )
-            }
+            descriptive_state$reason
+          )
+        },
+        shiny::actionButton(
+          ns("model_analyze"),
+          shiny::tagList(
+            "Generate themes and model summary ",
+            LLMR.shiny::help_tip(
+              "Runs the package's thematic analysis and model summary as two live calls."
+            )
           ),
-          shiny::tags$hr(), shiny::uiOutput(ns("results"))))
+          class = "btn-secondary",
+          disabled = model_state$disabled
+        ),
+        shiny::tags$p(
+          class = "text-muted small mt-2",
+          model_state$reason
+        )
+      )
     })
 
     output$err <- shiny::renderUI(err())
@@ -1976,7 +2205,7 @@ run_focus_studio <- function(...) {
       if (!is.data.frame(df)) return(NULL)
       cols <- LLMR.shiny::column_names_for_mapping(df)
       if (!length(cols)) return(warn_card("The transcript has no columns."))
-      defaults <- column_defaults(df)
+      defaults <- .fg_analysis_column_defaults(df)
       shiny::fluidRow(
         shiny::column(
           6,
@@ -2009,7 +2238,7 @@ run_focus_studio <- function(...) {
       speaker_col <- input$speaker_col
       text_col <- input$text_col
       if (is.data.frame(obj) && ncol(obj)) {
-        defaults <- column_defaults(obj)
+        defaults <- .fg_analysis_column_defaults(obj)
         speaker_col <- speaker_col %||% defaults$speaker
         text_col <- text_col %||% defaults$text
       }
@@ -2499,6 +2728,129 @@ run_focus_studio <- function(...) {
       invisible(NULL)
     }
 
+    continuation_action_state <- shiny::reactive({
+      g <- fg()
+      if (is.null(g)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Load a saved focus group before generating continuations."
+        ))
+      }
+      messages <- .fg_display_messages(g$conversation_log)
+      if (!nrow(messages)) {
+        return(list(
+          disabled = TRUE,
+          reason = "The loaded focus group has no conversation messages."
+        ))
+      }
+      participants <- setdiff(
+        names(g$agents),
+        g$moderator_id %||% character()
+      )
+      if (!length(participants)) participants <- names(g$agents)
+      if (!length(participants)) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "The loaded focus group has no agent who can generate a",
+            "continuation."
+          )
+        ))
+      }
+      if (identical(shared$mode(), "demo")) {
+        return(list(
+          disabled = TRUE,
+          reason = "Switch to Live mode to generate continuation responses."
+        ))
+      }
+      if (!isTRUE(shared$can_run())) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "Set the selected provider's API key in the environment to",
+            "generate continuation responses."
+          )
+        ))
+      }
+      if (!nzchar(trimws(shared$model() %||% ""))) {
+        return(list(
+          disabled = TRUE,
+          reason = paste(
+            "Enter a model in the sidebar to generate continuation",
+            "responses."
+          )
+        ))
+      }
+
+      n <- nrow(messages)
+      default_cut <- min(n, max(2L, n - 1L))
+      cut <- as.integer(input$cut %||% default_cut)
+      perturb <- as.integer(input$perturb_message_id %||% 1L)
+      if (anyNA(c(perturb, cut)) || cut < 1L || cut > n ||
+          perturb < 1L || perturb > cut) {
+        return(list(
+          disabled = TRUE,
+          reason = "Choose a perturbed message at or before the conversation cut."
+        ))
+      }
+
+      enabled <- vapply(seq_len(3L), function(i) {
+        value <- input[[paste0("arm_", i, "_enabled")]]
+        if (is.null(value)) identical(i, 1L) else isTRUE(value)
+      }, logical(1))
+      if (!any(enabled)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Include at least one treatment arm."
+        ))
+      }
+      arm_index <- which(enabled)
+      labels <- vapply(arm_index, function(i) {
+        trimws(
+          input[[paste0("arm_", i, "_label")]] %||%
+            paste("Treatment", i)
+        )
+      }, character(1))
+      if (any(!nzchar(labels))) {
+        return(list(
+          disabled = TRUE,
+          reason = "Enter a label for every included treatment arm."
+        ))
+      }
+      if (anyDuplicated(labels)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Use a unique label for every included treatment arm."
+        ))
+      }
+      texts <- vapply(arm_index, function(i) {
+        trimws(input[[paste0("arm_", i, "_text")]] %||% "")
+      }, character(1))
+      if (any(!nzchar(texts))) {
+        return(list(
+          disabled = TRUE,
+          reason = "Enter replacement text for every included treatment arm."
+        ))
+      }
+
+      runs <- input$runs_per_arm %||% 1L
+      if (!is.numeric(runs) || length(runs) != 1L || is.na(runs) ||
+          !is.finite(runs) || runs < 1L || runs != floor(runs)) {
+        return(list(
+          disabled = TRUE,
+          reason = "Set runs per arm to one positive integer."
+        ))
+      }
+      speaker <- input$speaker %||% participants[[1L]]
+      if (!nzchar(speaker) || !speaker %in% participants) {
+        return(list(
+          disabled = TRUE,
+          reason = "Select an available participant to speak next."
+        ))
+      }
+      list(disabled = FALSE, reason = NULL)
+    })
+
     output$module_ui <- shiny::renderUI({
       demo_mode <- identical(shared$mode(), "demo")
       bslib::card(
@@ -2525,7 +2877,26 @@ run_focus_studio <- function(...) {
             placeholder = "Choose a saved FocusGroup .rds file"
           ),
           shiny::uiOutput(ns("controls")),
+          shiny::uiOutput(ns("continuation_action")),
           shiny::tags$hr(), shiny::uiOutput(ns("results"))))
+    })
+
+    output$continuation_action <- shiny::renderUI({
+      action_state <- continuation_action_state()
+      shiny::tagList(
+        shiny::actionButton(
+          ns("run"),
+          "Generate continuation responses",
+          class = "btn-primary",
+          disabled = action_state$disabled
+        ),
+        if (action_state$disabled) {
+          shiny::tags$p(
+            class = "text-muted small mt-2",
+            action_state$reason
+          )
+        }
+      )
     })
 
     output$err <- shiny::renderUI(err())
@@ -2548,14 +2919,20 @@ run_focus_studio <- function(...) {
 
     output$controls <- shiny::renderUI({
       g <- fg()
-      shiny::validate(shiny::need(
-        !is.null(g),
-        "Load a saved focus group to configure the comparison."
-      ))
+      if (is.null(g)) {
+        return(shiny::tags$p(
+          class = "text-muted",
+          "Load a saved focus group to configure the comparison."
+        ))
+      }
       # Index off speaker messages only; the System roster row is dropped.
       dt <- .fg_display_messages(g$conversation_log)
       n <- nrow(dt)
-      if (!n) return(warn_card("The loaded focus group has no conversation messages."))
+      if (!n) {
+        return(warn_card(
+          "The loaded focus group has no conversation messages."
+        ))
+      }
       k0 <- min(n, max(2, n - 1))
       # The continuation speaks message k+1, so only participants (not the
       # moderator) are valid next speakers; the participant utterance template
@@ -2647,12 +3024,8 @@ run_focus_studio <- function(...) {
           shiny::tags$p(
             class = "text-muted small",
             "Switch to Live mode to generate continuation responses."
-          ),
-        shiny::actionButton(
-          ns("run"), "Generate continuation responses",
-          class = "btn-primary",
-          disabled = identical(shared$mode(), "demo")
-        ))
+          )
+      )
     })
 
     current_plan <- shiny::reactive({
@@ -2691,7 +3064,7 @@ run_focus_studio <- function(...) {
 
     shiny::observe({
       if (!identical(shared$active_tab(), "experiment")) return()
-      if (identical(shared$mode(), "live") && !is.null(fg())) {
+      if (!continuation_action_state()$disabled) {
         plan <- current_plan()
         shared$set_plan(
           plan$calls,

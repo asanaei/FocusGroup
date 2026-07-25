@@ -38,9 +38,14 @@ Initial CRAN release.
   control over which respondent columns enter each persona.
 * The Analyze tab now presents `analyze_focus_group()` components, optional
   model themes and summaries, package guidance, source provenance, and timing.
+* Transcript mapping now chooses text and speaker defaults by column name and
+  keeps the two roles distinct when separate columns are available.
 * Continuation experiments now support three labeled treatment arms, repeated
   runs per arm, true planned-call counts, retained responses, summaries, and
   response-length comparisons.
+* Studio run, analysis, model-analysis, and continuation actions are disabled
+  until their known inputs are ready, with the unmet requirement shown beside
+  each disabled action.
 * Studio live paths honor the shared temperature, maximum output token, and
   reasoning-effort settings; long text results use scrollable output blocks.
 * The Run tab now provides a topic-aware, line-based editor for all five
