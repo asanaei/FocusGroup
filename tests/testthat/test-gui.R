@@ -47,6 +47,7 @@ expect_gui_button_enabled <- function(html, input_id) {
 }
 
 test_that("run_focus_studio errors helpfully when GUI packages are missing", {
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   need <- c("shiny", "bslib", "DT", "LLMR.shiny")
   if (all(vapply(need, requireNamespace, logical(1), quietly = TRUE))) {
     expect_true(isTRUE(FocusGroup:::.fg_gui_require()))
@@ -312,6 +313,7 @@ test_that("timing statistics report wall time and per-speaker durations", {
 })
 
 test_that("transcript table columns favor text and retain hidden identifiers", {
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   transcript <- data.frame(
     message_id = 1:2,
     round = c(1L, 1L),
@@ -353,7 +355,7 @@ test_that("transcript table columns favor text and retain hidden identifiers", {
 })
 
 test_that("transcript mapping defaults use names and keep roles distinct", {
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   defaults <- FocusGroup:::.fg_analysis_column_defaults(data.frame(
     id = 1:2,
     body = c("Question", "Answer"),
@@ -403,7 +405,7 @@ test_that("TF-IDF display selects a ranked top N for each speaker", {
 test_that("the GUI assembles when its suggested packages are present", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   expect_s3_class(FocusGroup:::.fg_gui_ui(), "bslib_page")
 })
 
@@ -469,7 +471,7 @@ test_that(".fg_live_ok requires live mode AND a key (demo never runs)", {
 test_that("run actions expose disabled states and their reasons", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
 
   blocked <- fake_shared("live", FALSE)
   shiny::testServer(
@@ -523,7 +525,7 @@ test_that("run actions expose disabled states and their reasons", {
 test_that("analysis actions enable only when their inputs are ready", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   shared <- fake_shared("live", TRUE, active_tab = "analyze")
   valid_group <- structure(
     list(conversation_log = sample_fg_log()),
@@ -599,7 +601,7 @@ test_that("analysis actions enable only when their inputs are ready", {
 test_that("continuation generation reflects configuration readiness", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   shared <- fake_shared("live", TRUE, active_tab = "experiment")
   group <- fake_fg()
   group$conversation_log <- sample_fg_log()
@@ -662,7 +664,7 @@ test_that("continuation generation reflects configuration readiness", {
 
 test_that("the run module runs via an injected fake and stores the focus group", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   shared <- fake_shared("live", TRUE)
   seen <- new.env()
   fake_run <- function(topic, n_participants, flow, config, seed,
@@ -741,7 +743,7 @@ test_that("the run module runs via an injected fake and stores the focus group",
 
 test_that("the run module makes NO call in demo mode", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   shared <- fake_shared("demo", TRUE)
   called <- new.env(); called$n <- 0L
   fake_run <- function(...) { called$n <- called$n + 1L; stop("must not be called") }
@@ -760,7 +762,7 @@ test_that("the run module makes NO call in demo mode", {
 
 test_that("the run module uses the persona runner when source = anes", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   shared <- fake_shared("live", TRUE)
   seen <- new.env()
   fake_persona <- function(topic, n_participants, rows, flow, message_mode, seed,
@@ -809,7 +811,7 @@ test_that("the run module uses the persona runner when source = anes", {
 test_that("the Analyze module consumes a finished-session handoff", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   shared <- fake_shared("demo", TRUE, active_tab = "analyze")
   handed_off <- structure(
     list(
@@ -900,7 +902,7 @@ test_that("the Analyze module consumes a finished-session handoff", {
 test_that("model analysis receives the shared generation settings", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   shared <- fake_shared("live", TRUE, active_tab = "analyze")
   handed_off <- structure(
     list(
@@ -979,7 +981,7 @@ test_that("model analysis receives the shared generation settings", {
 
 test_that("the continuation module plans and runs all configured arms", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("LLMR.shiny")
+  skip_if_not_installed("LLMR.shiny", "0.1.2")
   shared <- fake_shared("live", TRUE, active_tab = "experiment")
   group <- fake_fg()
   group$conversation_log <- sample_fg_log()
