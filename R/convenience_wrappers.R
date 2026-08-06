@@ -151,7 +151,8 @@ NULL
 #' Run a Focus Group Simulation
 #'
 #' Constructs the agents, moderator guide, and turn-taking flow, then runs one
-#' focus group session. The model configuration is explicit. Before a live run,
+#' focus group session. `config` has no default; every agent and group-level
+#' call uses the one supplied. Before a live run,
 #' the function estimates the number of generated model outputs and applies the
 #' `max_calls` limit unless `confirm` is `TRUE`.
 #'
@@ -168,8 +169,11 @@ NULL
 #'   guides multiply quickly: each question round costs one output per
 #'   response plus, under `"desire_based"`, one scoring output per
 #'   participant.
-#' @param demographics Optional participant demographics.
-#' @param survey_responses Optional participant survey responses.
+#' @param demographics Optional participant demographics, one row per
+#'   participant. With this, `survey_responses`, and personas all absent, the
+#'   participants are drawn from the bundled ANES 2024 records.
+#' @param survey_responses Optional participant survey answers, one row per
+#'   participant.
 #' @param flow Character. One of `"round_robin"`, `"probabilistic"`, or
 #'   `"desire_based"`.
 #' @param seed Optional integer governing in-package sampling.
@@ -443,12 +447,15 @@ print.focus_group_result <- function(x, ...) {
 #' Create Focus Group Agents
 #'
 #' Creates participant agents from supplied records, direct personas, or
-#' generated profiles, and adds a moderator.
+#' the bundled ANES 2024 records, and adds a moderator.
 #'
 #' @param n_participants Integer number of participants to create
 #' @param config An explicit `LLMR::llm_config` for all agents.
-#' @param demographics Optional data frame with demographics. If NULL, generates diverse demographics.
-#' @param survey_responses Optional data frame with survey responses. If NULL, generates responses.
+#' @param demographics Optional data frame, one row per participant. When it,
+#'   `survey_responses`, and `direct_persona_descriptions` are all NULL,
+#'   participants are drawn from the bundled ANES 2024 records.
+#' @param survey_responses Optional data frame of survey answers, one row per
+#'   participant.
 #' @param direct_persona_descriptions Optional character vector of pre-rendered
 #'   participant personas. When supplied, these descriptions are used directly
 #'   and are recycled in order if necessary. Demographics and survey responses

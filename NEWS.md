@@ -22,31 +22,33 @@ Corrections replacing 0.5.1, which was never published.
   topics separated speakers rather than subjects and a six-person group left
   six documents; `unit = "speaker"` restores the old behavior. Fitting few
   documents relative to `num_topics` now warns.
-* Survey value cleanup no longer alters substance: a numbered-label prefix
-  is stripped only when whitespace follows the period ("1. Male" cleans,
-  "1.5" survives), and trailing parentheticals are kept ("Asian
-  (non-Hispanic)" stays whole).
-* Continuation comparisons no longer inject the end-of-session interim
-  summary into the cut histories, which could leak post-cut information
-  into both arms; perturbation targets are matched by `message_id`.
+* Survey value cleanup strips a numbered-label prefix only when whitespace
+  follows the period, so "1. Male" cleans and "1.5" survives. Trailing
+  parentheticals are kept: "Asian (non-Hispanic)" stays whole.
+* Continuation comparisons keep the end-of-session interim summary out of
+  the cut histories, which could otherwise carry post-cut information into
+  both arms. Perturbation targets are matched by `message_id`.
 * The Studio's saved session is sanitized: no model configurations (a
   config can carry a literal key) and no runner closures leave the session.
   Continuations re-supply the configuration from the sidebar, as before.
 * A failed final-summary call warns and returns the completed transcript
   instead of destroying the run.
-* An unparseable desire score is `NA`, never a fabricated zero; unscored
-  agents are rescored individually, flow parameters are validated, and
-  threshold-lowering and highest-below-threshold fallbacks are recorded in
-  the selection metadata.
-* When a truncated reply is retried above a caller-set token cap, the
-  escalation is announced; blank strings count zero words; the participation
-  spread is reported without a "balanced" verdict; the analysis print shows
-  the fitted topic count; `analyze_focus_group()` gains `speakers`
-  (default `"participants"`) and `language` (English-specific methods skip,
-  with a note, for other languages).
+* An unparseable desire score is `NA`, where it used to become a zero that
+  scored as real evidence. Unscored agents are rescored individually, flow
+  parameters are validated, and the selection metadata records
+  threshold-lowering and highest-below-threshold fallbacks.
+* A truncated reply retried above a caller-set token cap announces the
+  escalation.
+* Blank strings count zero words.
+* Participation is reported as a spread, without a "balanced" verdict.
+* The analysis print shows the fitted topic count.
+* `analyze_focus_group()` gains `speakers` (default `"participants"`, which
+  keeps the moderator out of the text statistics) and `language`
+  (English-specific methods skip, with a note, for other languages).
 * Imported transcripts match moderators by exact alias ("mod", "moderator",
-  "facilitator", "interviewer"), never by substring, and refuse ambiguity;
-  the flat-mode prompt now carries the same truthful-disclosure line as the
+  "facilitator", "interviewer") and refuse ambiguity. A substring match used
+  to make "Modesto" a moderator.
+* The flat-mode prompt carries the same truthful-disclosure line as the
   role-flipped mode.
 * Removed the unused `default_llmr_config()` and `readr` dependency;
   R floor aligned with LLMR at 4.1.

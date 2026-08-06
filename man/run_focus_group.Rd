@@ -39,9 +39,12 @@ guides multiply quickly: each question round costs one output per
 response plus, under `"desire_based"`, one scoring output per
 participant.}
 
-\item{demographics}{Optional participant demographics.}
+\item{demographics}{Optional participant demographics, one row per
+participant. With this, `survey_responses`, and personas all absent, the
+participants are drawn from the bundled ANES 2024 records.}
 
-\item{survey_responses}{Optional participant survey responses.}
+\item{survey_responses}{Optional participant survey answers, one row per
+participant.}
 
 \item{flow}{Character. One of `"round_robin"`, `"probabilistic"`, or
 `"desire_based"`.}
@@ -70,7 +73,8 @@ A `focus_group_result` with the group, transcript, summary,
 }
 \description{
 Constructs the agents, moderator guide, and turn-taking flow, then runs one
-focus group session. The model configuration is explicit. Before a live run,
+focus group session. `config` has no default; every agent and group-level
+call uses the one supplied. Before a live run,
 the function estimates the number of generated model outputs and applies the
 `max_calls` limit unless `confirm` is `TRUE`.
 }

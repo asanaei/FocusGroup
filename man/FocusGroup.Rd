@@ -276,12 +276,12 @@ document.}
 
 \item{\code{speaker_ids}}{Character vector. Optional. Specific speakers to analyze.}
 
-\item{\code{seed}}{Integer or NULL. LDA seed for reproducibility (default 110, the
-package convention); `NULL` leaves the LDA control seed unset.}
+\item{\code{seed}}{Integer or NULL. Seed for the LDA control (default 110);
+`NULL` leaves it unset.}
 
 \item{\code{unit}}{Character. What counts as a document: `"message"`
-(default) treats each utterance as a document, the natural unit for
-discussion text; `"speaker"` pools every turn by the same speaker,
+(default) treats each utterance as a document; `"speaker"` pools
+every turn by the same speaker,
 which leaves as many documents as there are speakers and tends to
 recover who spoke rather than what was discussed.}
 

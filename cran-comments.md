@@ -6,14 +6,17 @@ uses were not exported by the LLMR.shiny then on CRAN; LLMR.shiny 0.1.2,
 which exports them, is on CRAN now, and the Suggests entry states the
 requirement (LLMR.shiny >= 0.1.2).
 
-Version 0.5.2 also incorporates corrections from an external methodological
-review: the untouched default now plans 93 model outputs and runs (the old
-default planned 467 and tripped its own gate), participant frames are never
-recycled and direct personas acquire no synthetic records, survey value
-cleanup no longer alters substance, continuation comparisons cannot inherit
-a post-cut summary, saved Studio sessions are sanitized of configurations
-and runner closures, and a failed final summary returns the completed
-transcript.
+Version 0.5.2 corrects six defects:
+
+- The untouched default plans 93 model outputs and runs. The old default
+  planned 467 and tripped its own `max_calls` gate.
+- Participants are drawn from the bundled ANES records; a frame with fewer
+  rows than participants is refused rather than recycled, and a direct
+  persona carries no invented demographic record.
+- Survey value cleanup keeps decimals and trailing parentheticals.
+- A continuation comparison uses only the history before the cut.
+- A saved Studio session carries no model configuration and no runner.
+- A failed final summary returns the completed transcript.
 
 The pretest NOTE flagged "LLM" in the Description as possibly misspelled;
 it is the standard initialism for large language model.
@@ -21,10 +24,10 @@ it is the standard initialism for large language model.
 ## The package
 
 FocusGroup simulates moderated focus group discussions in which the
-participants are LLM agents: a moderator poses scripted questions,
-participants take turns under a configurable turn-taking rule, and the
-package records the conversation and analyzes it (participation statistics,
-topic modeling, TF-IDF, readability, and LLM-assisted thematic analysis).
+participants are LLM agents: a moderator poses scripted questions and
+participants take turns under a configurable turn-taking rule. The package
+records the conversation and analyzes it: participation statistics, topic
+modeling, TF-IDF, readability, and LLM-assisted thematic analysis.
 
 FocusGroup Imports LLMR (on CRAN) for all model calls. It Suggests
 LLMR.shiny (>= 0.1.2) for the optional GUI; every use of LLMR.shiny and of

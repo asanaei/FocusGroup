@@ -438,15 +438,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param min_doc_length Integer. Minimum words for a text to count as a
     #'   document.
     #' @param unit Character. What counts as a document: `"message"`
-    #'   (default) treats each utterance as a document, the natural unit for
-    #'   discussion text; `"speaker"` pools every turn by the same speaker,
+    #'   (default) treats each utterance as a document; `"speaker"` pools
+    #'   every turn by the same speaker,
     #'   which leaves as many documents as there are speakers and tends to
     #'   recover who spoke rather than what was discussed.
     #' @param top_n_terms Integer. Number of top terms per topic to return.
     #' @param message_ids Integer vector. Optional `message_id` values to analyze.
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @param seed Integer or NULL. LDA seed for reproducibility (default 110, the
-    #'   package convention); `NULL` leaves the LDA control seed unset.
+    #' @param seed Integer or NULL. Seed for the LDA control (default 110);
+    #'   `NULL` leaves it unset.
     #' @param ... Additional arguments to `topicmodels::LDA()`.
     #' @return A list with LDA model, topic terms, and document-topic proportions. `NULL` on failure.
     analyze_topics = function(num_topics = 5, min_doc_length = 20,
