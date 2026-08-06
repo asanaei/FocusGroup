@@ -1,3 +1,45 @@
+# FocusGroup 0.5.2
+
+Corrections from an external methodological review of 0.5.1 (never on CRAN).
+
+* The untouched default is now runnable: a compact default guide (one
+  opening, one icebreaker, two engagement, three exploration, one closing)
+  and a default of two responses per question plan 93 model outputs, inside
+  the default `max_calls` of 100. The old defaults planned 467 outputs and
+  always tripped their own gate.
+* Participant construction no longer invents data: direct personas receive
+  no synthetic demographic records, and a demographics or survey frame with
+  fewer rows than participants is refused instead of recycled (recycled rows
+  are one research unit counted several times).
+* Survey value cleanup no longer alters substance: a numbered-label prefix
+  is stripped only when whitespace follows the period ("1. Male" cleans,
+  "1.5" survives), and trailing parentheticals are kept ("Asian
+  (non-Hispanic)" stays whole).
+* Continuation comparisons no longer inject the end-of-session interim
+  summary into the cut histories, which could leak post-cut information
+  into both arms; perturbation targets are matched by `message_id`.
+* The Studio's saved session is sanitized: no model configurations (a
+  config can carry a literal key) and no runner closures leave the session.
+  Continuations re-supply the configuration from the sidebar, as before.
+* A failed final-summary call warns and returns the completed transcript
+  instead of destroying the run.
+* An unparseable desire score is `NA`, never a fabricated zero; unscored
+  agents are rescored individually, flow parameters are validated, and
+  threshold-lowering and highest-below-threshold fallbacks are recorded in
+  the selection metadata.
+* When a truncated reply is retried above a caller-set token cap, the
+  escalation is announced; blank strings count zero words; the participation
+  spread is reported without a "balanced" verdict; the analysis print shows
+  the fitted topic count; `analyze_focus_group()` gains `speakers`
+  (default `"participants"`) and `language` (English-specific methods skip,
+  with a note, for other languages).
+* Imported transcripts match moderators by exact alias ("mod", "moderator",
+  "facilitator", "interviewer"), never by substring, and refuse ambiguity;
+  the flat-mode prompt now carries the same truthful-disclosure line as the
+  role-flipped mode.
+* Removed the unused `default_llmr_config()` and `readr` dependency;
+  R floor aligned with LLMR at 4.1.
+
 # FocusGroup 0.5.1
 
 Initial CRAN release.

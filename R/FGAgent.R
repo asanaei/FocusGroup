@@ -275,8 +275,15 @@ FGAgent <- R6::R6Class("FGAgent",
         # raises the budget, including above a caller's own setting. Reasoning
         # models spend most of a small budget before emitting any text, so the
         # floor is generous; max_tokens caps a reply rather than lengthening it.
-        current_config$model_params$max_tokens <-
-          max(configured_max_tokens %||% max_tokens_utterance, 1024L)
+        retry_cap <- max(configured_max_tokens %||% max_tokens_utterance, 1024L)
+        if (!is.null(configured_max_tokens) && retry_cap > configured_max_tokens) {
+          message(sprintf(paste(
+            "Retrying an incomplete reply with max_tokens raised from %d to %d",
+            "for this one retry (reasoning models can spend a small budget",
+            "before emitting text)."),
+            as.integer(configured_max_tokens), as.integer(retry_cap)))
+        }
+        current_config$model_params$max_tokens <- retry_cap
         response_obj2 <- .fg_call_llm(
           config = current_config,
           messages = retry_msgs,

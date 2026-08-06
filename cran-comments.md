@@ -1,15 +1,22 @@
 ## Resubmission
 
-Resubmission of FocusGroup 0.5.1. The incoming pretest of 2026-07-27 gave one
-WARNING under "checking dependencies in R code": four objects used by the
-optional GUI (LLMR.shiny::guess_column, LLMR.shiny::help_tip,
-LLMR.shiny::llmr_theme, LLMR.shiny::text_block_output) are not exported by
-LLMR.shiny 0.1.1, the version the pretest machines held. LLMR.shiny 0.1.2
-exports them. The Suggests entry now states the version requirement,
-LLMR.shiny (>= 0.1.2).
+Resubmission of FocusGroup, bumped to 0.5.2 (0.5.1 was never published).
+The July pretest declined 0.5.1 with a WARNING because four objects its GUI
+uses were not exported by the LLMR.shiny then on CRAN; LLMR.shiny 0.1.2,
+which exports them, is on CRAN now, and the Suggests entry states the
+requirement (LLMR.shiny >= 0.1.2).
 
-The accompanying NOTE flagged "LLM" in the Description as possibly
-misspelled; it is the standard initialism for large language model.
+Version 0.5.2 also incorporates corrections from an external methodological
+review: the untouched default now plans 93 model outputs and runs (the old
+default planned 467 and tripped its own gate), participant frames are never
+recycled and direct personas acquire no synthetic records, survey value
+cleanup no longer alters substance, continuation comparisons cannot inherit
+a post-cut summary, saved Studio sessions are sanitized of configurations
+and runner closures, and a failed final summary returns the completed
+transcript.
+
+The pretest NOTE flagged "LLM" in the Description as possibly misspelled;
+it is the standard initialism for large language model.
 
 ## The package
 

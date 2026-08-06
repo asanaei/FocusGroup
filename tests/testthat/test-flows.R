@@ -22,7 +22,7 @@ test_that("config grouping key separates agents by their model config", {
   expect_length(unique(diff), 2L)
 })
 
-test_that("the continuation experiment inherits the summary and cut-point phase", {
+test_that("the continuation experiment stays inside the cut and inherits the cut-point phase", {
   recording_agent <- local({
     a <- new.env()
     a$clone <- function(deep = TRUE) a
@@ -48,8 +48,9 @@ test_that("the continuation experiment inherits the summary and cut-point phase"
          phase = "exploration_question")
   )
   res <- FocusGroup:::.fg_run_experiment(fg, log, "P1", 2, "I love buses now")
-  # the summary came from the fg object, not the "N/A" placeholder
-  expect_match(res$control, "summary=earlier: cost and reliability")
+  # the session-end summary may describe turns after the cut, so it must NOT
+  # be inherited; both arms see the placeholder unless a caller supplies one
+  expect_match(res$control, "summary=N/A")
   # the phase came from the last (cut-point) log turn
   expect_match(res$control, "phase=exploration_question")
   # the continuation forwards the conversation_log (role-flip construction),

@@ -2,7 +2,7 @@
 % Please edit documentation in R/convenience_wrappers.R
 \name{generate_diverse_demographics}
 \alias{generate_diverse_demographics}
-\title{Generate Diverse Demographics}
+\title{Generate Illustrative Example Demographics}
 \usage{
 generate_diverse_demographics(n)
 }
@@ -13,6 +13,10 @@ generate_diverse_demographics(n)
 Data frame with demographic information
 }
 \description{
-Internal function to generate diverse demographic profiles for participants.
+Internal helper behind bare `create_agents(n, config)` calls. The rows are
+illustrative United States-flavored examples drawn from fixed marginal
+distributions; they are not representative of any population and carry no
+survey weights. Supply real `demographics` (or
+`direct_persona_descriptions`) for research use.
 }
 \keyword{internal}

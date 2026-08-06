@@ -391,8 +391,9 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         unscored <- character(0)
         for (i in seq_along(ids)) {
           txt <- out$response_text[i]
-          scored <- isTRUE(out$success[i]) && nzchar(trimws(txt %||% ""))
-          if (scored) desire_scores[ids[[i]]] <<- parse_score_0_10(txt)
+          sc <- if (isTRUE(out$success[i]) && nzchar(trimws(txt %||% "")))
+            parse_score_0_10(txt) else NA_integer_
+          if (!is.na(sc)) desire_scores[ids[[i]]] <<- as.numeric(sc)
           else unscored <- c(unscored, ids[[i]])
         }
         record_group_usage(out, ids)
@@ -462,6 +463,12 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         eligible_participants <- scored[
           !is.na(scored) & scored >= (private$min_desire_threshold - 1)
         ]
+        if (length(eligible_participants)) {
+          self$selection_metadata <- list(
+            flow = "desire_based", fallback = "threshold_lowered",
+            threshold = private$min_desire_threshold - 1,
+            scores = as.list(scored))
+        }
       }
 
       if (length(eligible_participants) == 0) {
@@ -470,6 +477,10 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
           max_score <- max(scored, na.rm = TRUE)
           candidates <- names(scored[scored == max_score])
           next_speaker_id <- if (length(candidates) == 1) candidates[1] else sample(candidates, 1)
+          self$selection_metadata <- list(
+            flow = "desire_based", fallback = "highest_below_threshold",
+            threshold = private$min_desire_threshold,
+            scores = as.list(scored), selected_id = next_speaker_id)
           return(self$agents[[next_speaker_id]])
         }
         return(NULL)
@@ -517,6 +528,24 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 #' # all_my_agents <- list(P1 = agent1, P2 = agent2, MOD = mod)
 #' # flow <- create_conversation_flow("desire_based", all_my_agents, mod_id)
 create_conversation_flow <- function(mode, agents, moderator_id, flow_params = list()) {
+  th <- flow_params$min_desire_threshold
+  if (!is.null(th) && (!is.numeric(th) || length(th) != 1L || is.na(th) ||
+                       th < 0 || th > 10)) {
+    stop("`min_desire_threshold` must be one number between 0 and 10.",
+         call. = FALSE)
+  }
+  ri <- flow_params$recovery_increment
+  if (!is.null(ri) && (!is.numeric(ri) || length(ri) != 1L || is.na(ri) ||
+                       ri < 0 || ri > 1)) {
+    stop("`recovery_increment` must be one number between 0 and 1.",
+         call. = FALSE)
+  }
+  ip <- flow_params$initial_propensities
+  if (!is.null(ip) && (!is.numeric(ip) || anyNA(ip) || any(!is.finite(ip)) ||
+                       any(ip < 0) || !any(ip > 0))) {
+    stop("`initial_propensities` must be finite, nonnegative, and not all zero.",
+         call. = FALSE)
+  }
   if (!is.character(mode) || length(mode) != 1) {
     stop("'mode' must be a single character string.")
   }

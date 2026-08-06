@@ -38,18 +38,19 @@ run_mocked_fg <- function(tok = list(sent = 10L, rec = 5L)) {
   fg
 }
 
-test_that("a short demographics data.frame is recycled by row, not read by column", {
+test_that("a short demographics data.frame is refused, not recycled", {
   skip_if_not_installed("LLMR")
   demo <- data.frame(age = c(30, 40), gender = c("Female", "Male"),
                      education = c("PhD", "BA"), stringsAsFactors = FALSE)
   cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
-  expect_warning(
-    ag <- create_agents(3, demographics = demo, config = cfg),
-    "recycled")
-  # agent 3 gets row 1 again, as a named list -- not the education COLUMN
+  # recycled rows would be one research unit counted several times
+  expect_error(create_agents(3, demographics = demo, config = cfg),
+               "duplicate research units")
+  # a frame with enough rows still maps row i to agent i, not column-wise
+  demo3 <- demo[c(1, 2, 1), ]
+  ag <- create_agents(3, demographics = demo3, config = cfg)
   expect_identical(ag[[3]]$demographics,
                    list(age = "30", gender = "Female", education = "PhD"))
-  expect_identical(ag[[1]]$demographics, ag[[3]]$demographics)
   expect_identical(ag[[2]]$demographics$age, "40")
 })
 
@@ -122,8 +123,10 @@ test_that("parse_score_0_10 reads the intended score", {
   # plain answers unchanged
   expect_identical(parse_score_0_10("7"), 7L)
   expect_identical(parse_score_0_10("Score: 9."), 9L)
-  expect_identical(parse_score_0_10("no number here"), 0L)
-  expect_identical(parse_score_0_10(NA_character_), 0L)
+  # an unparseable reply is NA, never a fabricated zero
+  expect_identical(parse_score_0_10("no number here"), NA_integer_)
+  expect_identical(parse_score_0_10(NA_character_), NA_integer_)
+  expect_identical(parse_score_0_10("0"), 0L)
   # out-of-range clamps
   expect_identical(parse_score_0_10("10"), 10L)
 })

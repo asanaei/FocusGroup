@@ -161,7 +161,13 @@ NULL
 #' @param n_participants Integer. Number of participants, excluding the moderator.
 #' @param guide A named numeric vector or named list. Numeric values select that
 #'   many moderator instructions from the phase banks. Character vectors supply
-#'   the ordered instructions directly.
+#'   the ordered instructions directly. The default is a compact session (one
+#'   opening, one icebreaker, two engagement and three exploration questions,
+#'   one closing); with the default flow, participants, and response limit it
+#'   plans 93 model outputs, inside the default `max_calls` of 100. Larger
+#'   guides multiply quickly: each question round costs one output per
+#'   response plus, under `"desire_based"`, one scoring output per
+#'   participant.
 #' @param demographics Optional participant demographics.
 #' @param survey_responses Optional participant survey responses.
 #' @param flow Character. One of `"round_robin"`, `"probabilistic"`, or
@@ -170,7 +176,7 @@ NULL
 #' @param message_mode Character. `"roleflip"` or `"flat"`.
 #' @param verbose Logical. Print session progress.
 #' @param max_participant_responses Optional integer maximum number of participant
-#'   responses per moderator question.
+#'   responses per moderator question (default 2).
 #' @param max_calls Integer. Maximum estimated live model outputs allowed without
 #'   confirmation.
 #' @param confirm Logical. Permit a live run whose estimate exceeds `max_calls`.
@@ -196,9 +202,9 @@ NULL
 #' }
 #' @export
 run_focus_group <- function(topic, config, n_participants = 6,
-                            guide = c(Opening = 2, Icebreaker = 3,
-                                      Engagement = 8, Exploration = 10,
-                                      Closing = 2),
+                            guide = c(Opening = 1, Icebreaker = 1,
+                                      Engagement = 2, Exploration = 3,
+                                      Closing = 1),
                             demographics = NULL, survey_responses = NULL,
                             flow = "desire_based", seed = NULL,
                             message_mode = c("roleflip", "flat"), verbose = TRUE,
@@ -234,7 +240,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
   }
 
   response_limit <- max_participant_responses %||%
-    getOption("focusgroup.max_participant_responses", 3L)
+    getOption("focusgroup.max_participant_responses", 2L)
   if (!is.numeric(response_limit) || length(response_limit) != 1L ||
       is.na(response_limit) || response_limit < 1 ||
       response_limit != floor(response_limit)) {
@@ -481,8 +487,10 @@ create_agents <- function(n_participants, config, demographics = NULL,
   }
   n_participants <- as.integer(n_participants)
 
-  # Generate diverse demographics if not provided
-  if (is.null(demographics)) {
+  # Synthetic demographics exist for bare illustrative calls only. A direct
+  # persona is complete as supplied: attaching invented demographic records
+  # to it would fabricate participant data.
+  if (is.null(demographics) && is.null(direct_persona_descriptions)) {
     demographics <- generate_diverse_demographics(n_participants)
   }
 
@@ -501,18 +509,24 @@ create_agents <- function(n_participants, config, demographics = NULL,
     survey_responses <- generate_survey_responses(n_participants)
   }
 
-  # A data.frame with fewer rows than participants is recycled by row, openly.
-  # (Without this, the is.list() branch below would treat the frame as a list
-  # of COLUMNS and hand agent i a whole column as its persona data.)
+  # A frame with fewer rows than participants would have to be recycled, and
+  # recycled rows are one research unit masquerading as several
+  # (pseudoreplication). Refuse; the caller can sample explicitly.
   if (is.data.frame(demographics) && nrow(demographics) > 0 &&
       nrow(demographics) < n_participants) {
-    warning(sprintf("`demographics` has %d rows for %d participants; rows are recycled in order.",
-                    nrow(demographics), n_participants), call. = FALSE)
+    stop(sprintf(paste(
+      "`demographics` has %d rows for %d participants. Recycling rows would",
+      "duplicate research units; supply at least `n_participants` rows or",
+      "sample them yourself."),
+      nrow(demographics), n_participants), call. = FALSE)
   }
   if (is.data.frame(survey_responses) && nrow(survey_responses) > 0 &&
       nrow(survey_responses) < n_participants) {
-    warning(sprintf("`survey_responses` has %d rows for %d participants; rows are recycled in order.",
-                    nrow(survey_responses), n_participants), call. = FALSE)
+    stop(sprintf(paste(
+      "`survey_responses` has %d rows for %d participants. Recycling rows",
+      "would duplicate research units; supply at least `n_participants` rows",
+      "or sample them yourself."),
+      nrow(survey_responses), n_participants), call. = FALSE)
   }
 
   agents <- list()
@@ -540,10 +554,9 @@ create_agents <- function(n_participants, config, demographics = NULL,
     } else if (!is.null(demographics) && !is.data.frame(demographics) && is.list(demographics) && length(demographics) >= i) {
       demographics[[i]]
     } else {
-      list(
-        age = sample(18:65, 1),
-        gender = sample(c("Male","Female","Nonbinary"), 1, prob = c(0.49,0.49,0.02))
-      )
+      # No demographics were supplied (direct personas, or a short list):
+      # attach nothing rather than inventing a record.
+      list()
     }
 
     agent_survey <- if (!is.null(survey_responses) && is.data.frame(survey_responses) && nrow(survey_responses) > 0) {
@@ -599,6 +612,13 @@ create_agents <- function(n_participants, config, demographics = NULL,
 #'
 #' @param focus_group_result A `FocusGroup` object or `focus_group_result`.
 #' @param num_topics Integer number of topics for topic modeling.
+#' @param speakers Whose turns the text statistics describe:
+#'   `"participants"` (default) excludes the moderator's scripted turns;
+#'   `"all"` keeps them. The transcript itself always retains every turn.
+#' @param language Language of the transcript (default `"en"`). The
+#'   TF-IDF stop-word list and the readability formula are English-specific,
+#'   so those components are skipped, with a note in `issues`, for any other
+#'   value.
 #' @param include_plots Logical. Attempt the four descriptive plots.
 #' @param config Optional explicit `LLMR::llm_config`. When supplied, thematic
 #'   analysis and a model summary are generated.
@@ -619,8 +639,12 @@ create_agents <- function(n_participants, config, demographics = NULL,
 analyze_focus_group <- function(focus_group_result,
                                 num_topics = 5,
                                 include_plots = TRUE,
+                                speakers = c("participants", "all"),
+                                language = "en",
                                 config = NULL,
                                 .runner = NULL) {
+  speakers <- match.arg(speakers)
+  stopifnot(is.character(language), length(language) == 1L)
   if (inherits(focus_group_result, "FocusGroup")) {
     fg <- focus_group_result
   } else if (inherits(focus_group_result, "focus_group_result")) {
@@ -635,6 +659,23 @@ analyze_focus_group <- function(focus_group_result,
   }
   if (!length(fg$conversation_log)) {
     stop("No conversation data found.", call. = FALSE)
+  }
+  # Text statistics describe the discussion, so the moderator's scripted
+  # turns are excluded unless asked for; the transcript itself keeps them.
+  if (identical(speakers, "participants")) {
+    mod_ids <- names(fg$agents)[vapply(
+      fg$agents, function(a) isTRUE(a$is_moderator), logical(1))]
+    kept <- Filter(function(m) !(m$speaker_id %in% mod_ids),
+                   fg$conversation_log)
+    if (length(kept) && length(kept) < length(fg$conversation_log)) {
+      if (is.environment(fg)) {
+        original_log <- fg$conversation_log
+        fg$conversation_log <- kept
+        on.exit(fg$conversation_log <- original_log, add = TRUE)
+      } else {
+        fg$conversation_log <- kept
+      }
+    }
   }
   if (!is.numeric(num_topics) || length(num_topics) != 1L ||
       is.na(num_topics) || num_topics < 1 || num_topics != floor(num_topics)) {
@@ -703,17 +744,25 @@ analyze_focus_group <- function(focus_group_result,
   empty_tfidf <- dplyr::tibble(
     speaker_id = character(), term = character(), tf_idf = double()
   )
-  tfidf <- capture_component(
-    "tfidf", function() fg$analyze_tfidf(),
+  english_only <- identical(tolower(language), "en")
+  tfidf <- if (english_only) {
+    capture_component("tfidf", function() fg$analyze_tfidf(), empty_tfidf)
+  } else {
+    add_issue("tfidf",
+              "Skipped: the stop-word list is English; set language = 'en' to run it.")
     empty_tfidf
-  )
+  }
   if (!is.data.frame(tfidf) || !nrow(tfidf)) tfidf <- empty_tfidf
 
   empty_readability <- dplyr::tibble(speaker_id = character())
-  readability <- capture_component(
-    "readability", function() fg$analyze_readability(),
+  readability <- if (english_only) {
+    capture_component("readability", function() fg$analyze_readability(),
+                      empty_readability)
+  } else {
+    add_issue("readability",
+              "Skipped: the readability formula is English; set language = 'en' to run it.")
     empty_readability
-  )
+  }
   if (!is.data.frame(readability) || !nrow(readability)) {
     readability <- empty_readability
   }
@@ -763,8 +812,11 @@ analyze_focus_group <- function(focus_group_result,
 #' @export
 print.focus_group_analysis <- function(x, ...) {
   cat("<focus_group_analysis>\n")
+  n_topics <- if (!is.null(x$topics$num_topics)) x$topics$num_topics
+              else if (!is.null(x$topics$topic_terms)) length(x$topics$topic_terms)
+              else 0L
   cat("Speakers: ", nrow(x$basic_stats$speaker_stats),
-      " | Topics: ", length(x$topics),
+      " | Topics: ", n_topics,
       " | Issues: ", nrow(x$issues), "\n", sep = "")
   cat("Model analysis: ",
       if (length(x$themes) || length(x$model_summary)) "included" else "not requested",
@@ -772,9 +824,13 @@ print.focus_group_analysis <- function(x, ...) {
   invisible(x)
 }
 
-#' Generate Diverse Demographics
+#' Generate Illustrative Example Demographics
 #'
-#' Internal function to generate diverse demographic profiles for participants.
+#' Internal helper behind bare `create_agents(n, config)` calls. The rows are
+#' illustrative United States-flavored examples drawn from fixed marginal
+#' distributions; they are not representative of any population and carry no
+#' survey weights. Supply real `demographics` (or
+#' `direct_persona_descriptions`) for research use.
 #'
 #' @param n Integer number of profiles to generate
 #' @return Data frame with demographic information
@@ -880,8 +936,11 @@ generate_persona <- function(demographics, survey_responses = NULL,
   # value label (e.g. "1. Male", "Male (R volunteered)"). A no-op on plain text.
   tidy_value <- function(x) {
     x <- as.character(x)
-    x <- gsub("^[0-9-]+\\.\\s*", "", x)
-    x <- gsub("\\s*\\([^)]*\\)$", "", x)
+    # Strip a numbered-label prefix ("1. Male") only when whitespace follows
+    # the period, so a decimal value ("1.5") passes through unchanged. A
+    # trailing parenthetical is substantive content ("Asian (non-Hispanic)")
+    # and is never removed.
+    x <- gsub("^[0-9]+\\.\\s+", "", x)
     trimws(x)
   }
 

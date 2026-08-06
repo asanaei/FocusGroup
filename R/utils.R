@@ -7,22 +7,6 @@
 #' @importFrom withr with_seed
 NULL
 
-#' Default LLMR configuration for this package
-#'
-#' Creates a default configuration for the large language model used by agents.
-#' Values are read from options() so users can override without editing code.
-#' @return An LLMR::llm_config object.
-#' @noRd
-default_llmr_config <- function() {
-  if (!requireNamespace("LLMR", quietly = TRUE)) {
-    stop("LLMR is required to build an LLM config.")
-  }
-  prov  <- getOption("focusgroup.provider", "openai")
-  model <- getOption("focusgroup.model", "gpt-4o-mini")
-  temp  <- getOption("focusgroup.temperature", 0.7)
-  maxt  <- getOption("focusgroup.max_tokens", 500L)
-  LLMR::llm_config(provider = prov, model = model, temperature = temp, max_tokens = maxt)
-}
 
 # Null-coalescing operator (handles NULL and length-0)
 `%||%` <- function(x, y) {
@@ -299,7 +283,7 @@ extract_token_counts <- function(response_obj) {
 #' @keywords internal
 parse_score_0_10 <- function(text) {
   txt <- as.character(text)[1]
-  if (is.na(txt)) return(0L)
+  if (is.na(txt)) return(NA_integer_)
   clamp <- function(v) max(0L, min(10L, v))
   # "X/10" or "X out of 10": the numerator is the score.
   frac <- regmatches(txt, regexpr("\\b(10|[0-9])\\s*(/|out of)\\s*10\\b",
@@ -312,10 +296,19 @@ parse_score_0_10 <- function(text) {
   cleaned <- gsub("\\(?\\b(10|[0-9])\\s*(-|to)\\s*(10|[0-9])\\b\\)?", " ",
                   txt, ignore.case = TRUE)
   hits <- regmatches(cleaned, gregexpr("\\b(10|[0-9])\\b", cleaned, perl = TRUE))[[1]]
-  if (!length(hits)) return(0L)
+  if (!length(hits)) return(NA_integer_)
   val <- as.integer(hits[length(hits)])
-  if (is.na(val)) return(0L)
+  if (is.na(val)) return(NA_integer_)
   clamp(val)
+}
+
+# Word count that a blank string cannot inflate: an empty or whitespace-only
+# text has zero words, not one.
+.fg_word_count <- function(x) {
+  x <- trimws(as.character(x))
+  n <- lengths(strsplit(x, "\\s+"))
+  n[!nzchar(x)] <- 0L
+  as.integer(n)
 }
 
 #' Build prompt history string for role-specific windows
@@ -405,25 +398,6 @@ replace_placeholders_known <- function(template_string, values_list) {
   return(processed_string)
 }
 
-# LLM Response Parsers (simplified, assuming LLMR provides structured output)
-# These might need adjustment based on how LLMR standardizes responses from different providers.
-# For now, we assume LLMR::call_llm_robust returns the main text directly
-# and token counts can be accessed if LLMR stores them as attributes or in a structured list.
-
-# This is a placeholder; actual token extraction will depend on LLMR's output.
-# For now, we'll assume LLMR::call_llm_robust might return an object
-# where token info is in an attribute or a list element.
-# If not, we'd need to parse the raw JSON response if available.
-.extract_llm_usage <- function(llm_response_object) {
-  if (inherits(llm_response_object, "llmr_response")) {
-    # Prefer provider-agnostic tokens() from LLMR
-    u <- tryCatch(LLMR::tokens(llm_response_object), error = function(...) NULL)
-    if (!is.null(u)) {
-      return(list(prompt_tokens = u$sent %||% 0L, completion_tokens = u$rec %||% 0L))
-    }
-  }
-  list(prompt_tokens = 0L, completion_tokens = 0L)
-}
 
 
 # ---- role-flipped message construction (Phase 3) ---------------------------
@@ -541,7 +515,16 @@ replace_placeholders_known <- function(template_string, values_list) {
     moderator_flags <- if (!is.null(moderator_id)) {
       speakers == moderator_id
     } else {
-      grepl("mod", tolower(speakers))
+      # Exact alias match, never a substring: "Modesto" is not a moderator.
+      aliases <- c("mod", "moderator", "facilitator", "interviewer")
+      flags <- tolower(trimws(speakers)) %in% aliases
+      if (sum(unique(speakers[flags]) %in% speakers) > 1L &&
+          length(unique(speakers[flags])) > 1L) {
+        stop(paste(
+          "More than one speaker matches a moderator alias;",
+          "supply `moderator_id`."), call. = FALSE)
+      }
+      flags
     }
     rounds <- cumsum(moderator_flags)
     return(lapply(seq_len(nrow(obj)), function(i) {
@@ -637,4 +620,23 @@ replace_placeholders_known <- function(template_string, values_list) {
     system      = sys,
     instruction = instruction
   )
+}
+
+
+# Strip a session of everything a saved file must not carry: model
+# configurations (which may hold a literal key) and runner closures (which
+# may hold live GUI state). The running session is untouched; agents are
+# cloned before the fields are cleared. Continuation work re-supplies a
+# configuration when it generates.
+.fg_sanitize_session <- function(fg) {
+  stopifnot(inherits(fg, "FocusGroup"))
+  out <- fg$clone(deep = FALSE)
+  out$agents <- lapply(fg$agents, function(a) {
+    b <- a$clone(deep = FALSE)
+    b$config <- NULL
+    b$.runner <- NULL
+    b
+  })
+  out$admin_config <- NULL
+  out
 }

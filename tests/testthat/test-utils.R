@@ -54,12 +54,3 @@ test_that("extract_token_counts never returns NA when usage is unreported", {
   expect_false(is.na(u2$sent))
 })
 
-test_that("default_llmr_config honors focusgroup.* options", {
-  skip_if_not_installed("LLMR")
-  withr::local_options(focusgroup.provider = "groq",
-                       focusgroup.model = "test-model",
-                       focusgroup.temperature = 0.2)
-  cfg <- default_llmr_config()
-  expect_equal(cfg$provider, "groq")
-  expect_equal(cfg$model, "test-model")
-})

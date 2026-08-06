@@ -246,12 +246,24 @@ FocusGroup <- R6::R6Class("FocusGroup",
       # normal close (script exhausted or moderator ended), so announce it here.
       if (verbose && !simulation_active) cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
 
-      # Final summary of the entire discussion
+      # Final summary of the entire discussion. The transcript is complete at
+      # this point; a summary failure is reported, never allowed to destroy
+      # the finished run.
       if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
-      final_summary <- self$summarize(config = self$admin_config, summary_level = 1,
-                                      internal_call = FALSE)
+      final_summary <- tryCatch(
+        self$summarize(config = self$admin_config, summary_level = 1,
+                       internal_call = FALSE),
+        error = function(e) {
+          warning("The final summary call failed (",
+                  conditionMessage(e),
+                  "); the completed transcript is returned without it.",
+                  call. = FALSE)
+          NA_character_
+        })
       self$final_summary <- final_summary
-      if (verbose) cat("Final Summary:\n", final_summary, "\n")
+      if (verbose && !is.na(final_summary)) {
+        cat("Final Summary:\n", final_summary, "\n")
+      }
 
       invisible(self$conversation_log)
     },
@@ -379,7 +391,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       }))
 
       speaker_stats_df <- log_df %>%
-        dplyr::mutate(word_count = sapply(strsplit(as.character(.data$text), "\\s+"), length)) %>%
+        dplyr::mutate(word_count = .fg_word_count(.data$text)) %>%
         dplyr::group_by(.data$speaker_id) %>%
         dplyr::summarise(
           utterance_count = dplyr::n(),
@@ -453,7 +465,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         speaker_texts <- tapply(texts, speaker_ids_vec, paste, collapse = " ")
 
         # Filter documents by minimum length
-        word_counts <- sapply(speaker_texts, function(text) length(strsplit(text, "\\s+")[[1]]))
+        word_counts <- .fg_word_count(speaker_texts)
         valid_docs <- names(speaker_texts)[word_counts >= min_doc_length]
 
         if (length(valid_docs) < 2) {
@@ -610,7 +622,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         speaker_texts <- tapply(texts, speaker_ids_vec, paste, collapse = " ")
 
         # Filter out speakers with very short texts (less than 10 words)
-        speaker_word_counts <- sapply(speaker_texts, function(text) length(strsplit(text, "\\s+")[[1]]))
+        speaker_word_counts <- .fg_word_count(speaker_texts)
         valid_speakers <- names(speaker_texts)[speaker_word_counts >= 10]
 
         if (length(valid_speakers) == 0) {
@@ -728,7 +740,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
           dplyr::group_by(.data$speaker_id, .data$phase) %>%
           dplyr::summarise(
             messages = dplyr::n(),
-            words = sum(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
+            words = sum(.fg_word_count(.data$text)),
             avg_words = .data$words / .data$messages,
             .groups = "drop"
           )
@@ -788,7 +800,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
           dplyr::group_by(.data$speaker_id) %>%
           dplyr::summarise(
             messages = dplyr::n(),
-            words = sum(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
+            words = sum(.fg_word_count(.data$text)),
             avg_words = .data$words / .data$messages,
             .groups = "drop"
           )
@@ -813,8 +825,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
           balance_metrics = list(
             most_active_speaker = participation$speaker_id[which.max(participation$message_percentage)],
             least_active_speaker = participation$speaker_id[which.min(participation$message_percentage)],
-            message_percentage_range = message_range,
-            is_balanced = message_range < 30
+            message_percentage_range = message_range
           )
         )
       }, error = function(e) {
@@ -849,7 +860,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
           dplyr::group_by(.data$speaker_id) %>%
           dplyr::summarise(
             total_responses = dplyr::n(),
-            avg_words = mean(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
+            avg_words = mean(.fg_word_count(.data$text)),
             question_count = sum(grepl("\\?", .data$text)),
             exclamation_count = sum(grepl("!", .data$text)),
             .groups = "drop"
@@ -904,7 +915,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
           dplyr::group_by(.data$speaker_id, .data$phase) %>%
           dplyr::summarise(
             question_count = dplyr::n(),
-            avg_words = mean(sapply(.data$text, function(x) length(strsplit(x, "\\s+")[[1]]))),
+            avg_words = mean(.fg_word_count(.data$text)),
             .groups = "drop"
           )
 
@@ -1095,7 +1106,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         )
       }))
 
-      word_counts <- sapply(conv_df$message, function(x) length(strsplit(x, "\\s+")[[1]]))
+      word_counts <- .fg_word_count(conv_df$message)
 
       word_data <- data.frame(
         word_count = word_counts,

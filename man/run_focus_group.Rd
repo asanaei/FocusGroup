@@ -8,7 +8,7 @@ run_focus_group(
   topic,
   config,
   n_participants = 6,
-  guide = c(Opening = 2, Icebreaker = 3, Engagement = 8, Exploration = 10, Closing = 2),
+  guide = c(Opening = 1, Icebreaker = 1, Engagement = 2, Exploration = 3, Closing = 1),
   demographics = NULL,
   survey_responses = NULL,
   flow = "desire_based",
@@ -31,7 +31,13 @@ model tasks.}
 
 \item{guide}{A named numeric vector or named list. Numeric values select that
 many moderator instructions from the phase banks. Character vectors supply
-the ordered instructions directly.}
+the ordered instructions directly. The default is a compact session (one
+opening, one icebreaker, two engagement and three exploration questions,
+one closing); with the default flow, participants, and response limit it
+plans 93 model outputs, inside the default `max_calls` of 100. Larger
+guides multiply quickly: each question round costs one output per
+response plus, under `"desire_based"`, one scoring output per
+participant.}
 
 \item{demographics}{Optional participant demographics.}
 
@@ -47,7 +53,7 @@ the ordered instructions directly.}
 \item{verbose}{Logical. Print session progress.}
 
 \item{max_participant_responses}{Optional integer maximum number of participant
-responses per moderator question.}
+responses per moderator question (default 2).}
 
 \item{max_calls}{Integer. Maximum estimated live model outputs allowed without
 confirmation.}

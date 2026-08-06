@@ -26,10 +26,12 @@ test_that("public call signatures use the family grammar", {
   )
 
   analysis_args <- names(formals(analyze_focus_group))
-  expect_identical(
-    analysis_args,
-    c("focus_group_result", "num_topics", "include_plots", "config", ".runner")
-  )
+  # The family-grammar core must stay; trailing optional arguments may be
+  # added before 1.0 without breaking this contract.
+  expect_true(all(
+    c("focus_group_result", "num_topics", "include_plots", "config",
+      ".runner") %in% analysis_args
+  ))
 
   for (fun in list(create_agents, create_agents_from_data,
                    create_agents_from_survey)) {

@@ -8,6 +8,8 @@ analyze_focus_group(
   focus_group_result,
   num_topics = 5,
   include_plots = TRUE,
+  speakers = c("participants", "all"),
+  language = "en",
   config = NULL,
   .runner = NULL
 )
@@ -18,6 +20,15 @@ analyze_focus_group(
 \item{num_topics}{Integer number of topics for topic modeling.}
 
 \item{include_plots}{Logical. Attempt the four descriptive plots.}
+
+\item{speakers}{Whose turns the text statistics describe:
+`"participants"` (default) excludes the moderator's scripted turns;
+`"all"` keeps them. The transcript itself always retains every turn.}
+
+\item{language}{Language of the transcript (default `"en"`). The
+TF-IDF stop-word list and the readability formula are English-specific,
+so those components are skipped, with a note in `issues`, for any other
+value.}
 
 \item{config}{Optional explicit `LLMR::llm_config`. When supplied, thematic
 analysis and a model summary are generated.}

@@ -1,7 +1,7 @@
 Package: FocusGroup
 Type: Package
 Title: Focus Group Simulation Using LLM Agents
-Version: 0.5.1
+Version: 0.5.2
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
 Description: Moderated focus group discussions simulated with large language
@@ -13,7 +13,7 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 RoxygenNote: 7.3.3
 Config/testthat/edition: 3
-Depends: R (>= 4.0.0)
+Depends: R (>= 4.1.0)
 Imports: 
     R6,
     dplyr,
@@ -29,7 +29,6 @@ Suggests:
     quanteda.textstats,
     topicmodels,
     tidytext,
-    readr,
     knitr,
     rmarkdown,
     pkgdown,

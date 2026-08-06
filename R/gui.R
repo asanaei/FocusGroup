@@ -70,7 +70,7 @@ run_focus_studio <- function(...) {
     sidebar = LLMR.shiny::shell_sidebar(),
     bslib::nav_panel("Run a focus group", value = "run", .fg_run_ui("run")),
     bslib::nav_panel("Analyze transcript", value = "analyze", .fg_analyze_ui("analyze")),
-    bslib::nav_panel("Continuation experiment", value = "experiment", .fg_experiment_ui("experiment"))
+    bslib::nav_panel("Continuation comparison", value = "experiment", .fg_experiment_ui("experiment"))
   )
 }
 
@@ -1283,9 +1283,12 @@ run_focus_studio <- function(...) {
     })
 
     # The RDS keeps the agents and session state needed by continuation work.
+    # It is sanitized first: no model configurations (a config may carry a
+    # literal key) and no runner closures leave the session.
     output$download_rds <- shiny::downloadHandler(
       filename = function() "focus_group.rds",
-      content = function(file) saveRDS(result()$focus_group, file))
+      content = function(file)
+        saveRDS(.fg_sanitize_session(result()$focus_group), file))
 
     output$download_csv <- shiny::downloadHandler(
       filename = function() "focus_group_transcript.csv",
@@ -1451,6 +1454,16 @@ run_focus_studio <- function(...) {
 }
 
 .fg_perturb_log <- function(log, message_index, new_text) {
+  ids <- vapply(log, function(m) as.integer(m$message_id %||% NA_integer_),
+                integer(1))
+  if (!anyNA(ids)) {
+    hit <- match(as.integer(message_index), ids)
+    if (is.na(hit)) {
+      stop("`perturb_message_id` is not a message_id in the cut history.",
+           call. = FALSE)
+    }
+    message_index <- hit
+  }
   if (message_index >= 1L && message_index <= length(log)) {
     log[[message_index]]$text <- new_text
   }
@@ -1518,7 +1531,11 @@ run_focus_studio <- function(...) {
   on.exit(options(focusgroup.message_mode = old_mode), add = TRUE)
   template <- .fg_pick_template(fg$prompt_templates, "utterance", mode = saved_mode)
   max_tokens <- max(fg$max_tokens_utterance %||% 160L, 220L)
-  if (is.null(summary)) summary <- fg$current_conversation_summary %||% "N/A"
+  # The session's interim summary may cover turns AFTER the cut (it was
+  # written at the end of the full run), so injecting it would leak
+  # post-cut information into both arms. The cut history alone is the
+  # evidence; no summary is supplied unless the caller passes one.
+  if (is.null(summary)) summary <- "N/A"
   if (is.null(phase)) {
     phase <- if (length(log)) log[[length(log)]]$phase %||% "exploration_question"
              else "exploration_question"
@@ -2854,7 +2871,7 @@ run_focus_studio <- function(...) {
     output$module_ui <- shiny::renderUI({
       demo_mode <- identical(shared$mode(), "demo")
       bslib::card(
-        bslib::card_header("Continuation experiment"),
+        bslib::card_header("Continuation comparison"),
         bslib::card_body(
           shiny::uiOutput(ns("err")),
           shiny::tags$p(class = "text-muted",
