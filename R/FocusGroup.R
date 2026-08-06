@@ -435,7 +435,13 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
     #' @description Perform LDA topic modeling on the conversation.
     #' @param num_topics Integer. Number of topics to identify.
-    #' @param min_doc_length Integer. Min words for a speaker's aggregated text to be a document.
+    #' @param min_doc_length Integer. Minimum words for a text to count as a
+    #'   document.
+    #' @param unit Character. What counts as a document: `"message"`
+    #'   (default) treats each utterance as a document, the natural unit for
+    #'   discussion text; `"speaker"` pools every turn by the same speaker,
+    #'   which leaves as many documents as there are speakers and tends to
+    #'   recover who spoke rather than what was discussed.
     #' @param top_n_terms Integer. Number of top terms per topic to return.
     #' @param message_ids Integer vector. Optional `message_id` values to analyze.
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
@@ -445,7 +451,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @return A list with LDA model, topic terms, and document-topic proportions. `NULL` on failure.
     analyze_topics = function(num_topics = 5, min_doc_length = 20,
                               top_n_terms = 10, message_ids = NULL,
-                              speaker_ids = NULL, seed = 110, ...) {
+                              speaker_ids = NULL, seed = 110,
+                              unit = c("message", "speaker"), ...) {
+      unit <- match.arg(unit)
       if (!all(sapply(c("topicmodels", "tidytext", "dplyr"), requireNamespace, quietly = TRUE))) {
         stop("Packages topicmodels, tidytext, and dplyr are required for LDA. Please install them.")
       }
@@ -461,8 +469,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
         texts <- sapply(filtered_log, function(x) x$text)
         speaker_ids_vec <- sapply(filtered_log, function(x) x$speaker_id)
 
-        # Aggregate by speaker to create documents
-        speaker_texts <- tapply(texts, speaker_ids_vec, paste, collapse = " ")
+        # One document per utterance by default. Pooling by speaker makes
+        # each document a person, so the fitted topics separate speakers
+        # rather than subjects, and a six-person group leaves six documents.
+        speaker_texts <- if (identical(unit, "speaker")) {
+          tapply(texts, speaker_ids_vec, paste, collapse = " ")
+        } else {
+          stats::setNames(
+            as.character(texts),
+            sprintf("m%03d_%s", seq_along(texts), speaker_ids_vec))
+        }
 
         # Filter documents by minimum length
         word_counts <- .fg_word_count(speaker_texts)
@@ -476,6 +492,13 @@ FocusGroup <- R6::R6Class("FocusGroup",
         if (length(valid_docs) < num_topics) {
           warning("Number of valid documents is less than num_topics. Reducing num_topics.")
           num_topics <- length(valid_docs)
+        }
+        if (length(valid_docs) < 3L * num_topics) {
+          warning(sprintf(paste(
+            "Fitting %d topic(s) on %d document(s); estimates from so few",
+            "documents are unstable. Lower num_topics or min_doc_length, or",
+            "read the term lists as description only."),
+            num_topics, length(valid_docs)), call. = FALSE)
         }
 
         # Create document-term matrix using tidytext
@@ -531,7 +554,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
           topic_labels = topic_labels,
           dtm = dtm,
           num_documents = length(valid_docs),
-          num_topics = num_topics
+          num_topics = num_topics,
+          unit = unit
         ))
 
       }, error = function(e) {

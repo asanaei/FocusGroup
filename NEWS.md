@@ -7,10 +7,21 @@ Corrections from an external methodological review of 0.5.1 (never on CRAN).
   and a default of two responses per question plan 93 model outputs, inside
   the default `max_calls` of 100. The old defaults planned 467 outputs and
   always tripped their own gate.
-* Participant construction no longer invents data: direct personas receive
-  no synthetic demographic records, and a demographics or survey frame with
-  fewer rows than participants is refused instead of recycled (recycled rows
-  are one research unit counted several times).
+* Participant construction no longer invents data. A call that supplies
+  nothing now samples real respondents from the bundled ANES 2024 records
+  (the easy route: their demographic profile rendered with the survey's own
+  question wording), where it used to fabricate ages, incomes, and four
+  Likert answers from fixed distributions. Direct personas receive no
+  synthetic records, and a demographics or survey frame with fewer rows than
+  participants is refused instead of recycled (recycled rows are one
+  research unit counted several times). `create_agents_from_data()` and
+  `create_agents_from_survey()` remain the detailed routes, the first also
+  carrying respondents' stated answers.
+* Topic modeling treats each utterance as a document rather than pooling
+  every turn by speaker. Pooling made each document a person, so the fitted
+  topics separated speakers rather than subjects and a six-person group left
+  six documents; `unit = "speaker"` restores the old behavior. Fitting few
+  documents relative to `num_topics` now warns.
 * Survey value cleanup no longer alters substance: a numbered-label prefix
   is stripped only when whitespace follows the period ("1. Male" cleans,
   "1.5" survives), and trailing parentheticals are kept ("Asian

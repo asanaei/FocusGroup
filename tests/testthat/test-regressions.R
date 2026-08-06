@@ -210,18 +210,26 @@ test_that("analyze_readability reports speaker ids, not row numbers", {
 })
 
 test_that("focusgroup.seed does not disturb the caller's RNG stream", {
+  skip_if_not_installed("LLMR")
+  cfg <- LLMR::llm_config("groq", "fake-model")
+  frame <- data.frame(age = as.character(20:39),
+                      city = rep(c("north", "south"), 10),
+                      stringsAsFactors = FALSE)
+  ids <- function(agents) {
+    vapply(agents, function(a) a$persona_description, character(1))
+  }
   set.seed(110); before <- runif(1)
   set.seed(110)
   withr::with_options(list(focusgroup.seed = 42L),
-                      invisible(generate_diverse_demographics(3)))
+                      invisible(create_agents_from_data(frame, 3, cfg)))
   after <- runif(1)
   expect_identical(before, after)
-  # and the seeded draw itself is deterministic
+  # and the seeded respondent draw itself is deterministic
   d1 <- withr::with_options(list(focusgroup.seed = 42L),
-                            generate_diverse_demographics(4))
+                            create_agents_from_data(frame, 4, cfg))
   d2 <- withr::with_options(list(focusgroup.seed = 42L),
-                            generate_diverse_demographics(4))
-  expect_identical(d1, d2)
+                            create_agents_from_data(frame, 4, cfg))
+  expect_identical(ids(d1), ids(d2))
 })
 
 test_that("the GUI persona path applies the seed to the respondent draw", {

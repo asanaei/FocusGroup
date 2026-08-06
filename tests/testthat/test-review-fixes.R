@@ -116,3 +116,41 @@ test_that("imported moderator matching is exact, not substring", {
   expect_true(flags[["Moderator"]])
   expect_false(flags[["Modesto"]])
 })
+
+test_that("a bare create_agents draws real ANES respondents", {
+  skip_if_not_installed("LLMR")
+  set.seed(110)
+  ag <- create_agents(3, config = .rv_cfg())
+  participants <- Filter(function(a) !isTRUE(a$is_moderator), ag)
+  expect_length(participants, 3L)
+  # personas carry real ANES demographic fields, not invented ones
+  personas <- vapply(participants, function(a) a$persona_description,
+                     character(1))
+  expect_true(all(nzchar(personas)))
+  demo_fields <- LLMR::llm_persona_demographic_fields(LLMR::anes_2024_personas)
+  expect_true(length(demo_fields) > 0)
+  # and no invented survey battery about technology or privacy
+  expect_false(any(grepl("tech_usage_comfort|privacy_concern_level",
+                         personas)))
+  # asking for more participants than the example holds is refused
+  expect_error(create_agents(101, config = .rv_cfg()), "bundled ANES")
+})
+
+test_that("topic documents are utterances, not speakers, by default", {
+  skip_if_not_installed("topicmodels")
+  skip_if_not_installed("tidytext")
+  long <- paste(rep("transit buses routes schedules riders fares", 6),
+                collapse = " ")
+  df <- data.frame(
+    speaker = rep(c("P1", "P2"), each = 4),
+    text = rep(long, 8))
+  fg <- focus_group_from_transcript(df, speaker_col = "speaker",
+                                    text_col = "text")
+  res <- suppressWarnings(fg$analyze_topics(num_topics = 2))
+  expect_identical(res$unit, "message")
+  expect_equal(res$num_documents, 8L)   # one per utterance
+  res_sp <- suppressWarnings(fg$analyze_topics(num_topics = 2,
+                                               unit = "speaker"))
+  expect_identical(res_sp$unit, "speaker")
+  expect_equal(res_sp$num_documents, 2L)  # one per speaker
+})

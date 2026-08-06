@@ -257,6 +257,7 @@ Perform LDA topic modeling on the conversation.
   message_ids = NULL,
   speaker_ids = NULL,
   seed = 110,
+  unit = c("message", "speaker"),
   ...
 )}\if{html}{\out{</div>}}
 }
@@ -266,7 +267,8 @@ Perform LDA topic modeling on the conversation.
 \describe{
 \item{\code{num_topics}}{Integer. Number of topics to identify.}
 
-\item{\code{min_doc_length}}{Integer. Min words for a speaker's aggregated text to be a document.}
+\item{\code{min_doc_length}}{Integer. Minimum words for a text to count as a
+document.}
 
 \item{\code{top_n_terms}}{Integer. Number of top terms per topic to return.}
 
@@ -276,6 +278,12 @@ Perform LDA topic modeling on the conversation.
 
 \item{\code{seed}}{Integer or NULL. LDA seed for reproducibility (default 110, the
 package convention); `NULL` leaves the LDA control seed unset.}
+
+\item{\code{unit}}{Character. What counts as a document: `"message"`
+(default) treats each utterance as a document, the natural unit for
+discussion text; `"speaker"` pools every turn by the same speaker,
+which leaves as many documents as there are speakers and tends to
+recover who spoke rather than what was discussed.}
 
 \item{\code{...}}{Additional arguments to `topicmodels::LDA()`.}
 }

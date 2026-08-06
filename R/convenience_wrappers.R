@@ -487,11 +487,31 @@ create_agents <- function(n_participants, config, demographics = NULL,
   }
   n_participants <- as.integer(n_participants)
 
-  # Synthetic demographics exist for bare illustrative calls only. A direct
-  # persona is complete as supplied: attaching invented demographic records
-  # to it would fabricate participant data.
-  if (is.null(demographics) && is.null(direct_persona_descriptions)) {
-    demographics <- generate_diverse_demographics(n_participants)
+  # The easy route. With nothing supplied, participants are drawn from the
+  # bundled ANES 2024 records rather than invented: real respondents, their
+  # demographic profile rendered with the survey's own question wording. The
+  # 100 rows are diversity-selected, not a representative sample. For the
+  # respondents' stated answers as well, use create_agents_from_data() on the
+  # full frame; for other populations, create_agents_from_survey().
+  if (is.null(demographics) && is.null(survey_responses) &&
+      is.null(direct_persona_descriptions)) {
+    personas <- LLMR::anes_2024_personas
+    if (n_participants > nrow(personas)) {
+      stop(sprintf(paste(
+        "%d participants requested but the bundled ANES example holds %d",
+        "respondents. Supply your own `demographics`, a survey file",
+        "(create_agents_from_survey()), or a larger frame",
+        "(create_agents_from_data())."),
+        n_participants, nrow(personas)), call. = FALSE)
+    }
+    fields <- intersect(LLMR::llm_persona_demographic_fields(personas),
+                        names(personas))
+    lean <- personas[, fields, drop = FALSE]
+    attr(lean, "dictionary") <- attr(personas, "dictionary")
+    attr(lean, "demographic_fields") <- fields
+    return(create_agents_from_data(
+      lean, n_participants = n_participants, config = config,
+      .runner = .runner))
   }
 
   if (!is.null(direct_persona_descriptions)) {
@@ -502,11 +522,6 @@ create_agents <- function(n_participants, config, demographics = NULL,
       stop("`direct_persona_descriptions` must contain non-empty character strings.",
            call. = FALSE)
     }
-  }
-
-  # Direct personas do not need synthetic survey answers.
-  if (is.null(survey_responses) && is.null(direct_persona_descriptions)) {
-    survey_responses <- generate_survey_responses(n_participants)
   }
 
   # A frame with fewer rows than participants would have to be recycled, and
@@ -822,71 +837,6 @@ print.focus_group_analysis <- function(x, ...) {
       if (length(x$themes) || length(x$model_summary)) "included" else "not requested",
       "\n", sep = "")
   invisible(x)
-}
-
-#' Generate Illustrative Example Demographics
-#'
-#' Internal helper behind bare `create_agents(n, config)` calls. The rows are
-#' illustrative United States-flavored examples drawn from fixed marginal
-#' distributions; they are not representative of any population and carry no
-#' survey weights. Supply real `demographics` (or
-#' `direct_persona_descriptions`) for research use.
-#'
-#' @param n Integer number of profiles to generate
-#' @return Data frame with demographic information
-#'
-#' @keywords internal
-generate_diverse_demographics <- function(n) {
-  seed_val <- getOption("focusgroup.seed", NA_integer_)
-  build <- function() {
-    ages <- sample(18:65, n, replace = TRUE)
-    genders <- sample(c("Male", "Female", "Nonbinary"), n, replace = TRUE, prob = c(0.49, 0.49, 0.02))
-
-    education_levels <- c("High School", "Some College", "Bachelor's", "Master's", "PhD")
-    education <- sample(education_levels, n, replace = TRUE, prob = c(0.2, 0.2, 0.35, 0.2, 0.05))
-
-    income_levels <- c("Under $30k", "$30k-$50k", "$50k-$75k", "$75k-$100k", "Over $100k")
-    income <- sample(income_levels, n, replace = TRUE, prob = c(0.15, 0.25, 0.25, 0.20, 0.15))
-
-    locations <- c("Urban", "Suburban", "Rural")
-    location <- sample(locations, n, replace = TRUE, prob = c(0.4, 0.4, 0.2))
-
-    data.frame(
-      age = ages,
-      gender = genders,
-      education = education,
-      income = income,
-      location = location,
-      stringsAsFactors = FALSE
-    )
-  }
-  # with_seed keeps the seeding contained: the draw is deterministic but the
-  # caller's RNG stream is restored afterwards.
-  if (!is.na(seed_val)) withr::with_seed(as.integer(seed_val), build()) else build()
-}
-
-#' Generate Survey Responses
-#'
-#' Internal function to generate diverse survey responses for participants.
-#'
-#' @param n Integer number of response sets to generate
-#' @return Data frame with survey responses
-#'
-#' @keywords internal
-generate_survey_responses <- function(n) {
-  # Generate responses on Likert scales for common topics
-  tech_usage <- sample(1:5, n, replace = TRUE, prob = c(0.1, 0.15, 0.3, 0.3, 0.15))
-  social_media <- sample(1:5, n, replace = TRUE, prob = c(0.05, 0.1, 0.2, 0.4, 0.25))
-  privacy_concern <- sample(1:5, n, replace = TRUE, prob = c(0.1, 0.2, 0.25, 0.3, 0.15))
-  env_concern <- sample(1:5, n, replace = TRUE, prob = c(0.05, 0.1, 0.15, 0.35, 0.35))
-
-  data.frame(
-    tech_usage_comfort = tech_usage,
-    social_media_frequency = social_media,
-    privacy_concern_level = privacy_concern,
-    environmental_concern = env_concern,
-    stringsAsFactors = FALSE
-  )
 }
 
 #' Generate a participant persona from demographics and survey responses
