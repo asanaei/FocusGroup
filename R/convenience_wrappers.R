@@ -677,10 +677,13 @@ analyze_focus_group <- function(focus_group_result,
   }
   # Text statistics describe the discussion, so the moderator's scripted
   # turns are excluded unless asked for; the transcript itself keeps them.
+  excluded_speakers <- character()
   if (identical(speakers, "participants")) {
     mod_ids <- names(fg$agents)[vapply(
       fg$agents, function(a) isTRUE(a$is_moderator), logical(1))]
-    kept <- Filter(function(m) !(m$speaker_id %in% mod_ids),
+    # "System" is the simulator's bookkeeping label, not a discussant.
+    excluded_speakers <- unique(c(mod_ids, "System"))
+    kept <- Filter(function(m) !(m$speaker_id %in% excluded_speakers),
                    fg$conversation_log)
     if (length(kept) && length(kept) < length(fg$conversation_log)) {
       if (is.environment(fg)) {
@@ -752,6 +755,13 @@ analyze_focus_group <- function(focus_group_result,
   )
   basic_stats <- capture_component("basic_stats", function() fg$analyze(),
                                    empty_basic)
+  # fg$analyze() completes its table from the agent roster, so a moderator who
+  # said nothing in the filtered log would still appear as a zero row.
+  if (length(excluded_speakers) && is.data.frame(basic_stats$speaker_stats)) {
+    keep_rows <- !(basic_stats$speaker_stats$speaker_id %in% excluded_speakers)
+    basic_stats$speaker_stats <- basic_stats$speaker_stats[keep_rows, ,
+                                                           drop = FALSE]
+  }
   topics <- capture_component(
     "topics", function() fg$analyze_topics(num_topics = as.integer(num_topics)),
     list()

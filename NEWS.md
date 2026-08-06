@@ -1,6 +1,6 @@
 # FocusGroup 0.5.2
 
-Corrections from an external methodological review of 0.5.1 (never on CRAN).
+Corrections replacing 0.5.1, which was never published.
 
 * The untouched default is now runnable: a compact default guide (one
   opening, one icebreaker, two engagement, three exploration, one closing)

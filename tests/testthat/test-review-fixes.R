@@ -171,3 +171,26 @@ test_that("topic documents are utterances, not speakers, by default", {
   expect_identical(res$unit, "message")
   expect_equal(res$num_documents, 8L)
 })
+
+test_that("participants-only analysis excludes the moderator entirely", {
+  skip_if_not_installed("LLMR")
+  runner <- function(e, ...) {
+    e$response_text <- rep_len("A clear point with a reason attached. 7", nrow(e))
+    e
+  }
+  out <- suppressWarnings(run_focus_group(
+    "coverage", .rv_cfg(), n_participants = 3,
+    guide = c(Opening = 1, Engagement = 1, Closing = 1),
+    flow = "round_robin", verbose = FALSE, seed = 110, .runner = runner))
+  mod_ids <- names(out$focus_group$agents)[vapply(
+    out$focus_group$agents, function(a) isTRUE(a$is_moderator), logical(1))]
+
+  part <- analyze_focus_group(out, include_plots = FALSE)
+  # fg$analyze() completes its table from the roster, so a silent moderator
+  # would otherwise reappear as a zero row
+  expect_false(any(part$basic_stats$speaker_stats$speaker_id %in% mod_ids))
+  expect_false("System" %in% part$basic_stats$speaker_stats$speaker_id)
+
+  everyone <- analyze_focus_group(out, include_plots = FALSE, speakers = "all")
+  expect_true(any(everyone$basic_stats$speaker_stats$speaker_id %in% mod_ids))
+})
