@@ -469,16 +469,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         texts <- sapply(filtered_log, function(x) x$text)
         speaker_ids_vec <- sapply(filtered_log, function(x) x$speaker_id)
 
-        # One document per utterance by default. Pooling by speaker makes
-        # each document a person, so the fitted topics separate speakers
-        # rather than subjects, and a six-person group leaves six documents.
-        speaker_texts <- if (identical(unit, "speaker")) {
-          tapply(texts, speaker_ids_vec, paste, collapse = " ")
-        } else {
-          stats::setNames(
-            as.character(texts),
-            sprintf("m%03d_%s", seq_along(texts), speaker_ids_vec))
-        }
+        speaker_texts <- .fg_topic_documents(texts, speaker_ids_vec, unit)
 
         # Filter documents by minimum length
         word_counts <- .fg_word_count(speaker_texts)

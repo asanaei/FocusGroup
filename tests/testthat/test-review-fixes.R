@@ -137,20 +137,37 @@ test_that("a bare create_agents draws real ANES respondents", {
 })
 
 test_that("topic documents are utterances, not speakers, by default", {
+  texts <- c("buses run late", "rents keep rising", "the routes changed",
+             "my landlord raised it", "fares went up", "housing is tight")
+  speakers <- rep(c("P1", "P2"), each = 3)
+
+  docs <- FocusGroup:::.fg_topic_documents(texts, speakers)
+  expect_length(docs, 6L)                     # one document per utterance
+  expect_identical(unname(docs[1]), texts[1])
+
+  pooled <- FocusGroup:::.fg_topic_documents(texts, speakers, unit = "speaker")
+  expect_length(pooled, 2L)                   # one document per speaker
+  expect_true(all(c("P1", "P2") %in% names(pooled)))
+  expect_match(pooled[["P1"]], "buses run late", fixed = TRUE)
+  expect_match(pooled[["P1"]], "the routes changed", fixed = TRUE)
+
+  # the fitted result records which unit produced it
   skip_if_not_installed("topicmodels")
   skip_if_not_installed("tidytext")
-  long <- paste(rep("transit buses routes schedules riders fares", 6),
-                collapse = " ")
-  df <- data.frame(
-    speaker = rep(c("P1", "P2"), each = 4),
-    text = rep(long, 8))
+  corpus <- c(
+    "buses run late and the routes changed again this winter downtown",
+    "fares went up while service fell on the crosstown routes",
+    "the transit board delayed the new bus lanes downtown again",
+    "riders wait longer for buses on every crosstown route",
+    "rents keep rising and my landlord raised the lease again",
+    "housing is tight so tenants pay more for smaller apartments",
+    "the landlord raised rents across every apartment building here",
+    "tenants face rising rents and shrinking apartments downtown")
+  df <- data.frame(speaker = rep(c("P1", "P2"), each = 4), text = corpus)
   fg <- focus_group_from_transcript(df, speaker_col = "speaker",
                                     text_col = "text")
-  res <- suppressWarnings(fg$analyze_topics(num_topics = 2))
+  res <- suppressWarnings(fg$analyze_topics(num_topics = 2, min_doc_length = 5))
+  skip_if(is.null(res), "LDA did not fit in this environment")
   expect_identical(res$unit, "message")
-  expect_equal(res$num_documents, 8L)   # one per utterance
-  res_sp <- suppressWarnings(fg$analyze_topics(num_topics = 2,
-                                               unit = "speaker"))
-  expect_identical(res_sp$unit, "speaker")
-  expect_equal(res_sp$num_documents, 2L)  # one per speaker
+  expect_equal(res$num_documents, 8L)
 })

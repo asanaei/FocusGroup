@@ -640,3 +640,18 @@ replace_placeholders_known <- function(template_string, values_list) {
   out$admin_config <- NULL
   out
 }
+
+
+# Documents for topic modeling. One document per utterance by default:
+# pooling by speaker makes each document a person, so the fitted topics
+# separate speakers rather than subjects, and a six-person group leaves six
+# documents. Kept separate from the LDA call so the unit is testable without
+# a topic model.
+.fg_topic_documents <- function(texts, speaker_ids, unit = c("message", "speaker")) {
+  unit <- match.arg(unit)
+  if (identical(unit, "speaker")) {
+    return(tapply(as.character(texts), speaker_ids, paste, collapse = " "))
+  }
+  stats::setNames(as.character(texts),
+                  sprintf("m%03d_%s", seq_along(texts), speaker_ids))
+}
