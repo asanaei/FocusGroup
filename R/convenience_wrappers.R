@@ -190,19 +190,40 @@ NULL
 #' @return A `focus_group_result` with the group, transcript, summary,
 #'   participant table, token usage, and sanitized metadata.
 #' @examples
-#' \dontrun{
-#' cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+#' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+#'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
+#' guide <- list(
+#'   Opening = "Welcome the participants and state the ground rules.",
+#'   Exploration = "Which funding priority deserves attention first?",
+#'   Closing = "Thank the participants and close the session."
+#' )
+#'
+#' scripted <- function(experiments, ...) {
+#'   experiments$response_text <- "Evening opening hours matter most to me."
+#'   experiments
+#' }
 #' result <- run_focus_group(
 #'   topic = "Library funding priorities",
 #'   config = cfg,
-#'   n_participants = 4,
-#'   guide = list(
-#'     Opening = "Welcome the participants and state the ground rules.",
-#'     Exploration = "Which funding priority deserves attention first?",
-#'     Closing = "Thank the participants and close the session."
-#'   ),
-#'   flow = "round_robin"
+#'   n_participants = 2,
+#'   guide = guide,
+#'   flow = "round_robin",
+#'   verbose = FALSE,
+#'   .runner = scripted
 #' )
+#' result$transcript[, c("speaker_id", "phase", "text")]
+#'
+#' \donttest{
+#' if (nzchar(Sys.getenv("GROQ_API_KEY"))) {
+#'   live <- run_focus_group(
+#'     topic = "Library funding priorities",
+#'     config = cfg,
+#'     n_participants = 4,
+#'     guide = guide,
+#'     flow = "round_robin"
+#'   )
+#'   live$summary
+#' }
 #' }
 #' @export
 run_focus_group <- function(topic, config, n_participants = 6,
@@ -467,18 +488,20 @@ print.focus_group_result <- function(x, ...) {
 #'   by agent ID.
 #'
 #' @examples
-#' \dontrun{
-#' cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+#' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+#'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
 #' agents <- create_agents(6, config = cfg)
+#' names(agents)
+#' agents$P1$persona_description
 #'
-#' # Create with custom demographics
 #' demo_data <- data.frame(
 #'   age = c(22, 35, 28, 41, 19, 33),
 #'   gender = c("Female", "Male", "Male", "Female", "Male", "Female"),
-#'   education = c("Bachelor's", "Master's", "High School", "PhD", "Some College", "Bachelor's")
+#'   education = c("Bachelor's", "Master's", "High School", "PhD",
+#'                 "Some College", "Bachelor's")
 #' )
 #' agents <- create_agents(6, config = cfg, demographics = demo_data)
-#' }
+#' agents$P2$persona_description
 #'
 #' @export
 create_agents <- function(n_participants, config, demographics = NULL,
@@ -1069,17 +1092,27 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' @seealso [create_agents_from_data()] for an in-memory data frame, and
 #'   `LLMR::anes_2024_personas` for a ready-made example.
 #' @examples
-#' \dontrun{
-#' agents <- create_agents_from_survey(
-#'   n_participants = 6,
-#'   survey_path = "anes_timeseries_2024_stata.dta",
-#'   config = LLMR::llm_config("openai", "gpt-4o-mini"),
-#'   demographic_vars = c(age = "V241458x", education = "V241465x"),
-#'   survey_vars = c("Party identification" = "V241227x",
-#'                   "Ideology" = "V241177"),
-#'   rows = function(df) df$age != "18-24"   # exclude the youngest band
+#' # A small labeled file stands in for a survey release; the call is the same
+#' # against a full ANES, GSS, or WVS file.
+#' toy <- data.frame(
+#'   age = haven::labelled(c(1L, 2L, 3L, 2L),
+#'                         c("18-24" = 1L, "25-34" = 2L, "35-44" = 3L)),
+#'   pid = haven::labelled(c(1L, 2L, 2L, 1L),
+#'                         c("Democrat" = 1L, "Republican" = 2L))
 #' )
-#' }
+#' path <- file.path(tempdir(), "toy_survey.dta")
+#' haven::write_dta(toy, path)
+#'
+#' agents <- create_agents_from_survey(
+#'   n_participants = 2,
+#'   survey_path = path,
+#'   config = LLMR::llm_config("groq", "openai/gpt-oss-20b",
+#'                             api_key = LLMR::llm_api_key_env("GROQ_API_KEY")),
+#'   demographic_vars = c(age = "age"),
+#'   survey_vars = c("Party identification" = "pid"),
+#'   rows = function(df) df$age != "18-24"
+#' )
+#' agents$P1$persona_description
 #' @export
 create_agents_from_survey <- function(n_participants,
                                       survey_path,
@@ -1184,13 +1217,12 @@ create_agents_from_survey <- function(n_participants,
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID.
 #' @examples
-#' \dontrun{
-#' data(anes_2024_personas, package = "LLMR")
-#' cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+#' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+#'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
 #' agents <- create_agents_from_data(
-#'   anes_2024_personas, n_participants = 6, config = cfg
+#'   LLMR::anes_2024_personas, n_participants = 6, config = cfg
 #' )
-#' }
+#' agents$P1$persona_description
 #' @export
 create_agents_from_data <- function(data, n_participants, config,
                                     demographic_cols = NULL,

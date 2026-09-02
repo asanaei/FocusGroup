@@ -40,11 +40,23 @@ message construction (see the `message_mode` argument of
 
 \examples{
 default_prompts <- get_default_prompt_templates()
-print(names(default_prompts))
-print(default_prompts$participant_utterance_subtle_persona)
+names(default_prompts)
+default_prompts$participant_utterance_subtle_persona
 
-# To customize a prompt:
 my_prompts <- get_default_prompt_templates()
 my_prompts$moderator_opening <- "Welcome all! Let us talk about {{topic}} today."
-# Then use `my_prompts` when creating a FocusGroup object.
+
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                        api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
+agents <- create_agents(2, config = cfg,
+                        direct_persona_descriptions = c("A retired teacher.",
+                                                        "A night-shift nurse."))
+fg <- FocusGroup$new(
+  topic = "Library hours",
+  purpose = "Pilot the revised opening.",
+  agents = agents,
+  moderator_id = "MOD",
+  turn_taking_flow = create_conversation_flow("round_robin", agents, "MOD"),
+  prompt_templates = my_prompts)
+fg$prompt_templates$moderator_opening
 }

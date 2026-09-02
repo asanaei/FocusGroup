@@ -50,11 +50,10 @@ A frame of class `silicon_panel`, or a frame with both `persona` and
 uses the frame's structure and does not require LLMRpanel.
 }
 \examples{
-\dontrun{
-data(anes_2024_personas, package = "LLMR")
-cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                        api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
 agents <- create_agents_from_data(
-  anes_2024_personas, n_participants = 6, config = cfg
+  LLMR::anes_2024_personas, n_participants = 6, config = cfg
 )
-}
+agents$P1$persona_description
 }

@@ -25,8 +25,13 @@ An initialized `ConversationFlow` object (e.g., `RoundRobinFlow`, `Probabilistic
 Factory function to create an instance of a `ConversationFlow` subclass.
 }
 \examples{
-# Assuming FGAgent class and agents list (agent1, agent2, mod) are defined
-# mod_id <- "MOD"
-# all_my_agents <- list(P1 = agent1, P2 = agent2, MOD = mod)
-# flow <- create_conversation_flow("desire_based", all_my_agents, mod_id)
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                        api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
+agents <- create_agents(
+  n_participants = 2, config = cfg,
+  direct_persona_descriptions = c("A retired teacher.", "A night-shift nurse."))
+flow <- create_conversation_flow("desire_based", agents, "MOD",
+                                 flow_params = list(min_desire_threshold = 4))
+class(flow)
+flow$participant_ids
 }

@@ -1,4 +1,21 @@
-## Resubmission
+## Resubmission (examples)
+
+The two points raised in review are addressed; the version is unchanged
+because 0.5.2 was never published.
+
+- No example uses `\dontrun{}`. All four executed already, so they are
+  unwrapped: sessions and agents run through the package's `.runner` seam or
+  the bundled ANES records, and the survey-file example writes a small labeled
+  `.dta` into `tempdir()` and reads it back. The slowest example takes about a
+  second. One optional block, a live focus group, sits in `\donttest{}` behind
+  a check for `GROQ_API_KEY`; without a key it is a no-op, so the check makes
+  no network call.
+- No example contains commented-out code. The `create_conversation_flow()`
+  example, previously commented out in full, now builds agents and a flow and
+  prints them. The prompt-template example passes its edited templates to a
+  `FocusGroup` object instead of describing that step in a comment.
+
+## Earlier resubmission
 
 Resubmission of FocusGroup, bumped to 0.5.2 (0.5.1 was never published).
 The July pretest declined 0.5.1 with a WARNING because four objects its GUI
@@ -33,7 +50,8 @@ FocusGroup Imports LLMR (on CRAN) for all model calls. It Suggests
 LLMR.shiny (>= 0.1.2) for the optional GUI; every use of LLMR.shiny and of
 the other suggested packages is guarded with requireNamespace() and skipped
 when the package is absent. The test suite is fully offline (all LLM entry
-points are mocked); no test, example, or vignette makes a network call.
+points are mocked). No test or vignette makes a network call, and the one live
+example block is skipped unless the user has set an API key.
 
 ## Test environments
 

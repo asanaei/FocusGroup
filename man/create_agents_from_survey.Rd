@@ -65,17 +65,27 @@ the file) so the model sees the item, not a code name. The persona draws no
 inferences from the answers; it states them and lets the model interpret.
 }
 \examples{
-\dontrun{
-agents <- create_agents_from_survey(
-  n_participants = 6,
-  survey_path = "anes_timeseries_2024_stata.dta",
-  config = LLMR::llm_config("openai", "gpt-4o-mini"),
-  demographic_vars = c(age = "V241458x", education = "V241465x"),
-  survey_vars = c("Party identification" = "V241227x",
-                  "Ideology" = "V241177"),
-  rows = function(df) df$age != "18-24"   # exclude the youngest band
+# A small labeled file stands in for a survey release; the call is the same
+# against a full ANES, GSS, or WVS file.
+toy <- data.frame(
+  age = haven::labelled(c(1L, 2L, 3L, 2L),
+                        c("18-24" = 1L, "25-34" = 2L, "35-44" = 3L)),
+  pid = haven::labelled(c(1L, 2L, 2L, 1L),
+                        c("Democrat" = 1L, "Republican" = 2L))
 )
-}
+path <- file.path(tempdir(), "toy_survey.dta")
+haven::write_dta(toy, path)
+
+agents <- create_agents_from_survey(
+  n_participants = 2,
+  survey_path = path,
+  config = LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                            api_key = LLMR::llm_api_key_env("GROQ_API_KEY")),
+  demographic_vars = c(age = "age"),
+  survey_vars = c("Party identification" = "pid"),
+  rows = function(df) df$age != "18-24"
+)
+agents$P1$persona_description
 }
 \seealso{
 [create_agents_from_data()] for an in-memory data frame, and

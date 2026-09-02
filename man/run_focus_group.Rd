@@ -79,18 +79,39 @@ the function estimates the number of generated model outputs and applies the
 `max_calls` limit unless `confirm` is `TRUE`.
 }
 \examples{
-\dontrun{
-cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                        api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
+guide <- list(
+  Opening = "Welcome the participants and state the ground rules.",
+  Exploration = "Which funding priority deserves attention first?",
+  Closing = "Thank the participants and close the session."
+)
+
+scripted <- function(experiments, ...) {
+  experiments$response_text <- "Evening opening hours matter most to me."
+  experiments
+}
 result <- run_focus_group(
   topic = "Library funding priorities",
   config = cfg,
-  n_participants = 4,
-  guide = list(
-    Opening = "Welcome the participants and state the ground rules.",
-    Exploration = "Which funding priority deserves attention first?",
-    Closing = "Thank the participants and close the session."
-  ),
-  flow = "round_robin"
+  n_participants = 2,
+  guide = guide,
+  flow = "round_robin",
+  verbose = FALSE,
+  .runner = scripted
 )
+result$transcript[, c("speaker_id", "phase", "text")]
+
+\donttest{
+if (nzchar(Sys.getenv("GROQ_API_KEY"))) {
+  live <- run_focus_group(
+    topic = "Library funding priorities",
+    config = cfg,
+    n_participants = 4,
+    guide = guide,
+    flow = "round_robin"
+  )
+  live$summary
+}
 }
 }

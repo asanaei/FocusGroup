@@ -42,17 +42,19 @@ Creates participant agents from supplied records, direct personas, or
 the bundled ANES 2024 records, and adds a moderator.
 }
 \examples{
-\dontrun{
-cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                        api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
 agents <- create_agents(6, config = cfg)
+names(agents)
+agents$P1$persona_description
 
-# Create with custom demographics
 demo_data <- data.frame(
   age = c(22, 35, 28, 41, 19, 33),
   gender = c("Female", "Male", "Male", "Female", "Male", "Female"),
-  education = c("Bachelor's", "Master's", "High School", "PhD", "Some College", "Bachelor's")
+  education = c("Bachelor's", "Master's", "High School", "PhD",
+                "Some College", "Bachelor's")
 )
 agents <- create_agents(6, config = cfg, demographics = demo_data)
-}
+agents$P2$persona_description
 
 }
