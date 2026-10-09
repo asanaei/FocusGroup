@@ -1,3 +1,10 @@
+# FocusGroup 0.5.3
+
+* `create_agents_from_survey()` applies `rows` to the file's own rows. When
+  respondents without demographic values were present, integer and logical
+  selectors used to pick the wrong respondents. Invalid selectors are refused,
+  and a respondent cannot be selected twice.
+
 # FocusGroup 0.5.2
 
 Corrections replacing 0.5.1, which was never published.

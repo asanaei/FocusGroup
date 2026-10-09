@@ -1173,9 +1173,19 @@ create_agents_from_survey <- function(n_participants,
     names(s) <- svy_keys; s
   } else NULL
 
-  # Keep respondents with at least one demographic; the row filter is applied to
-  # this SAME frame so demographics and survey answers never misalign.
-  keep <- rowSums(!is.na(demo_df)) > 0
+  # `rows` selects among the file's own rows, so it is resolved before
+  # respondents without any demographic value are left out; demographics and
+  # survey answers are filtered by the same mask and never misalign.
+  has_demo <- rowSums(!is.na(demo_df)) > 0
+  selected <- .fg_resolve_rows(rows, demo_df, nrow(demo_df))
+  n_left_out <- sum(selected & !has_demo)
+  if (n_left_out > 0L) {
+    message(sprintf(
+      "%d selected respondent(s) have no demographic values and were left out.",
+      n_left_out))
+  }
+  keep <- selected & has_demo
+  if (!any(keep)) stop("`rows` selected no eligible respondents.", call. = FALSE)
   weights_vec <- if (is.character(weights) && length(weights) == 1L &&
                      weights %in% names(raw_lab)) {
     suppressWarnings(as.numeric(haven::zap_labels(raw_lab[[weights]])))
@@ -1186,8 +1196,37 @@ create_agents_from_survey <- function(n_participants,
 
   .fg_agents_from_frames(
     demo_df, survey_df, n_participants, config,
-    rows = rows, weights = weights_vec, .runner = .runner
+    rows = NULL, weights = weights_vec, .runner = .runner
   )
+}
+
+# Resolve a `rows` selector to a logical mask over the `n` rows of `df`. A
+# predicate or a logical vector must give one value per row (NA counts as not
+# selected); integer selectors must be whole numbers between 1 and `n`. A mask
+# cannot select a respondent twice.
+.fg_resolve_rows <- function(rows, df, n) {
+  if (is.null(rows)) return(rep(TRUE, n))
+  if (is.function(rows)) {
+    flag <- rows(df)
+    if (!is.logical(flag) || length(flag) != n) {
+      stop("A `rows` predicate must return one logical value per respondent.",
+           call. = FALSE)
+    }
+    return(flag %in% TRUE)
+  }
+  if (is.logical(rows)) {
+    if (length(rows) != n) {
+      stop("A logical `rows` selector must have one value per respondent.",
+           call. = FALSE)
+    }
+    return(rows %in% TRUE)
+  }
+  if (!is.numeric(rows) || anyNA(rows) || any(rows != floor(rows)) ||
+      any(rows < 1) || any(rows > n)) {
+    stop("`rows` must be whole numbers between 1 and the number of respondents, with no NA.",
+         call. = FALSE)
+  }
+  seq_len(n) %in% rows
 }
 
 #' Create agents from an in-memory data frame of respondents
