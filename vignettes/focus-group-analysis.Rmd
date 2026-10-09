@@ -133,8 +133,8 @@ failure is not converted to a missing field or omitted from the result.
 ## Import and analyze an existing transcript
 
 Importing a transcript creates no model output. Pass `moderator_id` when the
-moderator is known. If it is omitted, the importer uses the documented
-substring fallback on speaker identifiers.
+moderator is known. If it is omitted, a speaker named exactly `mod`,
+`moderator`, `facilitator`, or `interviewer` (in any case) is the moderator.
 
 ```{r import, eval = FALSE}
 transcript <- data.frame(

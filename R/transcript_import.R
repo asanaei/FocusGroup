@@ -18,10 +18,11 @@
 #' have a roster to report on; these agents carry a minimal placeholder persona
 #' and are not meant to continue the conversation. Set `moderator_id` when the
 #' transcript identifies the moderator. When it is `NULL`, the moderator is the
-#' first speaker whose id contains "mod" (case-insensitive), e.g. "Moderator"
-#' or "MOD". When the fallback finds no match, a non-speaking "MOD" agent is
-#' added so the object is complete, and it appears in `analyze()` with zero
-#' utterances. Rows whose speaker is missing
+#' speaker whose id, ignoring case and surrounding spaces, is exactly one of
+#' "mod", "moderator", "facilitator", or "interviewer"; an id such as
+#' "Moderator 1" or "Modesto" does not match. When no speaker matches, a
+#' non-speaking "MOD" agent is added so the object is complete, a message says
+#' so, and every speaker is analyzed as a participant. Rows whose speaker is missing
 #' or blank are dropped with a warning; rows with speaker "System" are kept in
 #' the log but excluded from analyses, matching how the simulator treats its
 #' own roster message.
@@ -35,7 +36,7 @@
 #'   model-dependent analyses and stored on the object. `NULL` falls back to
 #'   "Imported transcript".
 #' @param moderator_id Character or `NULL`. Exact speaker id to treat as the
-#'   moderator. When `NULL`, the documented "mod" substring fallback is used.
+#'   moderator. When `NULL`, the exact aliases described above are used.
 #' @return A [FocusGroup] object with a populated `conversation_log`.
 #' @seealso [analyze_focus_group()] to run the descriptive analyses in one
 #'   call; [run_focus_group()] to simulate a discussion instead.
@@ -129,6 +130,12 @@ focus_group_from_transcript <- function(data,
 
   resolved_moderator_id <- if (any(is_mod)) speakers[which(is_mod)[1]] else "MOD"
   if (!resolved_moderator_id %in% names(agents)) {
+    message(sprintf(paste0(
+      "No speaker id is a moderator alias (mod, moderator, facilitator, ",
+      "interviewer), so all %d speakers (%s) are analyzed as participants and a ",
+      "non-speaking \"MOD\" placeholder was added. Set `moderator_id` to name the ",
+      "moderator."),
+      length(speakers), paste(utils::head(speakers, 6L), collapse = ", ")))
     agents[[resolved_moderator_id]] <- FGAgent$new(
       id = resolved_moderator_id,
       agent_details = list(direct_persona_description = paste(

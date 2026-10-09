@@ -210,7 +210,9 @@ constructors above are used with direct `FocusGroup` construction.
 `focus_group_from_transcript()` imports a simulated or observed transcript for
 analysis. Importing and descriptive analysis make no model call. Pass
 `moderator_id` when the moderator is known. If it is omitted, the importer
-looks for `"mod"` within speaker identifiers.
+treats a speaker named exactly `mod`, `moderator`, `facilitator`, or
+`interviewer` (in any case) as the moderator; an identifier such as
+`"Moderator 1"` needs `moderator_id`.
 
 ```r
 transcript <- data.frame(

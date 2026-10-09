@@ -492,8 +492,9 @@ replace_placeholders_known <- function(template_string, values_list) {
 # speaker and a text column (named explicitly or auto-detected from common
 # names). Shared by the GUI's Analyze tab and focus_group_from_transcript().
 # Data-frame rows get phase "imported" so phase-aware analyses and plots have a
-# value to group on; a speaker whose id contains "mod" (case-insensitive) is
-# flagged as the moderator, the convention human transcripts most often follow.
+# value to group on; a speaker whose id is exactly a moderator alias (mod,
+# moderator, facilitator, interviewer; case and surrounding spaces ignored) is
+# flagged as the moderator.
 .fg_as_log <- function(obj, speaker_col = NULL, text_col = NULL,
                        moderator_id = NULL) {
   if (inherits(obj, "FocusGroup")) return(obj$conversation_log)

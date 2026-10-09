@@ -9,6 +9,11 @@
   personas by `create_agents_from_survey()` or `create_agents_from_data()`;
   personas used to state the weight as one of the respondent's answers.
 
+* `focus_group_from_transcript()` says when no speaker id is a moderator alias
+  and every speaker is therefore analyzed as a participant. The help, README,
+  and vignettes now describe the exact-alias rule; they still described an
+  earlier substring match.
+
 # FocusGroup 0.5.2
 
 Corrections replacing 0.5.1, which was never published.

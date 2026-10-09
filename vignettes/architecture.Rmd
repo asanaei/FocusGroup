@@ -59,8 +59,10 @@ can generate model output.
 
 `focus_group_from_transcript()` creates a `FocusGroup` from an existing
 transcript without generating new turns. `moderator_id` identifies the
-moderator when known. If it is omitted, the importer falls back to finding
-`"mod"` within a speaker identifier.
+moderator when known. If it is omitted, a speaker named exactly `mod`,
+`moderator`, `facilitator`, or `interviewer` (in any case) is the moderator.
+When no speaker matches, the importer says so and analyzes every speaker as a
+participant.
 
 ## Offline execution and replay
 
