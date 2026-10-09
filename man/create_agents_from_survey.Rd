@@ -38,7 +38,8 @@ sampling: an integer or logical vector, or a predicate
 
 \item{weights}{Optional sampling weights: a column name in the file, or a
 numeric vector aligned to the file's rows. Used only to weight which
-respondents are drawn.}
+respondents are drawn; a weight column named here is not rendered into the
+personas.}
 
 \item{na_strings}{Character vector of value-label substrings treated as
 missing (case-insensitive). Defaults to a small common set; pass your own to

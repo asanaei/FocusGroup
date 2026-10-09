@@ -5,6 +5,10 @@
   selectors used to pick the wrong respondents. Invalid selectors are refused,
   and a respondent cannot be selected twice.
 
+* A sampling-weight column named in `weights` is no longer rendered into
+  personas by `create_agents_from_survey()` or `create_agents_from_data()`;
+  personas used to state the weight as one of the respondent's answers.
+
 # FocusGroup 0.5.2
 
 Corrections replacing 0.5.1, which was never published.

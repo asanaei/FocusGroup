@@ -1080,7 +1080,8 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'   `function(df) -> logical` over the decoded demographics frame.
 #' @param weights Optional sampling weights: a column name in the file, or a
 #'   numeric vector aligned to the file's rows. Used only to weight which
-#'   respondents are drawn.
+#'   respondents are drawn; a weight column named here is not rendered into the
+#'   personas.
 #' @param na_strings Character vector of value-label substrings treated as
 #'   missing (case-insensitive). Defaults to a small common set; pass your own to
 #'   match another file's missing-data vocabulary.
@@ -1149,10 +1150,13 @@ create_agents_from_survey <- function(n_participants,
                           income = pick1("income"))
     demographic_vars <- demographic_vars[!is.na(demographic_vars)]
   }
-  # Survey vars: explicit, else any labeled var that is not a demographic.
+  # Survey vars: explicit, else any labeled var that is neither a demographic
+  # nor the sampling-weight column, which is not something a respondent said.
   if (is.null(survey_vars)) {
     has_label <- vapply(names(raw_lab), function(v) nzchar(label_of(v)), logical(1))
-    survey_vars <- setdiff(names(raw_lab)[has_label], unname(demographic_vars))
+    weight_col <- if (is.character(weights) && length(weights) == 1L) weights else character(0)
+    survey_vars <- setdiff(names(raw_lab)[has_label],
+                           c(unname(demographic_vars), weight_col))
   }
 
   demo_codes <- demographic_vars[unname(demographic_vars) %in% names(raw_lab)]
@@ -1294,10 +1298,11 @@ create_agents_from_data <- function(data, n_participants, config,
                 "military service", "attention to politics")
     demographic_cols <- intersect(common, names(data))
   }
+  # a sampling-weight column and a score/sort column are not persona facts
+  weight_col <- if (is.character(weights) && length(weights) == 1L) weights else character(0)
   demographic_cols <- setdiff(intersect(demographic_cols, names(data)),
-                              reserved_panel_cols)
-  # a score/sort column is not a persona fact
-  drop_cols <- intersect(c("ideology_score"), names(data))
+                              c(reserved_panel_cols, weight_col))
+  drop_cols <- intersect(c("ideology_score", weight_col), names(data))
   survey_cols <- setdiff(names(data), c(demographic_cols, drop_cols,
                                         reserved_panel_cols))
 
