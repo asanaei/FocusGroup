@@ -47,17 +47,16 @@
 
 * `rows` is validated in the same way by both functions. Positions that are
   fractional, missing, or out of range stop with "`rows` must be whole numbers
-  between 1 and the number of respondents ..."; `create_agents_from_data()`
-  used to truncate them (1.9 selected row 1), drop them, or fail with an
-  unrelated error. A logical selector or a predicate's result must have one
-  value per respondent, without `NA` ("... must have one logical value per
-  respondent ...", "... contains missing values at position(s) ..."); `NA` used
-  to mean not selected, and a vector of the wrong length was used as far as
-  it went. A position given twice selects its respondent once, where
-  `create_agents_from_data()` could return one respondent as two
-  participants, and asking for more participants than there are distinct
-  eligible respondents stops with "4 participants were requested, but only 3
-  distinct respondents are eligible."
+  between 1 and the number of respondents ..."; both functions used to
+  truncate them (1.9 selected row 1), drop them, or fail with an unrelated
+  error. A logical selector or a predicate's result must have one value per
+  respondent, without `NA` ("... must have one logical value per respondent
+  ...", "... contains missing values at position(s) ..."); `NA` used to mean
+  not selected, and a vector of the wrong length was used as far as it went. A
+  position given twice selects its respondent once, where either function
+  could return one respondent as two participants, and asking for more
+  participants than there are distinct eligible respondents stops with "4
+  participants were requested, but only 3 distinct respondents are eligible."
 
 * Rosters returned by `create_agents()`, `create_agents_from_data()`, and
   `create_agents_from_survey()` carry a `source_rows` attribute giving the row
@@ -112,12 +111,13 @@
 
 * Group usage now includes interim summaries, which used to be left out, and
   calls whose output is rejected, such as an unsuccessful runner row or a
-  first reply whose retry fails; their usage used to be dropped. A reported count that is not a nonnegative whole
-  number is treated as unknown with the warning "Token count `sent` is not a
-  finite nonnegative whole number; it is treated as unknown." When a
-  broadcast desire-scoring reply cannot be matched to individual agents, the
-  warning "Broadcast usage could not be matched to individual agent calls."
-  replaces the even split of its usage among the agents.
+  first reply whose retry fails; their usage used to be dropped. A reported
+  count that is not a nonnegative whole number is treated as unknown with the
+  warning "Token count `sent` is not a finite nonnegative whole number; it is
+  treated as unknown." When a broadcast desire-scoring reply cannot be
+  matched to individual agents, the warning "Broadcast usage could not be
+  matched to individual agent calls." replaces the even split of its usage
+  among the agents.
 
 * `FGAgent` objects gain the fields `tokens_total_agent` and
   `usage_unknown_agent`, and `FocusGroup` objects gain `total_tokens` and
