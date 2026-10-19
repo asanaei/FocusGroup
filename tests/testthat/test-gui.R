@@ -3,28 +3,6 @@
 # with a fake echo agent that proves the control and perturbed branches diverge
 # without any model call.
 
-fake_fg_agent <- function() {
-  env <- new.env()
-  env$clone <- function(deep = TRUE) env
-  env$generate_utterance <- function(topic, conversation_history_string, ...) {
-    list(text = paste0("ECHO> ", conversation_history_string))
-  }
-  class(env) <- c("R6", "environment")
-  env
-}
-
-fake_fg <- function() {
-  list(topic = "transit", agents = list(P1 = fake_fg_agent()),
-       prompt_templates = list(participant_utterance_subtle_persona = "{{conversation_history}}"),
-       max_tokens_utterance = 160L, message_mode = "roleflip")
-}
-
-sample_fg_log <- function() {
-  list(list(message_id = 1L, round = 1L, speaker_id = "Moderator", text = "What about transit?"),
-       list(message_id = 2L, round = 1L, speaker_id = "P1", text = "Buses are unreliable."),
-       list(message_id = 3L, round = 1L, speaker_id = "P2", text = "Cost is my issue."))
-}
-
 gui_button_tag <- function(html, input_id) {
   pattern <- sprintf(
     "<button[^>]*id=\"[^\"]*-%s\"[^>]*>",
@@ -50,7 +28,9 @@ test_that("run_focus_studio errors helpfully when GUI packages are missing", {
   skip_if_not_installed("LLMR.shiny", "0.1.2")
   need <- c("shiny", "bslib", "DT", "LLMR.shiny")
   if (all(vapply(need, requireNamespace, logical(1), quietly = TRUE))) {
-    expect_true(isTRUE(FocusGroup:::.fg_gui_require()))
+    if (utils::packageVersion("LLMR.shiny") < "0.1.3") {
+      expect_error(FocusGroup:::.fg_gui_require(), "0.1.3.*0.1.2.*install.packages")
+    } else expect_true(isTRUE(FocusGroup:::.fg_gui_require()))
   } else {
     expect_error(FocusGroup:::.fg_gui_require(), "GUI needs these packages")
   }
@@ -436,32 +416,6 @@ test_that(".fg_display_messages drops System and numbers real messages", {
   expect_equal(nrow(FocusGroup:::.fg_display_messages(list())), 0L)
 })
 
-# A minimal fake `shared` context (the shape shell_context returns: reactives
-# plus add_usage/can_run). Lets us drive the run module offline.
-fake_shared <- function(mode = "live", can_run = TRUE, active_tab = "run") {
-  usage <- new.env(); usage$last <- NULL
-  tab <- active_tab
-  finished_session <- shiny::reactiveVal(NULL)
-  analysis_handoff <- shiny::reactiveVal(NULL)
-  list(
-    provider = function() "groq",
-    model = function() "openai/gpt-oss-20b",
-    mode = function() mode,
-    temperature = function() 0.4,
-    max_tokens = function() 480L,
-    reasoning_effort = function() "low",
-    active_tab = function() tab,
-    key = function() list(found = can_run, var = "GROQ_API_KEY"),
-    can_run = function() can_run,
-    finished_session = finished_session,
-    analysis_handoff = analysis_handoff,
-    set_plan = function(calls, label = "Next run") {
-      usage$plan <- list(calls = calls, label = label)
-    },
-    add_usage = function(tokens) usage$last <- tokens,
-    .usage = usage)
-}
-
 test_that(".fg_live_ok requires live mode AND a key (demo never runs)", {
   expect_true(FocusGroup:::.fg_live_ok(fake_shared("live", TRUE)))
   expect_false(FocusGroup:::.fg_live_ok(fake_shared("live", FALSE)))
@@ -567,7 +521,7 @@ test_that("analysis actions enable only when their inputs are ready", {
       expect_gui_button_disabled(incomplete, "analyze")
       expect_match(
         incomplete,
-        "The saved focus-group result is incomplete.",
+        "The saved focus-group result lacks a session object or transcript table.",
         fixed = TRUE
       )
 
@@ -664,12 +618,14 @@ test_that("continuation generation reflects configuration readiness", {
 
 test_that("the run module runs via an injected fake and stores the focus group", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("LLMR.shiny", "0.1.2")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
+  testthat::local_mocked_bindings(build_runner = function(...) .usage_runner(list(list(sent = 100, rec = 20, total = 120))), .package = "LLMR.shiny")
   shared <- fake_shared("live", TRUE)
   seen <- new.env()
   fake_run <- function(topic, n_participants, flow, config, seed,
                        guide, message_mode = "roleflip", verbose,
-                       max_participant_responses, ...) {
+                       max_participant_responses, .runner = NULL, ...) {
+    .fg_call_llm(config, list(list(role = "user", content = "Fixture.")), .runner)
     seen$config <- config
     seen$guide <- guide
     structure(list(
@@ -703,10 +659,10 @@ test_that("the run module runs via an injected fake and stores the focus group",
                         guide_closing = "Close the session.")
       session$setInputs(run = 1)
       expect_true(inherits(result()$focus_group, "FocusGroup"))
-      # real token totals propagate to usage; calls is the estimate
+      # Usage comes from the runner return, independently of the estimate.
       expect_equal(shared$.usage$last$sent, 100L)
       expect_equal(shared$.usage$last$received, 20L)
-      expect_true(shared$.usage$last$calls >= 1L)
+      expect_equal(shared$.usage$last$calls, 1)
       expect_identical(shared$.usage$plan$calls, 6L)
       expect_match(shared$.usage$plan$label, "utterances; retries excluded")
       expect_identical(seen$config$model_params$temperature, 0.4)
@@ -743,7 +699,7 @@ test_that("the run module runs via an injected fake and stores the focus group",
 
 test_that("the run module makes NO call in demo mode", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("LLMR.shiny", "0.1.2")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
   shared <- fake_shared("demo", TRUE)
   called <- new.env(); called$n <- 0L
   fake_run <- function(...) { called$n <- called$n + 1L; stop("must not be called") }
@@ -762,7 +718,7 @@ test_that("the run module makes NO call in demo mode", {
 
 test_that("the run module uses the persona runner when source = anes", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("LLMR.shiny", "0.1.2")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
   shared <- fake_shared("live", TRUE)
   seen <- new.env()
   fake_persona <- function(topic, n_participants, rows, flow, message_mode, seed,
@@ -811,7 +767,7 @@ test_that("the run module uses the persona runner when source = anes", {
 test_that("the Analyze module consumes a finished-session handoff", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny", "0.1.2")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
   shared <- fake_shared("demo", TRUE, active_tab = "analyze")
   handed_off <- structure(
     list(
@@ -902,7 +858,8 @@ test_that("the Analyze module consumes a finished-session handoff", {
 test_that("model analysis receives the shared generation settings", {
   skip_if_not_installed("shiny")
   skip_if_not_installed("bslib")
-  skip_if_not_installed("LLMR.shiny", "0.1.2")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
+  testthat::local_mocked_bindings(build_runner = function(...) .usage_runner(list(list(sent = 2, rec = 3, total = 9))), .package = "LLMR.shiny")
   shared <- fake_shared("live", TRUE, active_tab = "analyze")
   handed_off <- structure(
     list(
@@ -922,6 +879,9 @@ test_that("model analysis receives the shared generation settings", {
   fake_analysis <- function(focus_group_result, num_topics, include_plots,
                             config = NULL, .runner = NULL) {
     configs[[length(configs) + 1L]] <<- list(config = config)
+    if (!is.null(config)) for (i in 1:2) {
+      .fg_call_llm(config, list(list(role = "user", content = "Fixture.")), .runner)
+    }
     list(
       basic_stats = list(
         speaker_stats = data.frame(
@@ -969,7 +929,7 @@ test_that("model analysis receives the shared generation settings", {
         configs[[2]]$config$model_params$reasoning_effort,
         "low"
       )
-      expect_identical(shared$.usage$last$calls, 2L)
+      expect_equal(shared$.usage$last$calls, 2)
       expect_identical(shiny::isolate(analysis())$themes, "Theme")
       expect_identical(
         shiny::isolate(analysis())$model_summary,
@@ -981,7 +941,7 @@ test_that("model analysis receives the shared generation settings", {
 
 test_that("the continuation module plans and runs all configured arms", {
   skip_if_not_installed("shiny")
-  skip_if_not_installed("LLMR.shiny", "0.1.2")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
   shared <- fake_shared("live", TRUE, active_tab = "experiment")
   group <- fake_fg()
   group$conversation_log <- sample_fg_log()
@@ -1013,7 +973,7 @@ test_that("the continuation module plans and runs all configured arms", {
         unique(result()$arm_label),
         c("Control", "Reliable buses", "Free fares")
       )
-      expect_identical(shared$.usage$last$calls, 6L)
+      expect_equal(shared$.usage$last$calls, 0)
       expect_identical(
         group$agents$P1$config$model_params$temperature,
         0.4

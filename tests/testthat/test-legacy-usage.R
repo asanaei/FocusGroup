@@ -28,3 +28,19 @@ test_that("serialized locked legacy bindings remain readable and collect new ana
   expect_equal(attr(legacy, "recorded_usage")$total, 18)
   expect_false("calls_usage_unknown" %in% names(legacy))
 })
+
+test_that("legacy continuation agents are reconstructed without changing the saved object", {
+  legacy <- R6::R6Class("FGAgent", public = list(id = "P1", config = NULL, .runner = NULL,
+    persona_description = "A participant.", communication_style_instruction = "Plain speech.",
+    demographics = list(age = 40), survey_responses = NULL, is_moderator = FALSE,
+    tokens_sent_agent = 11, tokens_received_agent = 12, history = list(),
+    generate_utterance = function(...) stop("historical method")))$new()
+  legacy <- unserialize(serialize(legacy, NULL))
+  expect_true(environmentIsLocked(legacy))
+  out <- .fg_generate_once(legacy, "Hours", "", "State your view.", config = LLMR::llm_config("openai", "example-model"),
+    .runner = .usage_runner(list(list(sent = 2, rec = 3, total = 9))))
+  expect_equal(out$meta$total_tokens, 9)
+  expect_equal(legacy$tokens_sent_agent, 11)
+  expect_false("tokens_total_agent" %in% names(legacy))
+  expect_error(legacy$generate_utterance(), "historical method")
+})

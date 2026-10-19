@@ -36,7 +36,7 @@ Suggests:
     shiny,
     bslib,
     DT,
-    LLMR.shiny (>= 0.1.2)
+    LLMR.shiny (>= 0.1.3)
 VignetteBuilder: knitr
 URL: https://github.com/asanaei/FocusGroup, https://asanaei.github.io/FocusGroup/
 BugReports: https://github.com/asanaei/FocusGroup/issues

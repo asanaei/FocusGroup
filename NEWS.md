@@ -153,6 +153,28 @@
   named "MOD", the placeholder moderator is named "MOD_2", or the next free
   suffix.
 
+## Studio
+
+* The Studio requires LLMR.shiny 0.1.3 or later and stops with "FocusGroup
+  Studio requires LLMR.shiny >= 0.1.3; installed version is ..." when an
+  older version is installed.
+
+* The Studio's usage tile counts the calls each action made and their
+  reported tokens, shown as lower bounds when a call reported none, and it
+  records the calls an action made before failing. It used to record the
+  planned number of calls for a continuation experiment, two calls with 0
+  tokens for model analysis, and nothing for a run that failed, and it showed
+  exact counts when a reply reported no usage.
+
+* A Studio run that fails partway keeps its partial transcript for analysis
+  and download, with a notice naming the phase where it stopped. Saved
+  sessions keep the completion status and the roster's `source_rows` and
+  `source_ids`.
+
+* The Studio's participant-source choices are labeled "ANES demographics"
+  and "ANES respondent fields". The first was labeled "Synthetic personas",
+  although both draw respondents from the bundled ANES records.
+
 # FocusGroup 0.5.2
 
 Corrections replacing 0.5.1, which was never published.

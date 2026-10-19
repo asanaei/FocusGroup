@@ -29,6 +29,26 @@ analysis works offline.
 The GUI is optional. It needs the suggested packages shiny, bslib, DT, and
 LLMR.shiny; install them first. Keys are read from environment variables only,
 never pasted into the app.
+
+The Studio needs LLMR.shiny 0.1.3 or later and stops with an error when an
+older version is installed.
+
+The usage tile in the sidebar counts the model calls each action made and
+the tokens they reported, including the calls an action made before it
+failed. When some calls reported no usage, the token counts are shown as
+lower bounds. If usage cannot be recorded, a notification says so, and the
+action's results remain available.
+
+A run that fails partway keeps the turns it completed: the partial
+transcript can be analyzed and downloaded, and a notice names the phase in
+which the run stopped. A downloaded session keeps its completion status and
+the rows its participants were drawn from, but no model configuration or
+runner function, since a configuration can hold a literal API key.
+
+A continuation from a session saved by FocusGroup 0.5.2 or earlier rebuilds
+the saved \code{FGAgent} agents with the current class, so that their usage is
+recorded as described in \code{\link[=run_focus_group]{run_focus_group()}}; agents of other classes are
+used as saved.
 }
 \examples{
 if (interactive() &&
