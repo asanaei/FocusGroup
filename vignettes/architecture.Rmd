@@ -131,9 +131,21 @@ result. A `focus_group_result` always has these fields:
 - `transcript`: one row per logged message.
 - `summary`: the final model summary.
 - `participants`: a data frame describing the roster.
-- `usage`: token use in LLMR's `sent`, `rec`, and `total` vocabulary.
+- `usage`: token use in LLMR's `sent`, `rec`, and `total` vocabulary, with
+  `unknown`, the number of calls that did not report their usage. Unreported
+  counts are unknown rather than zero, so the totals are lower bounds when
+  `unknown` is positive.
 - `metadata`: `topic`, `purpose`, `flow`, `message_mode`, `n_participants`,
-  `estimated_calls`, `provider`, and `model`, with no credentials.
+  `estimated_calls`, `provider`, `model`, `complete`, and `failure`, with no
+  credentials. `complete` is `FALSE` for a session that stopped early, and
+  `failure` then records the phase and the error message.
+
+When a model call fails during `run_simulation()`, `run_focus_group()` raises
+an error of class `focusgroup_incomplete_session`. Its `partial` field is a
+`focus_group_result` built from the messages logged before the failure, its
+`phase` field names the phase that was running, and its `parent` field holds
+the original error. A failed final summary is the exception: it produces a
+warning and a complete result whose `summary` is `NA`.
 
 The class has a concise print method. `FocusGroup` also has a concise S3 print
 method for direct R6 objects.

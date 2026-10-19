@@ -212,7 +212,9 @@ analysis. Importing and descriptive analysis make no model call. Pass
 `moderator_id` when the moderator is known. If it is omitted, the importer
 treats a speaker named exactly `mod`, `moderator`, `facilitator`, or
 `interviewer` (in any case) as the moderator; an identifier such as
-`"Moderator 1"` needs `moderator_id`.
+`"Moderator 1"` needs `moderator_id`. A transcript saved from a session, such
+as `result$transcript` written to a CSV file, keeps its message ids, rounds,
+phases, and token counts when it is imported again.
 
 ```r
 transcript <- data.frame(
@@ -258,9 +260,10 @@ is the ecosystem reporting entry point.
 ## Use Focus Studio
 
 `run_focus_studio()` starts the optional Shiny interface. Its Run tab starts
-sessions with synthetic or ANES 2024 personas. Synthetic-persona sessions use
-`run_focus_group()`; ANES sessions use respondent-derived agents with the same
-guide, flow, and session classes. The Analyze tab reads participation and word
+sessions with participants drawn from the bundled ANES 2024 records, rendered
+from their demographic fields alone or from respondent fields you select. The
+first kind of session uses `run_focus_group()`; the second uses
+respondent-derived agents with the same guide, flow, and session classes. The Analyze tab reads participation and word
 statistics offline. The Continuation experiment fixes the next participant
 speaker and generates one next message under the original history and one under
 a history with an earlier message edited. These paired continuations support a
@@ -278,9 +281,26 @@ model labels, duration, and failure metadata. Moderator questions and their
 participant responses share a round.
 
 The `participants` component is a data frame. `usage` uses LLMR's `sent`, `rec`,
-and `total` token vocabulary. `metadata` records `topic`, `purpose`, `flow`,
-`message_mode`, `n_participants`, `estimated_calls`, `provider`, and `model`.
-Credentials are never included.
+and `total` token vocabulary, and `unknown` counts the calls that did not
+report their usage. A count a provider did not report is unknown rather than
+zero: it is `NA` on the transcript row, and when `unknown` is positive the
+totals in `usage` are lower bounds. `metadata` records `topic`, `purpose`,
+`flow`, `message_mode`, `n_participants`, `estimated_calls`, `provider`, and
+`model`, followed by `complete` and `failure`, which say whether the session
+finished and, if not, in which phase it stopped. Credentials are never
+included.
+
+If a model call fails partway through a session, `run_focus_group()` raises an
+error of class `focusgroup_incomplete_session`. The error's `partial` field
+holds the result for the turns completed before the failure:
+
+```r
+result <- tryCatch(
+  run_focus_group("Public transit", config = config),
+  focusgroup_incomplete_session = function(e) e$partial
+)
+result$metadata$failure
+```
 
 Before a live run, `run_focus_group()` estimates the number of model calls. A
 request above `max_calls` stops unless `confirm = TRUE`. Retries and incomplete

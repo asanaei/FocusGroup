@@ -70,7 +70,7 @@ result$usage
 Each transcript row has a unique `message_id`. `round` identifies the moderator
 cycle, so a moderator question and its participant responses share a round.
 `phase` retains the guide phase. Generated rows also carry provider response
-metadata and token counts.
+metadata and token counts; a count the provider did not report is `NA`.
 
 ## Run descriptive analysis offline
 
