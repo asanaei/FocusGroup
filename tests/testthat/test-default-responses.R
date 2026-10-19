@@ -22,7 +22,7 @@ test_that("the load default and actual live gate use two responses", {
   expect_equal(count, 82)
   expect_equal(result$focus_group$max_participant_responses, 2)
   count <- 0L
-  options(focusgroup.max_participant_responses = 3L)
+  withr::local_options(list(focusgroup.max_participant_responses = 3L))
   FocusGroup:::.onLoad(NULL, "FocusGroup")
   expect_identical(getOption("focusgroup.max_participant_responses"), 3L)
   expect_error(call(max_calls = 100), "135")
@@ -33,7 +33,7 @@ test_that("the load default and actual live gate use two responses", {
   expect_error(call(max_participant_responses = .Machine$integer.max), "estimate.*integer range")
   expect_error(.fg_validate_estimate(NA_real_), "estimate is unavailable")
   expect_error(call(guide = c(Engagement = .Machine$integer.max)), "estimate.*integer range")
-  options(focusgroup.max_participant_responses = NULL)
+  withr::local_options(list(focusgroup.max_participant_responses = NULL))
   agents <- create_agents(1, cfg, demographics = data.frame(age = 40))
   g <- suppressMessages(FocusGroup$new("Hours", "Study", agents, "MOD", create_conversation_flow("round_robin", agents, "MOD")))
   expect_equal(g$max_participant_responses, 2)
