@@ -1185,7 +1185,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         dplyr::group_by(.data$agent_id) %>%
         dplyr::summarise(
           total_messages = dplyr::n(),
-          total_words = sum(sapply(.data$message, function(x) length(strsplit(x, "\\s+")[[1]]))),
+          total_words = sum(.fg_word_count(.data$message)),
           avg_words_per_message = .data$total_words / .data$total_messages,
           .groups = "drop"
         ) %>%
@@ -1218,7 +1218,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       messages <- sapply(filtered_log, function(x) x$text)
       phases <- sapply(filtered_log, function(x) x$phase)
 
-      word_counts <- sapply(messages, function(x) length(strsplit(x, "\\s+")[[1]]))
+      word_counts <- .fg_word_count(messages)
       timeline_data <- data.frame(
         message_id = vapply(filtered_log, function(x) x$message_id, integer(1)),
         word_count = word_counts,

@@ -153,6 +153,13 @@
   named "MOD", the placeholder moderator is named "MOD_2", or the next free
   suffix.
 
+* `plot_message_length_timeline()` and `plot_participation_by_agent()` count
+  words with the rule the analysis tables use, so a blank utterance has no
+  words and surrounding whitespace adds none. They used to split the raw
+  text, which for imported text with leading or blank whitespace counted one
+  word more per affected message than the tables did (" hello  world "
+  counted 3 words, and "   " counted 1).
+
 ## Studio
 
 * The Studio requires LLMR.shiny 0.1.3 or later and stops with "FocusGroup

@@ -1726,8 +1726,7 @@ run_focus_studio <- function(...) {
 }
 
 .fg_experiment_summary <- function(responses) {
-  words <- lengths(strsplit(trimws(responses$response_text), "\\s+"))
-  words[!nzchar(trimws(responses$response_text))] <- 0L
+  words <- .fg_word_count(responses$response_text)
   ids <- unique(responses$arm_id)
   do.call(rbind, lapply(ids, function(id) {
     keep <- responses$arm_id == id
@@ -1746,10 +1745,7 @@ run_focus_studio <- function(...) {
 
 .fg_experiment_plot <- function(responses) {
   plot_data <- responses
-  plot_data$words <- lengths(strsplit(
-    trimws(plot_data$response_text), "\\s+"
-  ))
-  plot_data$words[!nzchar(trimws(plot_data$response_text))] <- 0L
+  plot_data$words <- .fg_word_count(plot_data$response_text)
   ggplot2::ggplot(
     plot_data,
     ggplot2::aes(x = .data$arm_label, y = .data$words)
