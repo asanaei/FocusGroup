@@ -12,6 +12,7 @@ Description: Moderated focus group discussions simulated with large language
 License: MIT + file LICENSE
 Encoding: UTF-8
 RoxygenNote: 7.3.3
+Roxygen: list(markdown = TRUE)
 Config/testthat/edition: 3
 Depends: R (>= 4.1.0)
 Imports: 

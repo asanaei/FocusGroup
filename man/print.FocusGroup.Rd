@@ -7,12 +7,12 @@
 \method{print}{FocusGroup}(x, ...)
 }
 \arguments{
-\item{x}{A `FocusGroup` object.}
+\item{x}{A \code{FocusGroup} object.}
 
 \item{...}{Unused.}
 }
 \value{
-`x`, invisibly.
+\code{x}, invisibly.
 }
 \description{
 Print a FocusGroup

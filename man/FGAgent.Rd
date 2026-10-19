@@ -4,9 +4,8 @@
 \alias{FGAgent}
 \title{FGAgent Class}
 \value{
-An R6 generator. `FGAgent$new(id, agent_details, config,
-  is_moderator = FALSE, .runner = NULL)` returns an `FGAgent`;
-  [create_agents()] and its relatives construct whole rosters.
+An R6 generator. \code{FGAgent$new(id, agent_details, config, is_moderator = FALSE, .runner = NULL)} returns an \code{FGAgent};
+\code{\link[=create_agents]{create_agents()}} and its relatives construct whole rosters.
 }
 \description{
 FGAgent Class
@@ -20,16 +19,16 @@ generate utterances and express a desire to speak.
 }
 \section{Customizing Agents}{
 
-`FGAgent` is designed to be flexible:
+\code{FGAgent} is designed to be flexible:
 \itemize{
-  \item **Per-Agent LLM Configuration**: Each agent is initialized with its own
-    `llm_config` (stored in the `config` field). This allows different
-    agents to use different LLMs, temperatures, or even providers.
-  \item **Persona Definition**: The `agent_details` (containing `demographics`,
-    `survey_responses`, `direct_persona_description`, and/or `communication_style`)
-    are used to construct the `persona_description` and `communication_style_instruction`.
-  \item **Subclassing**: For advanced customization, inherit from `FGAgent` to override
-    methods or add new fields.
+\item \strong{Per-Agent LLM Configuration}: Each agent is initialized with its own
+\code{llm_config} (stored in the \code{config} field). This allows different
+agents to use different LLMs, temperatures, or even providers.
+\item \strong{Persona Definition}: The \code{agent_details} (containing \code{demographics},
+\code{survey_responses}, \code{direct_persona_description}, and/or \code{communication_style})
+are used to construct the \code{persona_description} and \code{communication_style_instruction}.
+\item \strong{Subclassing}: For advanced customization, inherit from \code{FGAgent} to override
+methods or add new fields.
 }
 }
 
@@ -53,14 +52,14 @@ derived from demographics, survey responses, or direct input.}
 \item{\code{communication_style_instruction}}{Character. A specific instruction about the agent's
 communication style, to be included in prompts.}
 
-\item{\code{config}}{An `llm_config` object (from the `LLMR` package) specifying the
+\item{\code{config}}{An \code{llm_config} object (from the \code{LLMR} package) specifying the
 LLM provider, model, API key, and other parameters for this agent.}
 
-\item{\code{.runner}}{`NULL` or a function used instead of live model calls. It
-receives a data frame with `config` and `messages` list-columns and returns
-those rows with at least `response_text`.}
+\item{\code{.runner}}{\code{NULL} or a function used instead of live model calls. It
+receives a data frame with \code{config} and \code{messages} list-columns and returns
+those rows with at least \code{response_text}.}
 
-\item{\code{is_moderator}}{Logical. `TRUE` if the agent is the moderator, `FALSE` otherwise.}
+\item{\code{is_moderator}}{Logical. \code{TRUE} if the agent is the moderator, \code{FALSE} otherwise.}
 
 \item{\code{history}}{List. A log of utterances made by this agent during the simulation.}
 
@@ -102,19 +101,19 @@ Initialize a new FGAgent.
 \item{\code{agent_details}}{List. Contains information to build the agent's persona.
 Can include:
 \itemize{
-  \item `demographics`: A named list of demographic attributes (e.g., `list(age = 30, occupation = "teacher")`).
-  \item `survey_responses`: A named list of survey questions and answers.
-  \item `direct_persona_description`: A character string to be used directly as the persona. Overrides demographics/survey if provided.
-  \item `communication_style`: A character string describing the agent's communication style (e.g., "analytical and direct", "empathetic and story-driven").
+\item \code{demographics}: A named list of demographic attributes (e.g., \code{list(age = 30, occupation = "teacher")}).
+\item \code{survey_responses}: A named list of survey questions and answers.
+\item \code{direct_persona_description}: A character string to be used directly as the persona. Overrides demographics/survey if provided.
+\item \code{communication_style}: A character string describing the agent's communication style (e.g., "analytical and direct", "empathetic and story-driven").
 }
-If `is_moderator` is `TRUE` and no specific details are provided, a default moderator persona is used.}
+If \code{is_moderator} is \code{TRUE} and no specific details are provided, a default moderator persona is used.}
 
-\item{\code{config}}{An `llm_config` object from `LLMR::llm_config()`. It may be
-`NULL` only for an analysis-only agent that will not generate output.}
+\item{\code{config}}{An \code{llm_config} object from \code{LLMR::llm_config()}. It may be
+\code{NULL} only for an analysis-only agent that will not generate output.}
 
-\item{\code{is_moderator}}{Logical. `TRUE` if this agent is the moderator, `FALSE` otherwise.}
+\item{\code{is_moderator}}{Logical. \code{TRUE} if this agent is the moderator, \code{FALSE} otherwise.}
 
-\item{\code{.runner}}{`NULL` uses live LLMR calls; a function is used instead of
+\item{\code{.runner}}{\code{NULL} uses live LLMR calls; a function is used instead of
 live model calls.}
 }
 \if{html}{\out{</div>}}
@@ -159,23 +158,23 @@ Generate an utterance for the agent.
 
 \item{\code{conversation_log}}{List or NULL. The structured conversation log. When
 supplied (and the template is not a legacy flat template), the message is
-built role-flipped: this agent's own prior turns become `assistant`
-messages and others' become labeled `user` messages. `NULL` keeps the
+built role-flipped: this agent's own prior turns become \code{assistant}
+messages and others' become labeled \code{user} messages. \code{NULL} keeps the
 legacy flat single-user-message construction.}
 
 \item{\code{standing_rules}}{Character or NULL. The system-message standing rules
-(persona-anchoring, safety, etc.) for the role-flipped path; `NULL` uses a
+(persona-anchoring, safety, etc.) for the role-flipped path; \code{NULL} uses a
 built-in default appropriate to the agent's role.}
 
-\item{\code{self_state}}{Logical. If `TRUE` (default), a compact "points you have
+\item{\code{self_state}}{Logical. If \code{TRUE} (default), a compact "points you have
 already made" digest of the agent's own prior turns is added to the system
 message (participants only) to discourage self-repetition.}
 }
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-A list with `text` (the generated utterance) and `meta` (a list
-  of call metadata: token counts, finish reason, provider, model, timing).
+A list with \code{text} (the generated utterance) and \code{meta} (a list
+of call metadata: token counts, finish reason, provider, model, timing).
 }
 }
 \if{html}{\out{<hr>}}
@@ -218,7 +217,7 @@ contribute to the discussion at the current moment.
 \item{\code{conversation_log}}{List or NULL. The structured conversation log. When
 supplied (and the template is not a legacy flat template), desire scoring
 is role-flipped so the agent reads its own prior turns as its own voice;
-`NULL` keeps the legacy flat construction.}
+\code{NULL} keeps the legacy flat construction.}
 }
 \if{html}{\out{</div>}}
 }

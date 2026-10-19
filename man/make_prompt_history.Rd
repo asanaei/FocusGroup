@@ -18,7 +18,7 @@ make_prompt_history(
 
 \item{include_summary}{Character. Optional summary of earlier discussion.}
 
-\item{max_tokens_history}{Integer. Approximate token ceiling when `n_recent` is `NULL`.}
+\item{max_tokens_history}{Integer. Approximate token ceiling when \code{n_recent} is \code{NULL}.}
 }
 \value{
 A character string with recent prompt history.

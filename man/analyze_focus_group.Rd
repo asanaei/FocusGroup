@@ -15,34 +15,34 @@ analyze_focus_group(
 )
 }
 \arguments{
-\item{focus_group_result}{A `FocusGroup` object or `focus_group_result`.}
+\item{focus_group_result}{A \code{FocusGroup} object or \code{focus_group_result}.}
 
 \item{num_topics}{Integer number of topics for topic modeling.}
 
 \item{include_plots}{Logical. Attempt the four descriptive plots.}
 
 \item{speakers}{Whose turns the text statistics describe:
-`"participants"` (default) excludes the moderator's scripted turns;
-`"all"` keeps them. The transcript itself always retains every turn.}
+\code{"participants"} (default) excludes the moderator's scripted turns;
+\code{"all"} keeps them. The transcript itself always retains every turn.}
 
-\item{language}{Language of the transcript (default `"en"`). The
+\item{language}{Language of the transcript (default \code{"en"}). The
 TF-IDF stop-word list and the readability formula are English-specific,
-so those components are skipped, with a note in `issues`, for any other
+so those components are skipped, with a note in \code{issues}, for any other
 value.}
 
-\item{config}{Optional explicit `LLMR::llm_config`. When supplied, thematic
+\item{config}{Optional explicit \code{LLMR::llm_config}. When supplied, thematic
 analysis and a model summary are generated.}
 
 \item{.runner}{Optional function used instead of live model calls for the two
 model analyses.}
 }
 \value{
-A `focus_group_analysis` containing returned analysis components and
-  an `issues` table.
+A \code{focus_group_analysis} containing returned analysis components and
+an \code{issues} table.
 }
 \description{
 Runs descriptive analyses offline. Thematic analysis and a model-generated
-summary are opt-in and run only when `config` is supplied.
+summary are opt-in and run only when \code{config} is supplied.
 }
 \examples{
 transcript <- data.frame(

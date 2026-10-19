@@ -21,32 +21,32 @@ Default "speaker".}
 \item{text_col}{Character. Name of the column holding the utterance text.
 Default "text".}
 
-\item{topic}{Character or `NULL`. The discussion topic, used by the
-model-dependent analyses and stored on the object. `NULL` falls back to
+\item{topic}{Character or \code{NULL}. The discussion topic, used by the
+model-dependent analyses and stored on the object. \code{NULL} falls back to
 "Imported transcript".}
 
-\item{moderator_id}{Character or `NULL`. Exact speaker id to treat as the
-moderator. When `NULL`, the exact aliases described above are used.}
+\item{moderator_id}{Character or \code{NULL}. Exact speaker id to treat as the
+moderator. When \code{NULL}, the exact aliases described above are used.}
 }
 \value{
-A [FocusGroup] object with a populated `conversation_log`.
+A \link{FocusGroup} object with a populated \code{conversation_log}.
 }
 \description{
 Turns a transcript that the package did not generate -- a human focus group,
 a transcript exported from other software, or a saved CSV -- into a
-[FocusGroup] object whose `conversation_log` holds the imported turns. The
-returned object supports the analysis methods (`analyze()`,
-`analyze_participation_balance()`, `analyze_topics()`, `analyze_tfidf()`,
-`analyze_readability()`, `analyze_themes()`), the plotting methods, and
-[analyze_focus_group()]. No model call is made: importing and the
+\link{FocusGroup} object whose \code{conversation_log} holds the imported turns. The
+returned object supports the analysis methods (\code{analyze()},
+\code{analyze_participation_balance()}, \code{analyze_topics()}, \code{analyze_tfidf()},
+\code{analyze_readability()}, \code{analyze_themes()}), the plotting methods, and
+\code{\link[=analyze_focus_group]{analyze_focus_group()}}. No model call is made: importing and the
 descriptive analyses run offline, and only the model-dependent methods
-(`analyze_themes()`, `summarize()`) contact a provider when you call them.
+(\code{analyze_themes()}, \code{summarize()}) contact a provider when you call them.
 }
 \details{
 One lightweight agent is created per speaker so that speaker-aware methods
 have a roster to report on; these agents carry a minimal placeholder persona
-and are not meant to continue the conversation. Set `moderator_id` when the
-transcript identifies the moderator. When it is `NULL`, the moderator is the
+and are not meant to continue the conversation. Set \code{moderator_id} when the
+transcript identifies the moderator. When it is \code{NULL}, the moderator is the
 speaker whose id, ignoring case and surrounding spaces, is exactly one of
 "mod", "moderator", "facilitator", or "interviewer"; an id such as
 "Moderator 1" or "Modesto" does not match. When no speaker matches, a
@@ -72,6 +72,6 @@ fg <- focus_group_from_transcript(transcript, topic = "library hours")
 fg$analyze_participation_balance()$participation_stats
 }
 \seealso{
-[analyze_focus_group()] to run the descriptive analyses in one
-  call; [run_focus_group()] to simulate a discussion instead.
+\code{\link[=analyze_focus_group]{analyze_focus_group()}} to run the descriptive analyses in one
+call; \code{\link[=run_focus_group]{run_focus_group()}} to simulate a discussion instead.
 }

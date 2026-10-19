@@ -16,10 +16,10 @@ create_agents(
 \arguments{
 \item{n_participants}{Integer number of participants to create}
 
-\item{config}{An explicit `LLMR::llm_config` for all agents.}
+\item{config}{An explicit \code{LLMR::llm_config} for all agents.}
 
 \item{demographics}{Optional data frame, one row per participant. When it,
-`survey_responses`, and `direct_persona_descriptions` are all NULL,
+\code{survey_responses}, and \code{direct_persona_descriptions} are all NULL,
 participants are drawn from the bundled ANES 2024 records.}
 
 \item{survey_responses}{Optional data frame of survey answers, one row per
@@ -35,7 +35,7 @@ on every agent.}
 }
 \value{
 A named list of FGAgent objects (participants + 1 moderator), keyed
-  by agent ID.
+by agent ID.
 }
 \description{
 Creates participant agents from supplied records, direct personas, or

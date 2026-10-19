@@ -12,16 +12,15 @@ generate_persona(
 }
 \arguments{
 \item{demographics}{A named list (or single-row data frame coerced to one) of
-demographic fields, e.g. `list(age = 63, education = "High school",
-region = "South")`. Field names are shown to the model as written.}
+demographic fields, e.g. \code{list(age = 63, education = "High school", region = "South")}. Field names are shown to the model as written.}
 
 \item{survey_responses}{Optional named list of survey responses, keyed by the
-question text: `list("Party identification" = "Strong Democrat")`.}
+question text: \code{list("Party identification" = "Strong Democrat")}.}
 
-\item{style}{One of `"labeled"` (default) or `"paragraph"`. `"labeled"` lists
-the demographics and then a Question/Answer block; `"paragraph"` fuses them
+\item{style}{One of \code{"labeled"} (default) or \code{"paragraph"}. \code{"labeled"} lists
+the demographics and then a Question/Answer block; \code{"paragraph"} fuses them
 into a single natural paragraph. Defaults to
-`getOption("focusgroup.persona_style", "labeled")`.}
+\code{getOption("focusgroup.persona_style", "labeled")}.}
 }
 \value{
 Character string with the persona description.

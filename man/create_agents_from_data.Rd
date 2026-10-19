@@ -19,34 +19,34 @@ create_agents_from_data(
 
 \item{n_participants}{Integer number of participants (excludes the moderator).}
 
-\item{config}{An explicit `LLMR::llm_config` for all agents.}
+\item{config}{An explicit \code{LLMR::llm_config} for all agents.}
 
 \item{demographic_cols}{Character vector of columns to render as demographics.
-Defaults to the `data`'s `"demographic_fields"` attribute when present, else
-a small set of common demographic column names found in `data`.}
+Defaults to the \code{data}'s \code{"demographic_fields"} attribute when present, else
+a small set of common demographic column names found in \code{data}.}
 
-\item{rows, weights}{See [create_agents_from_survey()].}
+\item{rows, weights}{See \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}.}
 
 \item{.runner}{Optional function used instead of live model calls and stored
 on every agent.}
 }
 \value{
-A named list of `FGAgent` objects (participants + moderator), keyed
-  by agent ID.
+A named list of \code{FGAgent} objects (participants + moderator), keyed
+by agent ID.
 }
 \description{
-Like [create_agents_from_survey()] but starting from a data frame already in
-memory (for example `LLMR::anes_2024_personas`). Demographic columns are
+Like \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} but starting from a data frame already in
+memory (for example \code{LLMR::anes_2024_personas}). Demographic columns are
 rendered as background; the remaining columns are rendered as survey responses,
-keyed by their question wording when the frame carries a `dictionary` attribute
-(see [LLMR::llm_persona_split()]), else by their column names. Values are taken
+keyed by their question wording when the frame carries a \code{dictionary} attribute
+(see \code{\link[LLMR:llm_persona_split]{LLMR::llm_persona_split()}}), else by their column names. Values are taken
 as-is (decode and clean them first if they are still coded).
 }
 \details{
-A frame of class `silicon_panel`, or a frame with both `persona` and
-`persona_id` columns, is treated as a pre-rendered persona panel. Its
-`persona` text becomes each participant's direct persona description;
-`persona` and `persona_id` are not rendered as survey answers. This bridge
+A frame of class \code{silicon_panel}, or a frame with both \code{persona} and
+\code{persona_id} columns, is treated as a pre-rendered persona panel. Its
+\code{persona} text becomes each participant's direct persona description;
+\code{persona} and \code{persona_id} are not rendered as survey answers. This bridge
 uses the frame's structure and does not require LLMRpanel.
 }
 \examples{

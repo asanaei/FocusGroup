@@ -11,7 +11,7 @@ run_focus_studio(...)
 }
 \value{
 Invisibly, the value of \code{shiny::runApp()}; called for the side
-  effect of starting the app.
+effect of starting the app.
 }
 \description{
 A point-and-click front end with three tabs. Run a focus group starts a fresh

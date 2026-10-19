@@ -19,22 +19,22 @@ create_agents_from_survey(
 \arguments{
 \item{n_participants}{Integer number of participants (excludes the moderator).}
 
-\item{survey_path}{Path to the survey file (`.dta`, `.sav`, or `.sas7bdat`).}
+\item{survey_path}{Path to the survey file (\code{.dta}, \code{.sav}, or \code{.sas7bdat}).}
 
-\item{config}{An explicit `LLMR::llm_config` for all agents.}
+\item{config}{An explicit \code{LLMR::llm_config} for all agents.}
 
 \item{demographic_vars}{Variable names (codes) to render as demographics.
 May be a named vector, in which case the names are shown as the field
-labels. If `NULL`, common demographic variables are auto-detected by their
+labels. If \code{NULL}, common demographic variables are auto-detected by their
 labels.}
 
 \item{survey_vars}{Variable names (codes) to render as survey responses. May
-be named (names become the question wording shown). If `NULL`, labeled
+be named (names become the question wording shown). If \code{NULL}, labeled
 variables that are not demographics are used.}
 
 \item{rows}{Optional row selector restricting the eligible respondents before
 sampling: an integer or logical vector, or a predicate
-`function(df) -> logical` over the decoded demographics frame.}
+\verb{function(df) -> logical} over the decoded demographics frame.}
 
 \item{weights}{Optional sampling weights: a column name in the file, or a
 numeric vector aligned to the file's rows. Used only to weight which
@@ -49,13 +49,13 @@ match another file's missing-data vocabulary.}
 on every agent.}
 }
 \value{
-A named list of `FGAgent` objects (participants + moderator), keyed
-  by agent ID.
+A named list of \code{FGAgent} objects (participants + moderator), keyed
+by agent ID.
 }
 \description{
-Reads a labeled survey file (Stata `.dta`, SPSS `.sav`, or SAS
-`.sas7bdat`), decodes the chosen variables from their value labels, and turns
-each selected respondent into an `FGAgent` whose persona states that
+Reads a labeled survey file (Stata \code{.dta}, SPSS \code{.sav}, or SAS
+\code{.sas7bdat}), decodes the chosen variables from their value labels, and turns
+each selected respondent into an \code{FGAgent} whose persona states that
 respondent's demographics and survey answers. Numeric codes are decoded from
 the file's own value labels, so the same call works on ANES, GSS, WVS, or any
 other labeled file; nothing about a particular dataset is hard-coded.
@@ -89,6 +89,6 @@ agents <- create_agents_from_survey(
 agents$P1$persona_description
 }
 \seealso{
-[create_agents_from_data()] for an in-memory data frame, and
-  `LLMR::anes_2024_personas` for a ready-made example.
+\code{\link[=create_agents_from_data]{create_agents_from_data()}} for an in-memory data frame, and
+\code{LLMR::anes_2024_personas} for a ready-made example.
 }

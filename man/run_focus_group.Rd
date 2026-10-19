@@ -24,7 +24,7 @@ run_focus_group(
 \arguments{
 \item{topic}{Character. Focus group topic.}
 
-\item{config}{An explicit `LLMR::llm_config` used by all agents and group-level
+\item{config}{An explicit \code{LLMR::llm_config} used by all agents and group-level
 model tasks.}
 
 \item{n_participants}{Integer. Number of participants, excluding the moderator.}
@@ -34,24 +34,24 @@ many moderator instructions from the phase banks. Character vectors supply
 the ordered instructions directly. The default is a compact session (one
 opening, one icebreaker, two engagement and three exploration questions,
 one closing); with the default flow, participants, and response limit it
-plans 93 model outputs, inside the default `max_calls` of 100. Larger
+plans 93 model outputs, inside the default \code{max_calls} of 100. Larger
 guides multiply quickly: each question round costs one output per
-response plus, under `"desire_based"`, one scoring output per
+response plus, under \code{"desire_based"}, one scoring output per
 participant.}
 
 \item{demographics}{Optional participant demographics, one row per
-participant. With this, `survey_responses`, and personas all absent, the
+participant. With this, \code{survey_responses}, and personas all absent, the
 participants are drawn from the bundled ANES 2024 records.}
 
 \item{survey_responses}{Optional participant survey answers, one row per
 participant.}
 
-\item{flow}{Character. One of `"round_robin"`, `"probabilistic"`, or
-`"desire_based"`.}
+\item{flow}{Character. One of \code{"round_robin"}, \code{"probabilistic"}, or
+\code{"desire_based"}.}
 
 \item{seed}{Optional integer governing in-package sampling.}
 
-\item{message_mode}{Character. `"roleflip"` or `"flat"`.}
+\item{message_mode}{Character. \code{"roleflip"} or \code{"flat"}.}
 
 \item{verbose}{Logical. Print session progress.}
 
@@ -61,22 +61,22 @@ responses per moderator question (default 2).}
 \item{max_calls}{Integer. Maximum estimated live model outputs allowed without
 confirmation.}
 
-\item{confirm}{Logical. Permit a live run whose estimate exceeds `max_calls`.}
+\item{confirm}{Logical. Permit a live run whose estimate exceeds \code{max_calls}.}
 
 \item{.runner}{Optional function used instead of live model calls. It
-receives a data frame with `config` and `messages` list-columns and returns
-those rows with at least `response_text`.}
+receives a data frame with \code{config} and \code{messages} list-columns and returns
+those rows with at least \code{response_text}.}
 }
 \value{
-A `focus_group_result` with the group, transcript, summary,
-  participant table, token usage, and sanitized metadata.
+A \code{focus_group_result} with the group, transcript, summary,
+participant table, token usage, and sanitized metadata.
 }
 \description{
 Constructs the agents, moderator guide, and turn-taking flow, then runs one
-focus group session. `config` has no default; every agent and group-level
+focus group session. \code{config} has no default; every agent and group-level
 call uses the one supplied. Before a live run,
 the function estimates the number of generated model outputs and applies the
-`max_calls` limit unless `confirm` is `TRUE`.
+\code{max_calls} limit unless \code{confirm} is \code{TRUE}.
 }
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
