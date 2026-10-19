@@ -47,12 +47,13 @@
 #' record: `message_id`, `round`, `is_moderator`, `phase`, `response_id`,
 #' `finish_reason`, `sent_tokens`, `rec_tokens`, `total_tokens`,
 #' `duration_s`, `provider`, `model`, `timestamp`, and the list-column
-#' `metadata`. A field that is absent takes the value an imported turn has
-#' always had: messages are numbered in order, `round` counts the moderator's
-#' turns (0 throughout when there is no moderator), `phase` is `"imported"`,
-#' and the other fields are `NA`. In particular, token counts that the
-#' transcript does not supply are unknown (`NA`), not zero, and importing adds
-#' no model calls to the object's usage counters.
+#' `metadata`. A field that is absent takes these values: messages are
+#' numbered in order, `is_moderator` follows the moderator found as described
+#' above, `round` counts the moderator's turns (0 throughout when there is no
+#' moderator), `phase` is `"imported"`, `metadata` is an empty list, and the
+#' other fields are `NA`. In particular, token counts that the transcript does
+#' not supply are unknown (`NA`), not zero, and importing adds no model calls
+#' to the object's usage counters.
 #'
 #' Supplied fields are checked rather than coerced. `message_id` must hold
 #' distinct positive whole numbers increasing down the rows; `round` and the

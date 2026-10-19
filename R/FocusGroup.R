@@ -301,9 +301,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param config An explicit `llm_config` object for the summarization model.
     #' @param summary_level Integer (1-3). 1: Prose overview, 2: Detailed bulleted, 3: Short bulleted takeaways.
     #' @param max_tokens Integer. Optional. Max tokens for the summary.
-    #' @param internal_call Logical. `TRUE` for a summary made for context
-    #'   management during the session. Either way, the call's usage is added
-    #'   to the group's token fields and not to any agent's.
+    #' @param internal_call Logical. Marks a summary made for context
+    #'   management during the session. It is kept for compatibility and no
+    #'   longer changes anything: the call's usage is added to the group's
+    #'   token fields either way, and to no agent's.
     #' @param transcript_override Character. Optional. If provided, this transcript is summarized instead of `self$conversation_log`.
     #' @param .runner Optional function used instead of live model calls. It
     #'   receives a data frame with `config` and `messages` list-columns and

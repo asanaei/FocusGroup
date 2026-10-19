@@ -270,21 +270,23 @@ a history with an earlier message edited. These paired continuations support a
 comparison of the specified next turn; they do not continue the full session.
 
 Session execution and continuation generation make live model calls. Install
-the suggested `shiny`, `bslib`, `DT`, and `LLMR.shiny` packages before starting
-the interface.
+the suggested `shiny`, `bslib`, `DT`, and `LLMR.shiny` (version 0.1.3 or later)
+packages before starting the interface.
 
 ## Study records, cost, and interpretation
 
-The transcript records each message with its phase and round. Generated rows
-also carry response identifiers, finish reasons, token counts, provider and
-model labels, duration, and failure metadata. Moderator questions and their
-participant responses share a round.
+The transcript records each message with its phase and round. A generated
+row also carries what the provider returned about the call, such as its
+response identifier, finish reason, and token counts, together with the
+provider and model that produced it. Moderator questions and their participant
+responses share a round.
 
 The `participants` component is a data frame. `usage` uses LLMR's `sent`, `rec`,
-and `total` token vocabulary, and `unknown` counts the calls that did not
-report their usage. A count a provider did not report is unknown rather than
-zero: it is `NA` on the transcript row, and when `unknown` is positive the
-totals in `usage` are lower bounds. `metadata` records `topic`, `purpose`,
+and `total` token vocabulary, and `unknown` counts the calls whose usage was
+incomplete. A count a provider did not report is unknown rather than zero: it
+is `NA` on the transcript row, and when `unknown` is positive the totals in
+`usage` are lower bounds. `unknown` is `NA` when the number cannot be
+determined, as in a partial result whose last call raised an error. `metadata` records `topic`, `purpose`,
 `flow`, `message_mode`, `n_participants`, `estimated_calls`, `provider`, and
 `model`, followed by `complete` and `failure`, which say whether the session
 finished and, if not, in which phase it stopped. Credentials are never
@@ -302,9 +304,11 @@ result <- tryCatch(
 result$metadata$failure
 ```
 
-Before a live run, `run_focus_group()` estimates the number of model calls. A
-request above `max_calls` stops unless `confirm = TRUE`. Retries and incomplete
-outputs can increase the realized call count.
+Before a live run, `run_focus_group()` estimates the number of model outputs
+the session will generate. A run whose estimate exceeds `max_calls` stops
+unless `confirm = TRUE`. The realized number of calls can be lower, since the
+desire-based flow does not score the previous speaker, or higher, since
+incomplete replies are retried and long discussions are summarized.
 
 A generated transcript is evidence about the specified simulation, not a
 population. Interpretation should retain the moderator guide, participant

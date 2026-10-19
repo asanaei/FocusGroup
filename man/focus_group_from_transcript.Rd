@@ -64,12 +64,13 @@ Columns that a transcript exported by this package carries are kept when
 record: \code{message_id}, \code{round}, \code{is_moderator}, \code{phase}, \code{response_id},
 \code{finish_reason}, \code{sent_tokens}, \code{rec_tokens}, \code{total_tokens},
 \code{duration_s}, \code{provider}, \code{model}, \code{timestamp}, and the list-column
-\code{metadata}. A field that is absent takes the value an imported turn has
-always had: messages are numbered in order, \code{round} counts the moderator's
-turns (0 throughout when there is no moderator), \code{phase} is \code{"imported"},
-and the other fields are \code{NA}. In particular, token counts that the
-transcript does not supply are unknown (\code{NA}), not zero, and importing adds
-no model calls to the object's usage counters.
+\code{metadata}. A field that is absent takes these values: messages are
+numbered in order, \code{is_moderator} follows the moderator found as described
+above, \code{round} counts the moderator's turns (0 throughout when there is no
+moderator), \code{phase} is \code{"imported"}, \code{metadata} is an empty list, and the
+other fields are \code{NA}. In particular, token counts that the transcript does
+not supply are unknown (\code{NA}), not zero, and importing adds no model calls
+to the object's usage counters.
 
 Supplied fields are checked rather than coerced. \code{message_id} must hold
 distinct positive whole numbers increasing down the rows; \code{round} and the

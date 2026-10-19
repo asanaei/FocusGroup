@@ -121,8 +121,9 @@ path.
 `conversation_log` is an ordered list of message records. Each record has a
 unique integer `message_id`, the moderator cycle in `round`, and `phase`.
 Moderator and participant messages responding to the same question share a
-round. Response identifiers, finish reasons, token counts, provider and model
-labels, duration, and failure metadata accompany generated messages.
+round. A generated message also records what the provider returned about the
+call, such as its response identifier, finish reason, and token counts, with
+the provider and model that produced it.
 
 `run_focus_group()` exposes this log as the `transcript` data frame in its
 result. A `focus_group_result` always has these fields:
@@ -132,9 +133,10 @@ result. A `focus_group_result` always has these fields:
 - `summary`: the final model summary.
 - `participants`: a data frame describing the roster.
 - `usage`: token use in LLMR's `sent`, `rec`, and `total` vocabulary, with
-  `unknown`, the number of calls that did not report their usage. Unreported
-  counts are unknown rather than zero, so the totals are lower bounds when
-  `unknown` is positive.
+  `unknown`, the number of calls whose usage was incomplete. Unreported counts
+  are unknown rather than zero, so the totals are lower bounds when `unknown`
+  is positive; `unknown` is `NA` when that number cannot be determined, as
+  after a call that raised an error.
 - `metadata`: `topic`, `purpose`, `flow`, `message_mode`, `n_participants`,
   `estimated_calls`, `provider`, `model`, `complete`, and `failure`, with no
   credentials. `complete` is `FALSE` for a session that stopped early, and

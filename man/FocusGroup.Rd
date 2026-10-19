@@ -231,9 +231,10 @@ Generate a summary of the conversation using an LLM.
 
 \item{\code{max_tokens}}{Integer. Optional. Max tokens for the summary.}
 
-\item{\code{internal_call}}{Logical. \code{TRUE} for a summary made for context
-management during the session. Either way, the call's usage is added
-to the group's token fields and not to any agent's.}
+\item{\code{internal_call}}{Logical. Marks a summary made for context
+management during the session. It is kept for compatibility and no
+longer changes anything: the call's usage is added to the group's
+token fields either way, and to no agent's.}
 
 \item{\code{transcript_override}}{Character. Optional. If provided, this transcript is summarized instead of \code{self$conversation_log}.}
 
