@@ -1802,6 +1802,31 @@ run_focus_studio <- function(...) {
     stringsAsFactors = FALSE)
 }
 
+# Read an uploaded transcript CSV with every value kept as written. Type
+# inference would turn the speaker ids 001 and 01 into the same number 1,
+# round long numeric ids, and make the text "NA" missing. The columns other
+# than the speaker, the text, and response ids are given their usual types
+# once the user has mapped the columns; see .fg_convert_upload_columns().
+.fg_read_transcript_csv <- function(file) {
+  out <- LLMR.shiny::read_csv_upload(file, col_classes = "character",
+                                     na_strings = character(0))
+  attr(out, "focusgroup_csv_upload") <- TRUE
+  out
+}
+
+# Give the columns of an uploaded transcript other than `keep` (the mapped
+# speaker and text columns) and `response_id` the types utils::read.csv()
+# would have inferred, with "NA" read as missing. Other data frames are
+# returned unchanged.
+.fg_convert_upload_columns <- function(df, keep) {
+  if (!isTRUE(attr(df, "focusgroup_csv_upload"))) return(df)
+  attr(df, "focusgroup_csv_upload") <- NULL
+  for (j in which(!names(df) %in% c(keep, "response_id"))) {
+    df[[j]] <- utils::type.convert(df[[j]], as.is = TRUE, na.strings = "NA")
+  }
+  df
+}
+
 .fg_prepare_analysis_source <- function(obj, speaker_col = NULL,
                                         text_col = NULL) {
   if (inherits(obj, "focus_group_result")) {
@@ -2248,7 +2273,7 @@ run_focus_studio <- function(...) {
       reset_analysis()
       obj <- tryCatch(
         if (grepl("\\.rds$", input$file$name, ignore.case = TRUE)) readRDS(input$file$datapath)
-        else LLMR.shiny::read_csv_upload(input$file),
+        else .fg_read_transcript_csv(input$file),
         error = function(e) {
           warn_user(conditionMessage(e))
           NULL
@@ -2317,6 +2342,7 @@ run_focus_studio <- function(...) {
         defaults <- .fg_analysis_column_defaults(obj)
         speaker_col <- speaker_col %||% defaults$speaker
         text_col <- text_col %||% defaults$text
+        obj <- .fg_convert_upload_columns(obj, c(speaker_col, text_col))
       }
       prepared <- tryCatch(
         withCallingHandlers(.fg_prepare_analysis_source(

@@ -175,6 +175,13 @@
   and "ANES respondent fields". The first was labeled "Synthetic personas",
   although both draw respondents from the bundled ANES records.
 
+* The Studio's Analyze tab reads an uploaded transcript CSV with every value
+  as written, and gives the columns other than the speaker, the text, and
+  `response_id` their usual types only after the columns are mapped. Type
+  inference used to read the speaker ids 001 and 01 as the same number 1,
+  alter long numeric ids such as 12345678901234567890, and turn the text "NA"
+  into a missing utterance.
+
 # FocusGroup 0.5.2
 
 Corrections replacing 0.5.1, which was never published.
