@@ -43,7 +43,7 @@ call in any environment. The test suite mocks every model call.
 
 ## Test environments
 
-- local macOS (Darwin 25.6.0, aarch64-apple-darwin20), R 4.4.3:
+- local macOS 26.7.1 (aarch64-apple-darwin20), R 4.4.3:
   `R CMD check --as-cran` on the built tarball, once against LLMR 0.8.11
   (the CRAN version) and once against LLMR 0.8.14, which is submitted ahead
   of this package, both with LLMR.shiny 0.1.3.
