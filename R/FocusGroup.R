@@ -81,7 +81,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     max_tokens_utterance = 160,
     max_tokens_moderator = 400,
     max_tokens_desire = 16,
-    max_participant_responses = 3,
+    max_participant_responses = 2L,
     total_tokens_sent = 0,
     total_tokens_received = 0,
 
@@ -99,7 +99,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param max_tokens_config List. Optional. Named list with `utterance`, `moderator`, `desire`
     #'        to override default max token limits for these LLM call types.
     #' @param max_participant_responses Integer. Optional. Maximum participant exchanges per round before moderator intervention.
-    #'        Defaults to `getOption("focusgroup.max_participant_responses", 3)`.
+    #'        Defaults to `getOption("focusgroup.max_participant_responses", 2L)`.
     initialize = function(topic, purpose, agents, moderator_id, turn_taking_flow,
                           question_script = list(), prompt_templates = list(),
                           admin_config = NULL, max_tokens_config = list(),
@@ -149,7 +149,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$max_tokens_utterance <- max_tokens_config$utterance %||% self$max_tokens_utterance
       self$max_tokens_moderator <- max_tokens_config$moderator %||% self$max_tokens_moderator
       self$max_tokens_desire <- max_tokens_config$desire %||% self$max_tokens_desire
-      self$max_participant_responses <- max_participant_responses %||% getOption("focusgroup.max_participant_responses", 3)
+      self$max_participant_responses <- max_participant_responses %||% getOption("focusgroup.max_participant_responses", 2L)
 
       self$total_tokens_sent <- 0
       self$total_tokens_received <- 0

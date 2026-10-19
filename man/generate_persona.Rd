@@ -26,17 +26,18 @@ into a single natural paragraph. Defaults to
 Character string with the persona description.
 }
 \description{
-Renders the persona text for a synthetic participant from the demographics and
-survey responses the researcher supplied. It states those facts and nothing
-more: what a given age, education, place of residence, or survey answer implies
-about a person is left to the model, not decided here. Mapping a demographic
-label to a fixed disposition is the essentialism a research instrument should
-avoid, so the package does not do it.
+Renders the persona text for a simulated participant from the demographics
+and survey responses the researcher supplied. It states those facts and
+nothing more: what a given age, education, place of residence, or survey
+answer implies about a person is left to the model, not decided here.
+Mapping a demographic label to a fixed disposition is the essentialism a
+research instrument should avoid, so the package does not do it.
 }
 \details{
 Both the demographics and the survey responses are rendered in full (every
-supplied field), not a fixed subset. Pass survey responses keyed by the
-question wording (for survey-file input, the variable label is used as the key)
-so the model sees the item, not a code name.
+supplied field), not a fixed subset; fields that are missing or empty are
+left out rather than rendered as "NA". Pass survey responses keyed by the
+question wording (for survey-file input, the variable label is used as the
+key) so the model sees the item, not a code name.
 }
 \keyword{internal}

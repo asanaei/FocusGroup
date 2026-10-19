@@ -1,13 +1,90 @@
 # FocusGroup 0.5.3
 
-* `create_agents_from_survey()` applies `rows` to the file's own rows. When
-  respondents without demographic values were present, integer and logical
-  selectors used to pick the wrong respondents. Invalid selectors are refused,
-  and a respondent cannot be selected twice.
+## Participants
+
+* `create_agents_from_survey()` applies `rows` to the rows of the file, so
+  `rows = c(2, 3)` returns the respondents in file rows 2 and 3, and a logical
+  selector or predicate marks file rows. The selector used to be applied after
+  respondents without any demographic value had been dropped, so when such a
+  respondent came first, integer and logical selectors returned the
+  respondents one or more rows further on (in a file whose first respondent
+  refused the age question, `rows = c(2, 3)` returned file rows 3 and 4). A
+  message now says how many selected respondents were left out for lack of
+  demographic values.
 
 * A sampling-weight column named in `weights` is no longer rendered into
-  personas by `create_agents_from_survey()` or `create_agents_from_data()`;
-  personas used to state the weight as one of the respondent's answers.
+  personas by `create_agents_from_survey()` or `create_agents_from_data()`,
+  and `create_agents_from_survey()` leaves it out even when `demographic_vars`
+  or `survey_vars` name it. Personas used to state the weight as one of the
+  respondent's answers ("Question: Full sample weight Answer: 2.9"), so the
+  persona text of every weighted call that rendered the default columns
+  changes. When the weight column is the only demographic variable named,
+  `create_agents_from_survey()` stops with "No usable `demographic_vars`
+  remain after excluding the sampling-weight column."
+
+* `create_agents_from_data()` and `create_agents_from_survey()` refuse
+  sampling weights they used to repair without notice. Numeric and
+  haven-labelled weights draw the same respondents as before. These inputs are
+  now errors:
+  - a weight column that is not in the data ("Weight column 'wt' is not
+    present in the input data."); the draw used to be unweighted;
+  - weights stored as a factor, text, logical values, or a matrix ("... must
+    be an integer or double vector ..."); a factor used to be sampled by its
+    level codes, numeric text and logical values were converted to numbers,
+    and other text gave an unweighted draw;
+  - weights whose length differs from the number of rows ("... has length 6;
+    expected one weight for each of the 4 respondents."); surplus weights used
+    to be dropped and missing ones left respondents undrawable;
+  - missing, negative, or infinite weights ("... contains missing, negative,
+    or nonfinite weights at source row(s) ..."); they used to count as 0;
+  - weights that are all zero ("... must contain at least one positive
+    weight."), or all zero among the respondents `rows` leaves eligible ("...
+    has no positive weight among the eligible respondents."); the draw used to
+    fall back to equal probabilities;
+  - fewer positive weights than participants requested ("A draw of 3
+    respondents requires at least 3 eligible respondents with positive
+    weight; found 2.").
+
+* `rows` is validated in the same way by both functions. Positions that are
+  fractional, missing, or out of range stop with "`rows` must be whole numbers
+  between 1 and the number of respondents ..."; `create_agents_from_data()`
+  used to truncate them (1.9 selected row 1), drop them, or fail with an
+  unrelated error. A logical selector or a predicate's result must have one
+  value per respondent, without `NA` ("... must have one logical value per
+  respondent ...", "... contains missing values at position(s) ..."); `NA` used
+  to mean not selected, and a vector of the wrong length was used as far as
+  it went. A position given twice selects its respondent once, where
+  `create_agents_from_data()` could return one respondent as two
+  participants, and asking for more participants than there are distinct
+  eligible respondents stops with "4 participants were requested, but only 3
+  distinct respondents are eligible."
+
+* Rosters returned by `create_agents()`, `create_agents_from_data()`, and
+  `create_agents_from_survey()` carry a `source_rows` attribute giving the row
+  each participant was drawn from, and a `source_ids` attribute with the
+  data's `id`, `respondent_id`, or `persona_id` columns when it has any.
+
+## Sessions
+
+* Sessions run without an explicit `max_participant_responses` are shorter.
+  The option `focusgroup.max_participant_responses` is now set to 2 when the
+  package loads, as the help said; it was set to 3, so the documented default
+  of 2 never applied, and `FocusGroup$new()` also fell back to 3. With the
+  default guide and flow the estimate falls from 135 to 93 model outputs, and
+  `run_focus_group(topic, config)` no longer stops at the default `max_calls`
+  of 100. A call that raised `max_calls` or set `confirm = TRUE` now gets two
+  participant responses per question instead of three; pass
+  `max_participant_responses = 3`, or set
+  `options(focusgroup.max_participant_responses = 3)`, to restore them.
+
+* `run_focus_group()` refuses a `max_calls` that is infinite or beyond the
+  integer range ("`max_calls` must be one finite positive integer."). `Inf`
+  used to switch the limit off; `confirm = TRUE` still does. A guide whose
+  estimate exceeds the integer range stops with "The model-output estimate
+  (...) exceeds the integer range ..." before the script is built, and an
+  invalid guide count is reported with its value as well as its phase.
+
+## Imported transcripts
 
 * `focus_group_from_transcript()` says when no speaker id is a moderator alias
   and every speaker is therefore analyzed as a participant. The help, README,

@@ -150,7 +150,7 @@ If \code{NULL}, the moderator's explicitly supplied \code{config} is used.}
 to override default max token limits for these LLM call types.}
 
 \item{\code{max_participant_responses}}{Integer. Optional. Maximum participant exchanges per round before moderator intervention.
-Defaults to \code{getOption("focusgroup.max_participant_responses", 3)}.}
+Defaults to \code{getOption("focusgroup.max_participant_responses", 2L)}.}
 }
 \if{html}{\out{</div>}}
 }

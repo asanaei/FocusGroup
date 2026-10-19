@@ -116,3 +116,23 @@ test_that("invalid phase specifications are rejected", {
   expect_error(FocusGroup:::.fg_build_question_script(c(Opening = 0), "topic"),
                "at least one moderator turn")
 })
+
+test_that("run_focus_group names the phase and value of an invalid guide count", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  run <- function(guide) run_focus_group("Library hours", cfg, n_participants = 2,
+    guide = guide, demographics = data.frame(age = c(30, 40)), verbose = FALSE)
+  expect_error(run(c(Engagement = 1.5)),
+               "phase 'Engagement' must be one non-negative whole number, not 1.5",
+               fixed = TRUE)
+  expect_error(run(c(Opening = 1, Exploration = -2)),
+               "phase 'Exploration' must be one non-negative whole number, not -2",
+               fixed = TRUE)
+  expect_error(run(list(Engagement = NA)), "phase 'Engagement'.*not NA")
+  expect_error(run(list(Engagement = c(1, 2))), "phase 'Engagement'.*numeric of length 2")
+  expect_error(run(list(Engagement = TRUE)), "phase 'Engagement'.*not TRUE")
+  expect_error(run(c(Engagement = Inf)), "phase 'Engagement'.*not Inf")
+  expect_error(run(c(Engagement = 3e9)), "estimate.*exceeds the integer range")
+  expect_error(FocusGroup:::.fg_build_question_script(c(Engagement = 3e9), "topic"),
+               "phase 'Engagement' exceeds the largest supported count")
+})
+

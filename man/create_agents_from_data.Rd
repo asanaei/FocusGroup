@@ -25,14 +25,19 @@ create_agents_from_data(
 Defaults to the \code{data}'s \code{"demographic_fields"} attribute when present, else
 a small set of common demographic column names found in \code{data}.}
 
-\item{rows, weights}{See \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}.}
+\item{rows, weights}{See \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}. Here \code{rows} refers to
+the rows of \code{data}, and a predicate receives the demographics frame with
+its columns relabeled as they appear in the personas. Integer positions
+are kept in the order given.}
 
 \item{.runner}{Optional function used instead of live model calls and stored
 on every agent.}
 }
 \value{
 A named list of \code{FGAgent} objects (participants + moderator), keyed
-by agent ID.
+by agent ID, with the \code{source_rows} and \code{source_ids} attributes described
+in \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}; here the positions refer to the rows of
+\code{data}.
 }
 \description{
 Like \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} but starting from a data frame already in
@@ -48,6 +53,9 @@ A frame of class \code{silicon_panel}, or a frame with both \code{persona} and
 \code{persona} text becomes each participant's direct persona description;
 \code{persona} and \code{persona_id} are not rendered as survey answers. This bridge
 uses the frame's structure and does not require LLMRpanel.
+
+Sampling and the validation of \code{weights} follow
+\code{\link[=create_agents_from_survey]{create_agents_from_survey()}}.
 }
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",

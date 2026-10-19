@@ -40,7 +40,7 @@
   op <- options()
   op.focusgroup <- list(
     focusgroup.seed = getOption("focusgroup.seed", NA_integer_),
-    focusgroup.max_participant_responses = getOption("focusgroup.max_participant_responses", 3)
+    focusgroup.max_participant_responses = getOption("focusgroup.max_participant_responses", 2L)
   )
   toset <- !(names(op.focusgroup) %in% names(op))
   if (any(toset)) options(op.focusgroup[toset])

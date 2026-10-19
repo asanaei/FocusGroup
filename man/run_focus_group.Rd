@@ -29,7 +29,9 @@ model tasks.}
 
 \item{n_participants}{Integer. Number of participants, excluding the moderator.}
 
-\item{guide}{A named numeric vector or named list. Numeric values select that
+\item{guide}{A named numeric vector or named list. The names are phases,
+among \code{"Opening"}, \code{"Icebreaker"}, \code{"Engagement"}, \code{"Exploration"}, and
+\code{"Closing"}, each at most once and in that order. Numeric values select that
 many moderator instructions from the phase banks. Character vectors supply
 the ordered instructions directly. The default is a compact session (one
 opening, one icebreaker, two engagement and three exploration questions,
@@ -37,7 +39,8 @@ one closing); with the default flow, participants, and response limit it
 plans 93 model outputs, inside the default \code{max_calls} of 100. Larger
 guides multiply quickly: each question round costs one output per
 response plus, under \code{"desire_based"}, one scoring output per
-participant.}
+participant. \code{NULL} runs a minimal script: an opening, one open discussion
+of \code{topic}, and a closing.}
 
 \item{demographics}{Optional participant demographics, one row per
 participant. With this, \code{survey_responses}, and personas all absent, the
@@ -49,17 +52,23 @@ participant.}
 \item{flow}{Character. One of \code{"round_robin"}, \code{"probabilistic"}, or
 \code{"desire_based"}.}
 
-\item{seed}{Optional integer governing in-package sampling.}
+\item{seed}{Optional integer governing in-package sampling: the respondents
+drawn from the bundled records and the random choices of the turn-taking
+flow, such as the speaker draws of \code{"probabilistic"} and the tie-breaks of
+\code{"desire_based"}. The caller's random-number state is restored when the
+function returns. The option \code{focusgroup.seed}, when set, fixes the
+respondent draw instead.}
 
 \item{message_mode}{Character. \code{"roleflip"} or \code{"flat"}.}
 
 \item{verbose}{Logical. Print session progress.}
 
 \item{max_participant_responses}{Optional integer maximum number of participant
-responses per moderator question (default 2).}
+responses per moderator question. \code{NULL}, the default, uses the option
+\code{focusgroup.max_participant_responses}, which is 2 unless you set it.}
 
 \item{max_calls}{Integer. Maximum estimated live model outputs allowed without
-confirmation.}
+confirmation; a finite whole number.}
 
 \item{confirm}{Logical. Permit a live run whose estimate exceeds \code{max_calls}.}
 
@@ -74,9 +83,21 @@ participant table, token usage, and sanitized metadata.
 \description{
 Constructs the agents, moderator guide, and turn-taking flow, then runs one
 focus group session. \code{config} has no default; every agent and group-level
-call uses the one supplied. Before a live run,
-the function estimates the number of generated model outputs and applies the
-\code{max_calls} limit unless \code{confirm} is \code{TRUE}.
+call uses the one supplied. Before a live run, the function estimates the
+number of generated model outputs and applies the \code{max_calls} limit unless
+\code{confirm} is \code{TRUE}.
+}
+\details{
+The estimate counts one output for each moderator turn, one for each
+participant response a question round allows, and one for the final
+summary. Under \code{"desire_based"} it adds one desire score per participant
+before each response. With the default guide, six participants, and the
+default flow, two responses per question give an estimate of 93 outputs and
+three give 135. A session can make fewer calls, since the desire-based flow
+does not score the previous speaker, or more, since incomplete replies are
+retried and a long discussion triggers interim summaries. \code{max_calls}
+applies to the estimate, and only to live runs: with \code{.runner} the session
+runs whatever the estimate.
 }
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",

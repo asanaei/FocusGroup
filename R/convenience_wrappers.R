@@ -76,11 +76,11 @@ NULL
   c(bank, extra)
 }
 
-# Convert numeric phase counts or user-supplied phase scripts to the structure
-# consumed by FocusGroup. Numeric values select distinct defaults; character
-# vectors supply the exact ordered moderator questions or instructions.
-.fg_build_question_script <- function(guide, topic) {
-  if (is.null(guide)) return(list())
+# Validate a guide's phase names, order, and values, and return the number of
+# moderator turns each phase asks for. The counts let run_focus_group() check
+# the model-output estimate before a large numeric count is expanded into a
+# script.
+.fg_guide_counts <- function(guide) {
   if (!(is.atomic(guide) || is.list(guide)) ||
       is.data.frame(guide)) {
     stop("`guide` must be a named numeric vector or named list.",
@@ -107,6 +107,46 @@ NULL
          call. = FALSE)
   }
 
+  counts <- vapply(seq_along(guide), function(i) {
+    value <- guide[[i]]
+    phase <- canonical[[i]]
+    if (is.character(value)) {
+      if (anyNA(value) || any(!nzchar(trimws(value)))) {
+        stop("Character scripts for phase '", phase,
+             "' must be non-missing and non-empty.", call. = FALSE)
+      }
+      return(as.double(length(value)))
+    }
+    if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
+        !is.finite(value) || value < 0 || value != floor(value)) {
+      shown <- if (is.atomic(value) && length(value) == 1L) {
+        format(value)
+      } else {
+        paste0("a ", class(value)[1], " of length ", length(value))
+      }
+      stop("The numeric count for phase '", phase,
+           "' must be one non-negative whole number, not ", shown, ".",
+           call. = FALSE)
+    }
+    as.double(value)
+  }, numeric(1))
+  stats::setNames(counts, canonical)
+}
+
+# Convert numeric phase counts or user-supplied phase scripts to the structure
+# consumed by FocusGroup. Numeric values select distinct defaults; character
+# vectors supply the exact ordered moderator questions or instructions.
+.fg_build_question_script <- function(guide, topic) {
+  if (is.null(guide)) return(list())
+  counts <- .fg_guide_counts(guide)
+  canonical <- names(counts)
+  if (any(counts > .Machine$integer.max)) {
+    phase <- canonical[which(counts > .Machine$integer.max)[1]]
+    stop("The numeric count for phase '", phase,
+         "' exceeds the largest supported count (", .Machine$integer.max, ").",
+         call. = FALSE)
+  }
+
   phase_codes <- c(
     Opening = "opening",
     Icebreaker = "icebreaker_question",
@@ -121,17 +161,8 @@ NULL
     value <- guide[[i]]
     phase <- canonical[[i]]
     scripts <- if (is.character(value)) {
-      if (anyNA(value) || any(!nzchar(trimws(value)))) {
-        stop("Character scripts for phase '", phase,
-             "' must be non-missing and non-empty.", call. = FALSE)
-      }
       unname(value)
     } else {
-      if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
-          !is.finite(value) || value < 0 || value != floor(value)) {
-        stop("The numeric count for phase '", phase,
-             "' must be one non-negative whole number.", call. = FALSE)
-      }
       .fg_extend_script_bank(banks[[phase]], as.integer(value), phase, topic)
     }
     if (length(scripts)) {
@@ -152,15 +183,17 @@ NULL
 #'
 #' Constructs the agents, moderator guide, and turn-taking flow, then runs one
 #' focus group session. `config` has no default; every agent and group-level
-#' call uses the one supplied. Before a live run,
-#' the function estimates the number of generated model outputs and applies the
-#' `max_calls` limit unless `confirm` is `TRUE`.
+#' call uses the one supplied. Before a live run, the function estimates the
+#' number of generated model outputs and applies the `max_calls` limit unless
+#' `confirm` is `TRUE`.
 #'
 #' @param topic Character. Focus group topic.
 #' @param config An explicit `LLMR::llm_config` used by all agents and group-level
 #'   model tasks.
 #' @param n_participants Integer. Number of participants, excluding the moderator.
-#' @param guide A named numeric vector or named list. Numeric values select that
+#' @param guide A named numeric vector or named list. The names are phases,
+#'   among `"Opening"`, `"Icebreaker"`, `"Engagement"`, `"Exploration"`, and
+#'   `"Closing"`, each at most once and in that order. Numeric values select that
 #'   many moderator instructions from the phase banks. Character vectors supply
 #'   the ordered instructions directly. The default is a compact session (one
 #'   opening, one icebreaker, two engagement and three exploration questions,
@@ -168,7 +201,8 @@ NULL
 #'   plans 93 model outputs, inside the default `max_calls` of 100. Larger
 #'   guides multiply quickly: each question round costs one output per
 #'   response plus, under `"desire_based"`, one scoring output per
-#'   participant.
+#'   participant. `NULL` runs a minimal script: an opening, one open discussion
+#'   of `topic`, and a closing.
 #' @param demographics Optional participant demographics, one row per
 #'   participant. With this, `survey_responses`, and personas all absent, the
 #'   participants are drawn from the bundled ANES 2024 records.
@@ -176,17 +210,36 @@ NULL
 #'   participant.
 #' @param flow Character. One of `"round_robin"`, `"probabilistic"`, or
 #'   `"desire_based"`.
-#' @param seed Optional integer governing in-package sampling.
+#' @param seed Optional integer governing in-package sampling: the respondents
+#'   drawn from the bundled records and the random choices of the turn-taking
+#'   flow, such as the speaker draws of `"probabilistic"` and the tie-breaks of
+#'   `"desire_based"`. The caller's random-number state is restored when the
+#'   function returns. The option `focusgroup.seed`, when set, fixes the
+#'   respondent draw instead.
 #' @param message_mode Character. `"roleflip"` or `"flat"`.
 #' @param verbose Logical. Print session progress.
 #' @param max_participant_responses Optional integer maximum number of participant
-#'   responses per moderator question (default 2).
+#'   responses per moderator question. `NULL`, the default, uses the option
+#'   `focusgroup.max_participant_responses`, which is 2 unless you set it.
 #' @param max_calls Integer. Maximum estimated live model outputs allowed without
-#'   confirmation.
+#'   confirmation; a finite whole number.
 #' @param confirm Logical. Permit a live run whose estimate exceeds `max_calls`.
 #' @param .runner Optional function used instead of live model calls. It
 #'   receives a data frame with `config` and `messages` list-columns and returns
 #'   those rows with at least `response_text`.
+#'
+#' @details
+#' The estimate counts one output for each moderator turn, one for each
+#' participant response a question round allows, and one for the final
+#' summary. Under `"desire_based"` it adds one desire score per participant
+#' before each response. With the default guide, six participants, and the
+#' default flow, two responses per question give an estimate of 93 outputs and
+#' three give 135. A session can make fewer calls, since the desire-based flow
+#' does not score the previous speaker, or more, since incomplete replies are
+#' retried and a long discussion triggers interim summaries. `max_calls`
+#' applies to the estimate, and only to live runs: with `.runner` the session
+#' runs whatever the estimate.
+#'
 #' @return A `focus_group_result` with the group, transcript, summary,
 #'   participant table, token usage, and sanitized metadata.
 #' @examples
@@ -243,7 +296,8 @@ run_focus_group <- function(topic, config, n_participants = 6,
     stop("`topic` must be a non-empty character string.", call. = FALSE)
   }
   if (!is.numeric(n_participants) || length(n_participants) != 1L ||
-      is.na(n_participants) || n_participants < 1 ||
+      is.na(n_participants) || !is.finite(n_participants) ||
+      n_participants > .Machine$integer.max || n_participants < 1 ||
       n_participants != floor(n_participants)) {
     stop("`n_participants` must be one positive integer.", call. = FALSE)
   }
@@ -254,8 +308,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
          call. = FALSE)
   }
   if (!is.numeric(max_calls) || length(max_calls) != 1L || is.na(max_calls) ||
+      !is.finite(max_calls) || max_calls > .Machine$integer.max ||
       max_calls < 1 || max_calls != floor(max_calls)) {
-    stop("`max_calls` must be one positive integer.", call. = FALSE)
+    stop("`max_calls` must be one finite positive integer.", call. = FALSE)
   }
   if (!is.logical(confirm) || length(confirm) != 1L || is.na(confirm)) {
     stop("`confirm` must be `TRUE` or `FALSE`.", call. = FALSE)
@@ -267,13 +322,22 @@ run_focus_group <- function(topic, config, n_participants = 6,
   response_limit <- max_participant_responses %||%
     getOption("focusgroup.max_participant_responses", 2L)
   if (!is.numeric(response_limit) || length(response_limit) != 1L ||
-      is.na(response_limit) || response_limit < 1 ||
+      is.na(response_limit) || !is.finite(response_limit) ||
+      response_limit > .Machine$integer.max || response_limit < 1 ||
       response_limit != floor(response_limit)) {
     stop("`max_participant_responses` must be `NULL` or one positive integer.",
          call. = FALSE)
   }
   response_limit <- as.integer(response_limit)
 
+  # Check the estimate from the phase counts first, so that an enormous
+  # numeric count is refused before it is expanded into a script.
+  if (!is.null(guide)) {
+    counts <- .fg_guide_counts(guide)
+    questions <- sum(counts[names(counts) %in% c("Icebreaker", "Engagement", "Exploration")])
+    .fg_validate_estimate(sum(counts) + questions * as.double(response_limit) *
+      (if (identical(flow, "desire_based")) (1 + as.double(n_participants)) else 1) + 1)
+  }
   question_script <- .fg_build_question_script(guide, topic)
   estimate_script <- question_script
   if (!length(estimate_script)) {
@@ -290,14 +354,14 @@ run_focus_group <- function(topic, config, n_participants = 6,
   phases <- vapply(estimate_script, `[[`, character(1), "phase")
   question_rounds <- sum(phases %in% response_phases)
   moderator_outputs <- length(estimate_script)
-  participant_outputs <- question_rounds * response_limit
+  participant_outputs <- as.double(question_rounds) * response_limit
   desire_outputs <- if (identical(flow, "desire_based")) {
     participant_outputs * n_participants
   } else {
     0L
   }
-  estimated_calls <- as.integer(
-    moderator_outputs + participant_outputs + desire_outputs + 1L
+  estimated_calls <- .fg_validate_estimate(
+    moderator_outputs + participant_outputs + desire_outputs + 1
   )
   if (is.null(.runner) && estimated_calls > max_calls && !confirm) {
     stop(
@@ -357,6 +421,21 @@ run_focus_group <- function(topic, config, n_participants = 6,
 
   if (verbose) cat("Simulation complete.\n")
   result
+}
+
+# The model-output estimate must be a whole number that fits in an integer.
+.fg_validate_estimate <- function(value) {
+  if (!is.numeric(value) || length(value) != 1L || !is.finite(value) ||
+      value < 1 || value != floor(value)) {
+    stop("The model-output estimate is unavailable: ", format(value), ".",
+         call. = FALSE)
+  }
+  if (value > .Machine$integer.max) {
+    stop("The model-output estimate (", format(value, big.mark = ","),
+         ") exceeds the integer range; reduce the guide counts, ",
+         "`n_participants`, or `max_participant_responses`.", call. = FALSE)
+  }
+  as.integer(value)
 }
 
 .fg_validate_config <- function(config) {
@@ -485,7 +564,10 @@ print.focus_group_result <- function(x, ...) {
 #'   on every agent.
 #'
 #' @return A named list of FGAgent objects (participants + 1 moderator), keyed
-#'   by agent ID.
+#'   by agent ID. When the participants are drawn from the bundled ANES
+#'   records, the list carries the `source_rows` and `source_ids` attributes
+#'   described in [create_agents_from_survey()], identifying the rows and
+#'   persona IDs drawn.
 #'
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -511,7 +593,8 @@ create_agents <- function(n_participants, config, demographics = NULL,
   .fg_validate_config(config)
 
   if (!is.numeric(n_participants) || length(n_participants) != 1L ||
-      is.na(n_participants) || n_participants < 1 ||
+      is.na(n_participants) || !is.finite(n_participants) ||
+      n_participants > .Machine$integer.max || n_participants < 1 ||
       n_participants != floor(n_participants)) {
     stop("`n_participants` must be a single positive integer.", call. = FALSE)
   }
@@ -522,7 +605,8 @@ create_agents <- function(n_participants, config, demographics = NULL,
   # demographic profile rendered with the survey's own question wording. The
   # 100 rows are diversity-selected, not a representative sample. For the
   # respondents' stated answers as well, use create_agents_from_data() on the
-  # full frame; for other populations, create_agents_from_survey().
+  # full frame; for other populations, create_agents_from_survey(). The roster
+  # records which rows were drawn, with their persona ids.
   if (is.null(demographics) && is.null(survey_responses) &&
       is.null(direct_persona_descriptions)) {
     personas <- LLMR::anes_2024_personas
@@ -539,9 +623,9 @@ create_agents <- function(n_participants, config, demographics = NULL,
     lean <- personas[, fields, drop = FALSE]
     attr(lean, "dictionary") <- attr(personas, "dictionary")
     attr(lean, "demographic_fields") <- fields
-    return(create_agents_from_data(
-      lean, n_participants = n_participants, config = config,
-      .runner = .runner))
+    agents <- create_agents_from_data(
+      lean, n_participants = n_participants, config = config, .runner = .runner)
+    return(.fg_roster_provenance(agents, personas, attr(agents, "source_rows")))
   }
 
   if (!is.null(direct_persona_descriptions)) {
@@ -881,17 +965,18 @@ print.focus_group_analysis <- function(x, ...) {
 
 #' Generate a participant persona from demographics and survey responses
 #'
-#' Renders the persona text for a synthetic participant from the demographics and
-#' survey responses the researcher supplied. It states those facts and nothing
-#' more: what a given age, education, place of residence, or survey answer implies
-#' about a person is left to the model, not decided here. Mapping a demographic
-#' label to a fixed disposition is the essentialism a research instrument should
-#' avoid, so the package does not do it.
+#' Renders the persona text for a simulated participant from the demographics
+#' and survey responses the researcher supplied. It states those facts and
+#' nothing more: what a given age, education, place of residence, or survey
+#' answer implies about a person is left to the model, not decided here.
+#' Mapping a demographic label to a fixed disposition is the essentialism a
+#' research instrument should avoid, so the package does not do it.
 #'
 #' Both the demographics and the survey responses are rendered in full (every
-#' supplied field), not a fixed subset. Pass survey responses keyed by the
-#' question wording (for survey-file input, the variable label is used as the key)
-#' so the model sees the item, not a code name.
+#' supplied field), not a fixed subset; fields that are missing or empty are
+#' left out rather than rendered as "NA". Pass survey responses keyed by the
+#' question wording (for survey-file input, the variable label is used as the
+#' key) so the model sees the item, not a code name.
 #'
 #' @param demographics A named list (or single-row data frame coerced to one) of
 #'   demographic fields, e.g. `list(age = 63, education = "High school",
@@ -922,8 +1007,9 @@ generate_persona <- function(demographics, survey_responses = NULL,
     x[keep]
   }
 
-  # Strip leftover code prefixes/suffixes that some labeled surveys carry on a
-  # value label (e.g. "1. Male", "Male (R volunteered)"). A no-op on plain text.
+  # Strip leftover code prefixes that some labeled surveys carry on a value
+  # label (e.g. "1. Male"). Trailing parentheticals such as "Asian
+  # (non-Hispanic)" are kept. A no-op on plain text.
   tidy_value <- function(x) {
     x <- as.character(x)
     # Strip a numbered-label prefix ("1. Male") only when whitespace follows
@@ -1007,22 +1093,30 @@ generate_persona <- function(demographics, survey_responses = NULL,
     stop("Direct persona descriptions must align with the respondent rows.",
          call. = FALSE)
   }
-  idx <- seq_len(N)
-  if (!is.null(rows)) {
-    idx <- if (is.function(rows)) which(rows(demo_df)) else {
-      if (is.logical(rows)) which(rows) else as.integer(rows)
-    }
-    idx <- idx[idx >= 1 & idx <= N]
-    if (!length(idx)) stop("`rows` selected no eligible respondents.")
+  if (!is.numeric(n_participants) || length(n_participants) != 1L ||
+      !is.finite(n_participants) || n_participants < 1 ||
+      n_participants != floor(n_participants) || n_participants > .Machine$integer.max) {
+    stop("`n_participants` must be one positive integer.", call. = FALSE)
   }
-
+  idx <- .fg_row_indices(rows, demo_df, N)
+  if (n_participants > length(idx)) {
+    stop(sprintf("%d participants were requested, but only %d distinct respondents are eligible.",
+                 n_participants, length(idx)), call. = FALSE)
+  }
   seed_val <- getOption("focusgroup.seed", NA_integer_)
-
   prob <- NULL
   if (!is.null(weights)) {
-    w <- suppressWarnings(as.numeric(weights))[idx]
-    w[is.na(w) | w < 0] <- 0
-    if (sum(w) > 0) prob <- w / sum(w)
+    w <- weights[idx]
+    label <- attr(weights, "weight_label") %||% "`weights`"
+    if (!any(w > 0)) {
+      stop(label, " has no positive weight among the eligible respondents.", call. = FALSE)
+    }
+    if (length(idx) > n_participants && sum(w > 0) < n_participants) {
+      stop(sprintf("A draw of %d respondents requires at least %d eligible respondents with positive weight; found %d.",
+                   n_participants, n_participants, sum(w > 0)), call. = FALSE)
+    }
+    total <- sum(w)
+    prob <- if (is.finite(total)) w / total else (w / max(w)) / sum(w / max(w))
   }
 
   take <- if (length(idx) > n_participants) {
@@ -1042,7 +1136,7 @@ generate_persona <- function(demographics, survey_responses = NULL,
     NULL
   }
 
-  create_agents(
+  agents <- create_agents(
     n_participants = n_participants,
     config = config,
     demographics = demo_sample,
@@ -1050,6 +1144,8 @@ generate_persona <- function(demographics, survey_responses = NULL,
     direct_persona_descriptions = persona_sample,
     .runner = .runner
   )
+  attr(agents, "source_rows") <- stats::setNames(as.integer(take), paste0("P", seq_along(take)))
+  agents
 }
 
 #' Create agents from a labeled survey file
@@ -1076,20 +1172,50 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'   be named (names become the question wording shown). If `NULL`, labeled
 #'   variables that are not demographics are used.
 #' @param rows Optional row selector restricting the eligible respondents before
-#'   sampling: an integer or logical vector, or a predicate
-#'   `function(df) -> logical` over the decoded demographics frame.
+#'   sampling: integer positions of rows in the file, a logical vector with one
+#'   value per row in the file, or a predicate `function(df) -> logical` over the
+#'   decoded demographics frame. The selector refers to the file's own rows and
+#'   is applied before respondents without any demographic value are left out;
+#'   a message says how many selected respondents were left out for that
+#'   reason. Positions must be whole numbers within the file, and neither a
+#'   logical selector nor a predicate's result may contain `NA`. A position
+#'   given more than once selects its respondent once.
 #' @param weights Optional sampling weights: a column name in the file, or a
 #'   numeric vector aligned to the file's rows. Used only to weight which
-#'   respondents are drawn; a weight column named here is not rendered into the
-#'   personas.
+#'   respondents are drawn; the weight column is not rendered into the
+#'   personas, even when `demographic_vars` or `survey_vars` name it. Weights
+#'   must be nonnegative and finite, with at least one positive; numeric
+#'   values carrying haven value labels are accepted.
 #' @param na_strings Character vector of value-label substrings treated as
 #'   missing (case-insensitive). Defaults to a small common set; pass your own to
 #'   match another file's missing-data vocabulary.
 #' @param .runner Optional function used instead of live model calls and stored
 #'   on every agent.
 #'
+#' @details
+#' Respondents are drawn without replacement, so a participant is never a
+#' second copy of another. When the selection leaves more eligible respondents
+#' than `n_participants`, that many are sampled, with probability proportional
+#' to `weights` when supplied; when it leaves exactly `n_participants`, all of
+#' them are used; when it leaves fewer, the call is refused. The option
+#' `focusgroup.seed` makes the draw reproducible without changing the caller's
+#' random-number state.
+#'
+#' Invalid weights are refused rather than repaired. The call stops when the
+#' named weight column is not in the file, when the weights are not numeric
+#' (a factor, text, or logical values), when their length differs from the
+#' number of rows, when any weight is missing, negative, or not finite, or
+#' when no eligible respondent has a positive weight. The error names the
+#' column or the offending rows.
+#'
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
-#'   by agent ID.
+#'   by agent ID. Two attributes record which respondents were drawn. The
+#'   `source_rows` attribute is an integer vector of their row positions in the
+#'   file, named by participant ID. When the file has columns named `id`,
+#'   `respondent_id`, or `persona_id`, the `source_ids` attribute is a data
+#'   frame of those columns for the drawn respondents, with participant IDs as
+#'   row names. The moderator appears in neither. Subsetting the list drops the
+#'   attributes, so read them from the list as returned.
 #' @seealso [create_agents_from_data()] for an in-memory data frame, and
 #'   `LLMR::anes_2024_personas` for a ready-made example.
 #' @examples
@@ -1135,6 +1261,9 @@ create_agents_from_survey <- function(n_participants,
     stop("Unsupported survey file type: .", ext)
   )
 
+  weight_col <- if (is.character(weights) && length(weights) == 1L) weights else character()
+  weights_vec <- .fg_resolve_weights(weights, raw_lab)
+
   label_of <- function(v) tryCatch(attr(raw_lab[[v]], "label") %||% "", error = function(...) "")
   detect_by_label <- function(patterns) {
     labs <- vapply(names(raw_lab), label_of, "")
@@ -1154,11 +1283,16 @@ create_agents_from_survey <- function(n_participants,
   # nor the sampling-weight column, which is not something a respondent said.
   if (is.null(survey_vars)) {
     has_label <- vapply(names(raw_lab), function(v) nzchar(label_of(v)), logical(1))
-    weight_col <- if (is.character(weights) && length(weights) == 1L) weights else character(0)
     survey_vars <- setdiff(names(raw_lab)[has_label],
                            c(unname(demographic_vars), weight_col))
   }
 
+  had_demographics <- length(demographic_vars) > 0L
+  demographic_vars <- demographic_vars[!unname(demographic_vars) %in% weight_col]
+  survey_vars <- survey_vars[!unname(survey_vars) %in% weight_col]
+  if (had_demographics && !length(demographic_vars)) {
+    stop("No usable `demographic_vars` remain after excluding the sampling-weight column.", call. = FALSE)
+  }
   demo_codes <- demographic_vars[unname(demographic_vars) %in% names(raw_lab)]
   svy_codes  <- survey_vars[unname(survey_vars) %in% names(raw_lab)]
   if (!length(demo_codes)) stop("None of `demographic_vars` are in the file.")
@@ -1190,47 +1324,111 @@ create_agents_from_survey <- function(n_participants,
   }
   keep <- selected & has_demo
   if (!any(keep)) stop("`rows` selected no eligible respondents.", call. = FALSE)
-  weights_vec <- if (is.character(weights) && length(weights) == 1L &&
-                     weights %in% names(raw_lab)) {
-    suppressWarnings(as.numeric(haven::zap_labels(raw_lab[[weights]])))
-  } else weights
   demo_df <- demo_df[keep, , drop = FALSE]
   if (!is.null(survey_df)) survey_df <- survey_df[keep, , drop = FALSE]
-  if (!is.null(weights_vec) && length(weights_vec) == length(keep)) weights_vec <- weights_vec[keep]
+  if (!is.null(weights_vec)) {
+    weight_label <- attr(weights_vec, "weight_label")
+    weights_vec <- weights_vec[keep]
+    attr(weights_vec, "weight_label") <- weight_label
+  }
 
-  .fg_agents_from_frames(
+  agents <- .fg_agents_from_frames(
     demo_df, survey_df, n_participants, config,
     rows = NULL, weights = weights_vec, .runner = .runner
   )
+  .fg_roster_provenance(agents, raw_lab, which(keep)[attr(agents, "source_rows")])
 }
 
-# Resolve a `rows` selector to a logical mask over the `n` rows of `df`. A
-# predicate or a logical vector must give one value per row (NA counts as not
-# selected); integer selectors must be whole numbers between 1 and `n`. A mask
-# cannot select a respondent twice.
+# Resolve a `rows` selector to row positions in `df`, which has `n` rows. A
+# predicate is evaluated once; its result, like a logical selector, must give
+# one non-missing value per row. Integer positions must be whole numbers
+# between 1 and `n`; their order is kept and a repeated position counts once,
+# so a selector cannot draw the same respondent twice.
+.fg_row_indices <- function(rows, df, n) {
+  if (is.null(rows)) return(seq_len(n))
+  predicate <- is.function(rows)
+  if (predicate) rows <- rows(df)
+  if (predicate || is.logical(rows)) {
+    label <- if (predicate) "A `rows` predicate" else "A logical `rows` selector"
+    if (!is.logical(rows) || !is.null(dim(rows)) || length(rows) != n) {
+      bad <- if (!is.logical(rows) || !is.null(dim(rows))) seq_len(max(n, length(rows))) else
+        seq.int(min(n, length(rows)) + 1L, max(n, length(rows)))
+      stop(label, if (predicate) " must return" else " must have",
+           " one logical value per respondent; invalid positions: ",
+           paste(utils::head(bad, 6L), collapse = ", "),
+           ".", call. = FALSE)
+    }
+    if (anyNA(rows)) {
+      stop(label, " contains missing values at position(s) ",
+           paste(utils::head(which(is.na(rows)), 6L), collapse = ", "), ".", call. = FALSE)
+    }
+    return(which(rows))
+  }
+  valid_type <- is.numeric(rows) && !is.complex(rows) && !is.factor(rows) && is.null(dim(rows))
+  bad <- if (valid_type) which(!is.finite(rows) | rows != floor(rows) | rows < 1 | rows > n) else seq_along(rows)
+  if (!valid_type || length(bad)) {
+    stop("`rows` must be whole numbers between 1 and the number of respondents; invalid values at position(s) ",
+         paste(utils::head(bad, 6L), collapse = ", "), ".", call. = FALSE)
+  }
+  unique(as.integer(rows))
+}
+
+# The same selector as a logical mask over the `n` rows, in file order.
 .fg_resolve_rows <- function(rows, df, n) {
-  if (is.null(rows)) return(rep(TRUE, n))
-  if (is.function(rows)) {
-    flag <- rows(df)
-    if (!is.logical(flag) || length(flag) != n) {
-      stop("A `rows` predicate must return one logical value per respondent.",
-           call. = FALSE)
+  seq_len(n) %in% .fg_row_indices(rows, df, n)
+}
+
+# Validate sampling weights against every row of `data`, before any selection,
+# and return them as doubles. `weights` is a column name or a vector aligned to
+# the rows. Anything that is not a usable weight is refused with an error that
+# names the column or rows, never coerced: a factor would sample by its codes,
+# and a missing or negative weight would silently exclude a respondent. The
+# returned vector carries a label for later messages.
+.fg_resolve_weights <- function(weights, data) {
+  if (is.null(weights)) return(NULL)
+  label <- "`weights`"
+  if (is.character(weights) && length(weights) == 1L &&
+      !is.na(weights) && nzchar(weights)) {
+    if (!weights %in% names(data)) {
+      stop(sprintf("Weight column '%s' is not present in the input data.", weights), call. = FALSE)
     }
-    return(flag %in% TRUE)
+    label <- sprintf("Weight column '%s'", weights)
+    weights <- data[[weights]]
   }
-  if (is.logical(rows)) {
-    if (length(rows) != n) {
-      stop("A logical `rows` selector must have one value per respondent.",
-           call. = FALSE)
-    }
-    return(rows %in% TRUE)
-  }
-  if (!is.numeric(rows) || anyNA(rows) || any(rows != floor(rows)) ||
-      any(rows < 1) || any(rows > n)) {
-    stop("`rows` must be whole numbers between 1 and the number of respondents, with no NA.",
+  if (!(typeof(weights) %in% c("integer", "double")) || is.factor(weights) ||
+      !is.null(dim(weights))) {
+    stop(label, " must be an integer or double vector; factors, text, logical values, and arrays are not sampling weights.",
          call. = FALSE)
   }
-  seq_len(n) %in% rows
+  if (length(weights) != nrow(data)) {
+    stop(sprintf("%s has length %d; expected one weight for each of the %d respondents.",
+                 label, length(weights), nrow(data)), call. = FALSE)
+  }
+  bad <- which(!is.finite(weights) | weights < 0)
+  if (length(bad)) {
+    stop(sprintf("%s contains missing, negative, or nonfinite weights at source row(s) %s.",
+                 label, paste(utils::head(bad, 6L), collapse = ", ")), call. = FALSE)
+  }
+  if (!any(weights > 0)) stop(label, " must contain at least one positive weight.", call. = FALSE)
+  out <- as.double(weights)
+  attr(out, "weight_label") <- label
+  out
+}
+
+# Record on a roster which rows of `data` its participants were drawn from
+# (`source_rows`, named by agent ID) and, when `data` has identifier columns,
+# their identifiers (`source_ids`). The moderator is not a respondent and is
+# left out of both.
+.fg_roster_provenance <- function(agents, data, rows) {
+  ids <- names(agents)[!vapply(agents, function(a) isTRUE(a$is_moderator), logical(1))]
+  attr(agents, "source_rows") <- stats::setNames(as.integer(rows), ids)
+  columns <- intersect(c("id", "respondent_id", "persona_id"), names(data))
+  if (length(columns)) {
+    source_ids <- as.data.frame(data[rows, columns, drop = FALSE])
+    rownames(source_ids) <- ids
+    attr(agents, "source_ids") <- source_ids
+  }
+  agents
 }
 
 #' Create agents from an in-memory data frame of respondents
@@ -1254,11 +1452,20 @@ create_agents_from_survey <- function(n_participants,
 #' @param demographic_cols Character vector of columns to render as demographics.
 #'   Defaults to the `data`'s `"demographic_fields"` attribute when present, else
 #'   a small set of common demographic column names found in `data`.
-#' @param rows,weights See [create_agents_from_survey()].
+#' @param rows,weights See [create_agents_from_survey()]. Here `rows` refers to
+#'   the rows of `data`, and a predicate receives the demographics frame with
+#'   its columns relabeled as they appear in the personas. Integer positions
+#'   are kept in the order given.
 #' @param .runner Optional function used instead of live model calls and stored
 #'   on every agent.
+#' @details
+#' Sampling and the validation of `weights` follow
+#' [create_agents_from_survey()].
+#'
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
-#'   by agent ID.
+#'   by agent ID, with the `source_rows` and `source_ids` attributes described
+#'   in [create_agents_from_survey()]; here the positions refer to the rows of
+#'   `data`.
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
 #'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
@@ -1273,6 +1480,8 @@ create_agents_from_data <- function(data, n_participants, config,
                                     .runner = NULL) {
   stopifnot(is.data.frame(data))
   .fg_validate_config(config)
+
+  wv <- .fg_resolve_weights(weights, data)
 
   is_silicon_panel <- inherits(data, "silicon_panel") ||
     all(c("persona", "persona_id") %in% names(data))
@@ -1309,7 +1518,7 @@ create_agents_from_data <- function(data, n_participants, config,
   to_char <- function(df) {
     if (!ncol(df)) return(data.frame(row.names = seq_len(nrow(df))))
     as.data.frame(lapply(df, function(x) {
-      v <- as.character(x); v[!nzchar(v %||% "")] <- NA; v
+      v <- as.character(x); v[!nzchar(v)] <- NA; v
     }), stringsAsFactors = FALSE, check.names = FALSE)
   }
 
@@ -1330,16 +1539,14 @@ create_agents_from_data <- function(data, n_participants, config,
     names(s) <- relabel(survey_cols); s
   } else NULL
 
-  wv <- if (is.character(weights) && length(weights) == 1L && weights %in% names(data)) {
-    suppressWarnings(as.numeric(data[[weights]]))
-  } else weights
 
-  .fg_agents_from_frames(
+  agents <- .fg_agents_from_frames(
     demo_df, survey_df, n_participants, config,
     rows = rows, weights = wv,
     direct_persona_descriptions = direct_personas,
     .runner = .runner
   )
+  .fg_roster_provenance(agents, data, attr(agents, "source_rows"))
 }
 
  

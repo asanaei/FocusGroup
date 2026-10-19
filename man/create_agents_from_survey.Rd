@@ -33,13 +33,21 @@ be named (names become the question wording shown). If \code{NULL}, labeled
 variables that are not demographics are used.}
 
 \item{rows}{Optional row selector restricting the eligible respondents before
-sampling: an integer or logical vector, or a predicate
-\verb{function(df) -> logical} over the decoded demographics frame.}
+sampling: integer positions of rows in the file, a logical vector with one
+value per row in the file, or a predicate \verb{function(df) -> logical} over the
+decoded demographics frame. The selector refers to the file's own rows and
+is applied before respondents without any demographic value are left out;
+a message says how many selected respondents were left out for that
+reason. Positions must be whole numbers within the file, and neither a
+logical selector nor a predicate's result may contain \code{NA}. A position
+given more than once selects its respondent once.}
 
 \item{weights}{Optional sampling weights: a column name in the file, or a
 numeric vector aligned to the file's rows. Used only to weight which
-respondents are drawn; a weight column named here is not rendered into the
-personas.}
+respondents are drawn; the weight column is not rendered into the
+personas, even when \code{demographic_vars} or \code{survey_vars} name it. Weights
+must be nonnegative and finite, with at least one positive; numeric
+values carrying haven value labels are accepted.}
 
 \item{na_strings}{Character vector of value-label substrings treated as
 missing (case-insensitive). Defaults to a small common set; pass your own to
@@ -50,7 +58,13 @@ on every agent.}
 }
 \value{
 A named list of \code{FGAgent} objects (participants + moderator), keyed
-by agent ID.
+by agent ID. Two attributes record which respondents were drawn. The
+\code{source_rows} attribute is an integer vector of their row positions in the
+file, named by participant ID. When the file has columns named \code{id},
+\code{respondent_id}, or \code{persona_id}, the \code{source_ids} attribute is a data
+frame of those columns for the drawn respondents, with participant IDs as
+row names. The moderator appears in neither. Subsetting the list drops the
+attributes, so read them from the list as returned.
 }
 \description{
 Reads a labeled survey file (Stata \code{.dta}, SPSS \code{.sav}, or SAS
@@ -64,6 +78,21 @@ other labeled file; nothing about a particular dataset is hard-coded.
 The survey answers are keyed by each variable's question wording (its label in
 the file) so the model sees the item, not a code name. The persona draws no
 inferences from the answers; it states them and lets the model interpret.
+
+Respondents are drawn without replacement, so a participant is never a
+second copy of another. When the selection leaves more eligible respondents
+than \code{n_participants}, that many are sampled, with probability proportional
+to \code{weights} when supplied; when it leaves exactly \code{n_participants}, all of
+them are used; when it leaves fewer, the call is refused. The option
+\code{focusgroup.seed} makes the draw reproducible without changing the caller's
+random-number state.
+
+Invalid weights are refused rather than repaired. The call stops when the
+named weight column is not in the file, when the weights are not numeric
+(a factor, text, or logical values), when their length differs from the
+number of rows, when any weight is missing, negative, or not finite, or
+when no eligible respondent has a positive weight. The error names the
+column or the offending rows.
 }
 \examples{
 # A small labeled file stands in for a survey release; the call is the same

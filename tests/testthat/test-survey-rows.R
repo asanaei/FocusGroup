@@ -57,5 +57,5 @@ test_that("invalid row selectors are refused", {
   expect_error(survey_agents(f, n_participants = 1, rows = 2.5), "whole numbers")
   expect_error(survey_agents(f, n_participants = 1, rows = 99), "whole numbers")
   expect_error(survey_agents(f, n_participants = 1, rows = c(TRUE, FALSE)),
-               "one value per respondent")
+               "one logical value per respondent")
 })
