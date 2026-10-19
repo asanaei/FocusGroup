@@ -59,7 +59,7 @@ test_that("run_focus_group returns the fixed result class and fields", {
   expect_true(is.list(result$participants$survey_responses))
   expect_type(result$summary, "character")
   expect_length(result$summary, 1L)
-  expect_named(result$usage, c("sent", "rec", "total"), ignore.order = FALSE)
+  expect_named(result$usage, c("sent", "rec", "total", "unknown"), ignore.order = FALSE)
   expect_true(all(vapply(result$usage, is.numeric, logical(1))))
   expect_equal(result$usage$total, result$usage$sent + result$usage$rec)
   expect_true(is.list(result$metadata))
@@ -77,7 +77,7 @@ test_that("result metadata records provenance without retaining a config object"
   expect_named(
     result$metadata,
     c("topic", "purpose", "flow", "message_mode", "n_participants",
-      "estimated_calls", "provider", "model"),
+      "estimated_calls", "provider", "model", "complete", "failure"),
     ignore.order = FALSE
   )
   expect_identical(result$metadata$message_mode, "roleflip")

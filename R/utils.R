@@ -13,23 +13,164 @@ NULL
   if (is.null(x) || length(x) == 0) y else x
 }
 
-# NA-safe token count for accumulation: NULL, length-0, NA, or non-numeric all
-# collapse to 0 so a provider that reports no usage cannot poison a running
-# total (`NA %||% 0` is NA, which would propagate through every later sum).
-.fg_tok0 <- function(x) {
-  v <- suppressWarnings(as.numeric(x %||% 0))
-  v[is.na(v)] <- 0
-  sum(v)
+# ---- Usage accounting --------------------------------------------------------
+# A usage record holds observed token subtotals (`sent`, `rec`, `total`), the
+# number of calls whose usage was incomplete (`unknown`), the same count for
+# each component (`sent_unknown`, `rec_unknown`, `total_unknown`), and the
+# number of returned calls (`calls`). Subtotals add only reported values, so a
+# subtotal is a lower bound whenever its unknown count is positive. An unknown
+# count is NA when completeness cannot be determined at all, for example when
+# a call raised an error and gave no response to inspect.
+
+# Sum normalized observed counts. Missing usage is recorded separately.
+.fg_tok0 <- function(x) as.double(sum(x, na.rm = TRUE))
+
+.fg_usage_empty <- function() {
+  list(sent = 0, rec = 0, total = 0, unknown = 0,
+       sent_unknown = 0, rec_unknown = 0, total_unknown = 0, calls = 0)
 }
 
-.fg_add_group_usage <- function(focus_group, sent = 0L, rec = 0L) {
-  focus_group$total_tokens_sent <- focus_group$total_tokens_sent + .fg_tok0(sent)
-  focus_group$total_tokens_received <-
-    focus_group$total_tokens_received + .fg_tok0(rec)
-  invisible(list(
-    sent = focus_group$total_tokens_sent,
-    rec = focus_group$total_tokens_received
-  ))
+# The record for a call that raised an error, or whose usage could not be
+# read: no observed tokens and completeness unavailable.
+.fg_usage_unavailable <- function(calls = 0) {
+  usage <- .fg_usage_empty()
+  usage$calls <- calls
+  usage[c("unknown", "sent_unknown", "rec_unknown", "total_unknown")] <- NA_real_
+  usage
+}
+
+.fg_usage_merge <- function(x, y) {
+  for (name in names(x)) {
+    value <- x[[name]] + y[[name]]
+    if (!is.na(value) && !is.finite(value)) {
+      warning("Accumulated token usage exceeds the numeric range; completeness is unavailable.",
+              call. = FALSE)
+      value <- x[[name]]
+      x$unknown <- NA_real_
+      x[[paste0(name, "_unknown")]] <- NA_real_
+    }
+    x[[name]] <- value
+  }
+  x
+}
+
+# Accumulate the usage of the calls one operation makes. `add` receives each
+# call's record. With `runner`, the returned `runner` wraps it and records
+# every result it returns, and an unavailable record when it raises an error.
+# With `safe = TRUE` (the Studio), problems reading usage are collected in
+# `issues()` instead of being signaled, so that accounting cannot interrupt the
+# action whose calls it records.
+.fg_usage_recorder <- function(runner = NULL, safe = FALSE) {
+  usage <- .fg_usage_empty()
+  issues <- character()
+  add <- function(record) usage <<- .fg_usage_merge(usage, record)
+  list(add = add, value = function() usage, issues = function() issues,
+       runner = function(experiments, ...) {
+         out <- tryCatch(runner(experiments, ...), error = function(e) {
+           add(.fg_usage_unavailable())
+           stop(e)
+         })
+         if (safe) {
+           record <- tryCatch(withCallingHandlers(.fg_usage_record(out),
+             warning = function(w) {
+               issues <<- c(issues, conditionMessage(w))
+               invokeRestart("muffleWarning")
+             }), error = function(e) {
+               issues <<- c(issues, conditionMessage(e))
+               .fg_usage_unavailable(if (is.data.frame(out)) nrow(out) else 1)
+             })
+           withCallingHandlers(add(record), warning = function(w) {
+             issues <<- c(issues, conditionMessage(w))
+             invokeRestart("muffleWarning")
+           })
+           attr(out, "focusgroup_usage") <- record
+         } else add(.fg_usage_record(out))
+         out
+       })
+}
+
+# Add a usage record to the token fields of an agent or a group. `fields` maps
+# record elements to the object's field names. An object saved by an earlier
+# version lacks the newer fields and cannot gain them (its environment is
+# locked), so those values accumulate in its `additional_usage` attribute.
+.fg_add_usage <- function(object, usage, fields) {
+  extra <- attr(object, "additional_usage") %||% .fg_usage_empty()
+  before <- .fg_usage_empty()
+  record <- .fg_usage_empty()
+  for (name in names(fields)) {
+    field <- fields[[name]]
+    before[[name]] <- if (field %in% names(object)) object[[field]] else extra[[name]]
+    record[[name]] <- usage[[name]]
+  }
+  after <- .fg_usage_merge(before, record)
+  for (name in names(fields)) {
+    field <- fields[[name]]
+    if (field %in% names(object)) object[[field]] <- after[[name]] else extra[[name]] <- after[[name]]
+  }
+  attr(object, "additional_usage") <- extra
+  invisible(usage)
+}
+
+# Run a model analysis on a group. A group saved by an earlier version keeps
+# its own methods and counters, which do not record completeness, so the usage
+# its new calls signal is also collected in its `recorded_usage` attribute.
+.fg_legacy_usage <- function(object, expr) {
+  if ("total_tokens" %in% names(object)) return(force(expr))
+  withCallingHandlers(expr, focusgroup_usage = function(cnd) {
+    attr(object, "recorded_usage") <- .fg_usage_merge(
+      attr(object, "recorded_usage") %||% .fg_usage_empty(), cnd$usage)
+  })
+}
+
+.fg_add_agent_usage <- function(agent, usage) {
+  .fg_add_usage(agent, usage, c(sent = "tokens_sent_agent",
+    rec = "tokens_received_agent", total = "tokens_total_agent",
+    unknown = "usage_unknown_agent"))
+}
+
+.fg_add_group_usage <- function(focus_group, sent = 0L, rec = 0L,
+                                total, unknown) {
+  .fg_add_usage(focus_group,
+    list(sent = sent, rec = rec,
+         total = if (missing(total)) NA_real_ else total,
+         unknown = if (missing(unknown)) NA_real_ else unknown),
+    c(sent = "total_tokens_sent", rec = "total_tokens_received",
+      total = "total_tokens", unknown = "calls_usage_unknown"))
+}
+
+# Add a usage record to a group's token fields.
+.fg_record_group <- function(group, usage) {
+  .fg_add_group_usage(group, usage$sent, usage$rec, usage$total, usage$unknown)
+}
+
+# Evaluate `expr`, adding to the group the usage of every model call made
+# inside it. Each call signals its usage as soon as it returns, before its
+# output is checked, so calls whose output is then rejected are counted too.
+.fg_with_group_usage <- function(group, expr) {
+  withCallingHandlers(expr, focusgroup_usage = function(cnd) {
+    .fg_record_group(group, cnd$usage)
+  })
+}
+
+# The line that follows a displayed token count: empty when usage is
+# complete, otherwise the number of calls whose usage is missing.
+.fg_usage_note <- function(unknown) {
+  if (is.null(unknown)) {
+    "Usage completeness was not recorded for this result.\n"
+  } else if (is.na(unknown)) {
+    "Token usage is incomplete for an undetermined number of calls.\n"
+  } else if (unknown > 0) {
+    sprintf("Token usage is incomplete for %s call(s).\n", format(unknown))
+  } else ""
+}
+
+# A token count for display: exact when every call reported it, otherwise a
+# lower bound, or "unknown" when nothing was reported.
+.fg_usage_text <- function(value, unknown) {
+  if (is.null(value) || is.na(value)) return("unknown")
+  if (is.null(unknown) || is.na(unknown) || unknown > 0) {
+    if (value > 0) paste("at least", format(value, trim = TRUE)) else "unknown"
+  } else format(value, trim = TRUE)
 }
 
 # --- Formatting Helpers ---
@@ -159,36 +300,54 @@ format_conversation_history <- function(conversation_log,
 
 # ---- Token & parsing utilities ---------------------------------------------
 
-# Dispatch one model call. An injected runner follows the shared experiments-
-# frame contract used across the LLMR package family.
-.fg_call_llm <- function(config, messages, .runner = NULL, ...) {
-  if (is.null(.runner)) {
-    return(LLMR::call_llm_robust(
-      config = config,
-      messages = messages,
-      ...
-    ))
+# Dispatch one request and record its returned usage before validating output.
+.fg_call_llm <- function(config, messages, .runner = NULL, ..., .usage = NULL) {
+  publish <- function(usage) {
+    if (!is.null(.usage)) .usage(usage)
+    signalCondition(structure(list(message = "Model usage", usage = usage),
+                              class = c("focusgroup_usage", "condition")))
   }
-  if (!is.function(.runner)) {
-    stop("`.runner` must be `NULL` or a function.", call. = FALSE)
+  out <- tryCatch({
+    if (is.null(.runner)) {
+      LLMR::call_llm_robust(config = config, messages = messages, ...)
+    } else {
+      if (!is.function(.runner)) {
+        stop("`.runner` must be `NULL` or a function.", call. = FALSE)
+      }
+      experiments <- data.frame(.experiment_id = 1L)
+      experiments$config <- I(list(config))
+      experiments$messages <- I(list(messages))
+      .runner(experiments, ...)
+    }
+  }, error = function(e) {
+    publish(.fg_usage_unavailable())
+    stop(e)
+  })
+  publish(attr(out, "focusgroup_usage", exact = TRUE) %||% .fg_usage_record(out))
+  if (!is.null(.runner)) {
+    required <- c("config", "messages", "response_text")
+    if (!is.data.frame(out) || nrow(out) != 1L ||
+        !all(required %in% names(out))) {
+      stop("`.runner` must return the experiment rows with `config`, `messages`, and `response_text` columns.",
+           call. = FALSE)
+    }
   }
-  experiments <- data.frame(.experiment_id = 1L)
-  experiments$config <- I(list(config))
-  experiments$messages <- I(list(messages))
-  out <- .runner(experiments, ...)
-  required <- c("config", "messages", "response_text")
-  if (!is.data.frame(out) || nrow(out) != 1L ||
-      !all(required %in% names(out))) {
-    stop("`.runner` must return the experiment rows with `config`, `messages`, and `response_text` columns.",
-         call. = FALSE)
-  }
-  if ("success" %in% names(out) && !isTRUE(out$success[[1]])) {
-    reason <- if ("error" %in% names(out)) as.character(out$error[[1]]) else
-      "The runner reported an unsuccessful model call."
-    stop(reason, call. = FALSE)
-  }
-  if (is.na(out$response_text[[1]])) {
-    stop("`.runner` returned a missing `response_text`.", call. = FALSE)
+  if (is.data.frame(out) && nrow(out) == 1L) {
+    if ("success" %in% names(out) && !isTRUE(out$success[[1]])) {
+      reason <- "The runner reported an unsuccessful model call."
+      for (field in c("error_message", "error")) {
+        value <- out[[field]]
+        if (length(value) && !is.na(value[[1]]) && nzchar(as.character(value[[1]]))) {
+          reason <- as.character(value[[1]])
+          break
+        }
+      }
+      rlang::abort(as.character(reason[[1]]), class = "focusgroup_model_error",
+                   response = out)
+    }
+    if ("response_text" %in% names(out) && is.na(out$response_text[[1]])) {
+      stop("`.runner` returned a missing `response_text`.", call. = FALSE)
+    }
   }
   out
 }
@@ -228,49 +387,125 @@ estimate_tokens <- function(text) {
   as.integer(nchar(as.character(text)[1]) / 4)
 }
 
-#' Extract token counts from an LLM response-like object
-#' @keywords internal
-extract_token_counts <- function(response_obj) {
-  empty_usage <- list(sent = 0L, rec = 0L, total = 0L)
+# Read one call's sent, received, and total counts from a response object or
+# from one row of a result frame. A count that is absent stays NA rather than
+# becoming 0; a count that is present but not a nonnegative whole number is
+# treated as NA with a warning. A missing total is the sum of the two parts
+# when both are known.
+.fg_normalize_usage <- function(response) {
+  if (inherits(response, "llmr_response")) {
+    response <- tryCatch(LLMR::tokens(response), error = function(e) {
+      warning("Token usage could not be read from the response; its counts are treated as unknown.",
+              call. = FALSE)
+      list()
+    })
+  }
+  pick <- function(aliases) {
+    if (is.list(response)) {
+      for (name in aliases) if (name %in% names(response)) return(response[[name]])
+    }
+    NULL
+  }
+  count <- function(x, name) {
+    if (is.null(x) || !length(x)) return(NA_real_)
+    if (length(x) == 1L && !is.factor(x) &&
+        (is.numeric(x) || is.logical(x)) && !is.complex(x) &&
+        is.null(dim(x)) && is.na(x) && !is.nan(x)) {
+      return(NA_real_)
+    }
+    if (!is.numeric(x) || is.factor(x) || is.complex(x) ||
+        !is.null(dim(x)) || length(x) != 1L || !is.finite(x) ||
+        x < 0 || x != floor(x)) {
+      warning(sprintf("Token count `%s` is not a finite nonnegative whole number; it is treated as unknown.",
+                      name), call. = FALSE)
+      return(NA_real_)
+    }
+    as.double(x)
+  }
+  sent <- count(pick(c("sent", "sent_tokens", "prompt_tokens", "input_tokens")), "sent")
+  rec <- count(pick(c("rec", "rec_tokens", "completion_tokens", "output_tokens")), "rec")
+  total <- count(pick(c("total", "total_tokens")), "total")
+  if (is.na(total) && !is.na(sent) && !is.na(rec)) {
+    total <- count(sent + rec, "total")
+  }
+  list(sent = sent, rec = rec, total = total)
+}
 
-  # Only trust LLMR::tokens() for a single llmr_response. For a
-  # call_llm_broadcast()/call_llm_par() result (a data.frame/tibble),
-  # LLMR::tokens(df) returns all-NA, which previously coerced to zero and
-  # returned early -- silently dropping broadcast desire-scoring usage. For a
-  # data.frame fall through to the explicit per-row column handling below.
-  if (inherits(response_obj, "llmr_response")) {
-    llmr_usage <- tryCatch(
-      if (requireNamespace("LLMR", quietly = TRUE)) LLMR::tokens(response_obj) else NULL,
-      error = function(...) NULL)
-    if (!is.null(llmr_usage)) {
-      na0 <- function(x) { v <- suppressWarnings(as.integer(x)); v[is.na(v)] <- 0L; v }
-      sent <- sum(na0(llmr_usage$sent %||% llmr_usage$prompt_tokens %||% 0L))
-      rec <- sum(na0(llmr_usage$rec %||% llmr_usage$completion_tokens %||% 0L))
-      total <- llmr_usage$total %||% (sent + rec)
-      return(list(sent = sent, rec = rec, total = sum(na0(total))))
+# Split a response into one element per call: the rows of a result frame, the
+# elements of a list of columns as long as its response vector, or the
+# response itself.
+.fg_usage_rows <- function(response) {
+  if (is.data.frame(response)) {
+    return(lapply(seq_len(nrow(response)), function(i) {
+      lapply(response, function(x) x[i][[1]])
+    }))
+  }
+  # Column lists are call-level only when a response vector establishes rows.
+  if (is.list(response) && !inherits(response, "llmr_response") &&
+      length(response$response_text) > 1L) {
+    n <- length(response$response_text)
+    fields <- intersect(names(response), c("sent", "rec", "total", "sent_tokens",
+      "rec_tokens", "total_tokens", "prompt_tokens", "completion_tokens",
+      "input_tokens", "output_tokens"))
+    if (all(lengths(response[fields]) == n)) {
+      return(lapply(seq_len(n), function(i) lapply(response, function(x) {
+        if (length(x) == n) x[i][[1]] else NULL
+      })))
     }
   }
+  list(response)
+}
 
-  if (!is.list(response_obj)) return(empty_usage)
-
-  # Read a field by name across the candidate aliases, taking the first that is
-  # present. Accessing a missing column with `$` on a tibble warns ("Unknown or
-  # uninitialised column"); checking names() first avoids that for the
-  # broadcast/parallel data-frame path while behaving identically for a plain list.
-  nm <- names(response_obj)
-  pick <- function(aliases, default = 0L) {
-    for (a in aliases) if (a %in% nm) return(response_obj[[a]])
-    default
+# The usage record of a response: one call per row, with each call's missing
+# components counted. A record already attached by a recorder is reused, so a
+# call is never counted twice.
+.fg_usage_record <- function(response) {
+  cached <- attr(response, "focusgroup_usage", exact = TRUE)
+  if (!is.null(cached)) return(cached)
+  usage <- .fg_usage_empty()
+  for (row in .fg_usage_rows(response)) {
+    counts <- .fg_normalize_usage(row)
+    record <- .fg_usage_empty()
+    for (name in names(counts)) {
+      record[[name]] <- .fg_tok0(counts[[name]])
+      record[[paste0(name, "_unknown")]] <- as.double(is.na(counts[[name]]))
+    }
+    record$unknown <- as.double(anyNA(counts))
+    record$calls <- 1
+    usage <- .fg_usage_merge(usage, record)
   }
-  sent <- pick(c("sent", "sent_tokens", "prompt_tokens", "input_tokens"))
-  rec  <- pick(c("rec", "rec_tokens", "completion_tokens", "output_tokens"))
-  tot  <- pick(c("total", "total_tokens"), NA_integer_)
+  usage
+}
 
-  sent <- sum(suppressWarnings(as.integer(sent)), na.rm = TRUE)
-  rec <- sum(suppressWarnings(as.integer(rec)), na.rm = TRUE)
-  tot <- sum(suppressWarnings(as.integer(tot)), na.rm = TRUE)
-  if (tot == 0L) tot <- sent + rec
-  list(sent = sent, rec = rec, total = tot)
+#' Extract token counts from an LLM response-like object
+#'
+#' Reads the token usage of the calls in a response: an `llmr_response`, a
+#' result data frame with one row per call, or a list of token fields.
+#'
+#' Each call's counts are read separately. A count the call did not report is
+#' unknown and adds nothing to the subtotals; a count that is not a nonnegative
+#' whole number is treated as unknown, with a warning. A call's total is its
+#' reported total, or the sum of its sent and received counts when both are
+#' known.
+#'
+#' @param response_obj A response, a result data frame, or a list of token
+#'   fields.
+#' @return A list with the subtotals `sent`, `rec`, and `total` of the
+#'   reported counts; `unknown`, the number of calls with any count missing;
+#'   and `sent_unknown`, `rec_unknown`, and `total_unknown`, the number of
+#'   calls missing each count.
+#' @keywords internal
+extract_token_counts <- function(response_obj) {
+  .fg_usage_record(response_obj)[c("sent", "rec", "total", "unknown",
+                                 "sent_unknown", "rec_unknown", "total_unknown")]
+}
+
+# A message's token count: the subtotal when every call behind the message
+# reported it, otherwise NA. Integer when it fits.
+.fg_message_count <- function(usage, name) {
+  if (!isTRUE(usage[[paste0(name, "_unknown")]] == 0)) return(NA_integer_)
+  value <- usage[[name]]
+  if (value <= .Machine$integer.max) as.integer(value) else value
 }
 
 #' Parse a 0-10 integer score from free text
@@ -626,18 +861,24 @@ replace_placeholders_known <- function(template_string, values_list) {
 
 # Strip a session of everything a saved file must not carry: model
 # configurations (which may hold a literal key) and runner closures (which
-# may hold live GUI state). The running session is untouched; agents are
-# cloned before the fields are cleared. Continuation work re-supplies a
-# configuration when it generates.
+# may hold live GUI state), on the roster and on the turn-taking flow's copy
+# of it. The running session is untouched; agents and the flow are cloned
+# before the fields are cleared. The roster's provenance attributes and the
+# session status are kept. Continuation work re-supplies a configuration when
+# it generates.
 .fg_sanitize_session <- function(fg) {
   stopifnot(inherits(fg, "FocusGroup"))
   out <- fg$clone(deep = FALSE)
   out$agents <- lapply(fg$agents, function(a) {
     b <- a$clone(deep = FALSE)
-    b$config <- NULL
-    b$.runner <- NULL
+    if ("config" %in% names(b)) b$config <- NULL
+    if (".runner" %in% names(b)) b$.runner <- NULL
     b
   })
+  attributes(out$agents) <- attributes(fg$agents)
+  out$turn_taking_flow <- fg$turn_taking_flow$clone(deep = FALSE)
+  out$turn_taking_flow$agents <- out$agents
+  attr(out, "session_status") <- attr(fg, "session_status")
   out$admin_config <- NULL
   out
 }

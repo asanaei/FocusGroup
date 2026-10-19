@@ -84,6 +84,45 @@
   (...) exceeds the integer range ..." before the script is built, and an
   invalid guide count is reported with its value as well as its phase.
 
+* When a model call fails partway through a session, `run_focus_group()`
+  raises an error of class `focusgroup_incomplete_session` instead of passing
+  the bare error on, and the completed turns are no longer lost. The error's
+  `partial` field holds the `focus_group_result` of the turns completed so
+  far, its `phase` field the script phase that was running (or
+  `"interim_summary"`), and its `parent` field the original error. Results
+  gain `metadata$complete` and `metadata$failure`, and printing a
+  `FocusGroup` from a session reports whether it completed. A failed final
+  summary still warns and returns the full transcript.
+
+* The `timestamp` column of a result's transcript is in UTC; it used to be
+  shown in the session's time zone. The instants are unchanged.
+
+## Usage
+
+* Token usage that a provider or runner did not report is recorded as
+  unknown instead of 0. A message's `sent_tokens`, `rec_tokens`, and
+  `total_tokens` are `NA` when a call behind the message reported none; they
+  used to read 0. `run_focus_group()` results gain `usage$unknown`, the number
+  of calls whose usage was incomplete, and `sent`, `rec`, and `total` are
+  lower bounds when it is positive. `usage$total` adds each call's reported
+  total, or its sent and received counts when it reported no total; it used
+  to be `sent + rec`, which leaves out tokens a provider counts only in its
+  total. The printed token count says "at least" or "unknown" when usage is
+  incomplete.
+
+* Group usage now includes interim summaries, which used to be left out, and
+  calls whose output is rejected, such as an unsuccessful runner row or a
+  first reply whose retry fails; their usage used to be dropped. A reported count that is not a nonnegative whole
+  number is treated as unknown with the warning "Token count `sent` is not a
+  finite nonnegative whole number; it is treated as unknown." When a
+  broadcast desire-scoring reply cannot be matched to individual agents, the
+  warning "Broadcast usage could not be matched to individual agent calls."
+  replaces the even split of its usage among the agents.
+
+* `FGAgent` objects gain the fields `tokens_total_agent` and
+  `usage_unknown_agent`, and `FocusGroup` objects gain `total_tokens` and
+  `calls_usage_unknown`. Objects saved by earlier versions remain readable.
+
 ## Imported transcripts
 
 * `focus_group_from_transcript()` says when no speaker id is a moderator alias

@@ -63,9 +63,19 @@ those rows with at least \code{response_text}.}
 
 \item{\code{history}}{List. A log of utterances made by this agent during the simulation.}
 
-\item{\code{tokens_sent_agent}}{Numeric. Total tokens sent by this agent.}
+\item{\code{tokens_sent_agent}}{Numeric. Tokens sent by this agent's calls, as
+reported; calls that reported no count add nothing.}
 
-\item{\code{tokens_received_agent}}{Numeric. Total tokens received by this agent.}
+\item{\code{tokens_received_agent}}{Numeric. Tokens received by this agent's calls,
+as reported.}
+
+\item{\code{tokens_total_agent}}{Numeric. Total tokens of this agent's calls: each
+call's reported total, or its sent and received counts when it reported
+no total.}
+
+\item{\code{usage_unknown_agent}}{Numeric. Number of this agent's calls whose usage
+was incomplete, so that the three token fields are lower bounds when it is
+positive; \code{NA} when that number cannot be determined.}
 
 \item{\code{role}}{Character. "moderator" or "participant" for convenience in reports.}
 
@@ -174,7 +184,13 @@ message (participants only) to discourage self-repetition.}
 }
 \subsection{Returns}{
 A list with \code{text} (the generated utterance) and \code{meta} (a list
-of call metadata: token counts, finish reason, provider, model, timing).
+of call metadata: \code{response_id}, \code{finish_reason}, \code{sent_tokens},
+\code{rec_tokens}, \code{total_tokens}, \code{usage_unknown}, \code{duration_s},
+\code{provider}, and \code{model}). The token counts cover the first call and,
+when the reply was incomplete, its retry; each is \code{NA} unless every
+one of those calls reported it, and \code{usage_unknown} counts the calls
+whose usage was incomplete. The other fields describe the final reply.
+The agent's token fields are updated even when the retry fails.
 }
 }
 \if{html}{\out{<hr>}}
@@ -223,6 +239,8 @@ is role-flipped so the agent reads its own prior turns as its own voice;
 }
 \subsection{Returns}{
 Numeric. A score from 0 (no desire) to 10 (very strong desire).
+A reply that cannot be read as a score is an error; the usage of the
+calls made, including a retry, is recorded on the agent first.
 }
 }
 \if{html}{\out{<hr>}}

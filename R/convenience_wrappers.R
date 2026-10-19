@@ -226,7 +226,9 @@ NULL
 #' @param confirm Logical. Permit a live run whose estimate exceeds `max_calls`.
 #' @param .runner Optional function used instead of live model calls. It
 #'   receives a data frame with `config` and `messages` list-columns and returns
-#'   those rows with at least `response_text`.
+#'   those rows with at least `response_text`. Token columns such as
+#'   `sent_tokens`, `rec_tokens`, and `total_tokens` are optional; when they are
+#'   absent, usage is unknown.
 #'
 #' @details
 #' The estimate counts one output for each moderator turn, one for each
@@ -240,8 +242,63 @@ NULL
 #' applies to the estimate, and only to live runs: with `.runner` the session
 #' runs whatever the estimate.
 #'
-#' @return A `focus_group_result` with the group, transcript, summary,
-#'   participant table, token usage, and sanitized metadata.
+#' When a model call fails partway through the session (a provider error that
+#' persists after retries, an error from `.runner`, a reply still incomplete
+#' after its retry, or a failed interim summary), the turns already completed
+#' are not lost. The function raises an error of class
+#' `focusgroup_incomplete_session` whose `partial` field holds the
+#' `focus_group_result` built from those turns, with `metadata$complete` set to
+#' `FALSE`. The error's `phase` field names the script phase that was running,
+#' such as `"engagement_question"`, or `"interim_summary"`, and its `parent`
+#' field holds the original error. Errors raised before the session starts,
+#' such as an invalid argument or the `max_calls` check, carry no partial
+#' result. A failed final summary is not an error of this kind: the function
+#' warns and returns the complete transcript with an `NA` summary.
+#'
+#' Token usage that a provider did not report is unknown, not zero. A call's
+#' total is its reported total, or the sum of its sent and received counts when
+#' both are known. The `usage` component adds the reported counts of every
+#' call FocusGroup makes, including retries of incomplete replies, desire
+#' scores, and interim summaries, and its `unknown` element counts the calls
+#' whose usage was incomplete. When `unknown` is positive the subtotals are
+#' lower bounds, and when it is `NA`, as after a call that raised an error, the
+#' number of such calls cannot be determined. Retries made inside
+#' `LLMR::call_llm_robust()` are not visible here and are not counted. A
+#' reported count that is not a nonnegative whole number is treated as
+#' unknown, with a warning.
+#'
+#' In the transcript, a message's token count is `NA` unless every call behind
+#' the message reported it. The message's `metadata` element `usage_unknown`
+#' gives the number of those calls whose usage was incomplete.
+#'
+#' @return A `focus_group_result`, a list with these components:
+#' \describe{
+#'   \item{focus_group}{The `FocusGroup` object that ran the session. It keeps
+#'     the model configuration, so model analyses can be run on it later.}
+#'   \item{transcript}{A data frame with one row per logged message, starting
+#'     with the `"System"` message that lists the roster. Its columns are
+#'     `message_id`, `round`, `speaker_id`, `is_moderator`, `text`, `phase`,
+#'     `response_id`, `finish_reason`, `sent_tokens`, `rec_tokens`,
+#'     `total_tokens`, `duration_s`, `provider`, `model`, `timestamp` (in UTC),
+#'     and the list-column `metadata`.}
+#'   \item{summary}{The final summary. It is `NA` when the final summary call
+#'     failed, and `character(0)` in a partial result that stopped before it.}
+#'   \item{participants}{A data frame with one row per agent: `id`, `role`,
+#'     `is_moderator`, `persona`, `demographics`, `survey_responses`,
+#'     `provider`, and `model`.}
+#'   \item{usage}{A list of the token subtotals `sent`, `rec`, and `total`,
+#'     and the count `unknown` described in Details. It records the session as
+#'     run; model analyses run later add to the counters of `focus_group` but
+#'     not to this list.}
+#'   \item{metadata}{A list with `topic`, `purpose`, `flow`, `message_mode`,
+#'     `n_participants`, `estimated_calls`, `provider`, `model`, `complete`
+#'     (`TRUE` for a finished session, `FALSE` for a partial one), and
+#'     `failure` (`NULL`, or a list with the `phase` and `message` of the
+#'     error that stopped the session). It holds no configuration object.}
+#' }
+#' Results saved by FocusGroup 0.5.2 and earlier lack `usage$unknown`,
+#' `metadata$complete`, and `metadata$failure`.
+#'
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
 #'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
@@ -266,18 +323,25 @@ NULL
 #' )
 #' result$transcript[, c("speaker_id", "phase", "text")]
 #'
-#' \donttest{
-#' if (nzchar(Sys.getenv("GROQ_API_KEY"))) {
-#'   live <- run_focus_group(
-#'     topic = "Library funding priorities",
-#'     config = cfg,
-#'     n_participants = 4,
-#'     guide = guide,
-#'     flow = "round_robin"
-#'   )
-#'   live$summary
-#' }
-#' }
+#' # The scripted runner reports no token counts, so usage is unknown.
+#' result$usage
+#'
+#' # A session that fails partway returns what it completed.
+#' failing <- local({
+#'   calls <- 0
+#'   function(experiments, ...) {
+#'     calls <<- calls + 1
+#'     if (calls == 3) stop("The provider is unavailable.")
+#'     scripted(experiments)
+#'   }
+#' })
+#' partial <- tryCatch(
+#'   run_focus_group("Library funding priorities", cfg, n_participants = 2,
+#'                   guide = guide, flow = "round_robin", verbose = FALSE,
+#'                   .runner = failing),
+#'   focusgroup_incomplete_session = function(e) e$partial
+#' )
+#' partial$metadata[c("complete", "failure")]
 #' @export
 run_focus_group <- function(topic, config, n_participants = 6,
                             guide = c(Opening = 1, Icebreaker = 1,
@@ -406,18 +470,8 @@ run_focus_group <- function(topic, config, n_participants = 6,
     max_participant_responses = response_limit
   )
 
-  withr::with_options(
-    list(focusgroup.message_mode = message_mode),
-    fg$run_simulation(verbose = verbose)
-  )
-
-  result <- .fg_focus_group_result(
-    focus_group = fg,
-    flow = flow,
-    message_mode = message_mode,
-    n_participants = n_participants,
-    estimated_calls = estimated_calls
-  )
+  result <- .fg_execute_session(fg, flow, message_mode, n_participants,
+                                estimated_calls, verbose)
 
   if (verbose) cat("Simulation complete.\n")
   result
@@ -436,6 +490,25 @@ run_focus_group <- function(topic, config, n_participants = 6,
          "`n_participants`, or `max_participant_responses`.", call. = FALSE)
   }
   as.integer(value)
+}
+
+.fg_execute_session <- function(fg, flow, message_mode, n_participants,
+                                estimated_calls, verbose = FALSE) {
+  result <- function() .fg_focus_group_result(
+    fg, flow, message_mode, n_participants, estimated_calls)
+  tryCatch(
+    withr::with_options(list(focusgroup.message_mode = message_mode),
+                       fg$run_simulation(verbose = verbose)),
+    error = function(e) {
+      phase <- attr(fg, "execution_phase") %||% "setup"
+      attr(fg, "session_status") <- list(complete = FALSE,
+        failure = list(phase = phase, message = conditionMessage(e)))
+      rlang::abort(sprintf("The focus group stopped during phase '%s'.", phase),
+                   class = "focusgroup_incomplete_session", partial = result(),
+                   phase = phase, parent = e)
+    })
+  attr(fg, "session_status") <- list(complete = TRUE, failure = NULL)
+  result()
 }
 
 .fg_validate_config <- function(config) {
@@ -461,24 +534,28 @@ run_focus_group <- function(topic, config, n_participants = 6,
     value <- x %||% default
     if (!length(value) || is.na(value[[1]])) default else value[[1]]
   }
+  token_column <- function(name) {
+    values <- vapply(log, function(x) as.double(scalar(x[[name]], NA_real_)), numeric(1))
+    if (all(is.na(values) | values <= .Machine$integer.max)) as.integer(values) else values
+  }
   out <- data.frame(
     message_id = vapply(log, function(x) as.integer(scalar(x$message_id, NA_integer_)), integer(1)),
     round = vapply(log, function(x) as.integer(scalar(x$round, NA_integer_)), integer(1)),
     speaker_id = vapply(log, function(x) as.character(scalar(x$speaker_id, "")), character(1)),
     is_moderator = vapply(log, function(x) isTRUE(x$is_moderator), logical(1)),
     text = vapply(log, function(x) as.character(scalar(x$text, "")), character(1)),
-    phase = vapply(log, function(x) as.character(scalar(x$phase, "unknown")), character(1)),
+    phase = vapply(log, function(x) as.character(x$phase %||% "unknown"), character(1)),
     response_id = vapply(log, function(x) as.character(scalar(x$response_id, NA_character_)), character(1)),
     finish_reason = vapply(log, function(x) as.character(scalar(x$finish_reason, NA_character_)), character(1)),
-    sent_tokens = vapply(log, function(x) as.integer(scalar(x$sent_tokens, NA_integer_)), integer(1)),
-    rec_tokens = vapply(log, function(x) as.integer(scalar(x$rec_tokens, NA_integer_)), integer(1)),
-    total_tokens = vapply(log, function(x) as.integer(scalar(x$total_tokens, NA_integer_)), integer(1)),
+    sent_tokens = token_column("sent_tokens"),
+    rec_tokens = token_column("rec_tokens"),
+    total_tokens = token_column("total_tokens"),
     duration_s = vapply(log, function(x) as.numeric(scalar(x$duration_s, NA_real_)), numeric(1)),
     provider = vapply(log, function(x) as.character(scalar(x$provider, NA_character_)), character(1)),
     model = vapply(log, function(x) as.character(scalar(x$model, NA_character_)), character(1)),
     timestamp = as.POSIXct(vapply(
       log, function(x) as.numeric(scalar(x$timestamp, as.POSIXct(NA))), numeric(1)
-    ), origin = "1970-01-01"),
+    ), origin = "1970-01-01", tz = "UTC"),
     stringsAsFactors = FALSE
   )
   out$metadata <- I(lapply(log, function(x) x$metadata %||% list()))
@@ -509,8 +586,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
                                    n_participants, estimated_calls) {
   transcript <- .fg_transcript_data(focus_group$conversation_log)
   participant_data <- .fg_participant_data(focus_group$agents)
-  sent <- .fg_tok0(focus_group$total_tokens_sent)
-  rec <- .fg_tok0(focus_group$total_tokens_received)
+  sent <- focus_group$total_tokens_sent %||% NA_real_
+  rec <- focus_group$total_tokens_received %||% NA_real_
+  status <- attr(focus_group, "session_status")
   moderator_config <- focus_group$agents[[focus_group$moderator_id]]$config
   structure(
     list(
@@ -518,7 +596,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
       transcript = transcript,
       summary = focus_group$final_summary %||% character(),
       participants = participant_data,
-      usage = list(sent = sent, rec = rec, total = sent + rec),
+      usage = list(sent = sent, rec = rec,
+                   total = focus_group$total_tokens %||% NA_real_,
+                   unknown = focus_group$calls_usage_unknown %||% NA_real_),
       metadata = list(
         topic = focus_group$topic,
         purpose = focus_group$purpose,
@@ -527,20 +607,33 @@ run_focus_group <- function(topic, config, n_participants = 6,
         n_participants = as.integer(n_participants),
         estimated_calls = as.integer(estimated_calls),
         provider = moderator_config$provider %||% NA_character_,
-        model = moderator_config$model %||% NA_character_
+        model = moderator_config$model %||% NA_character_,
+        complete = status$complete %||% NA,
+        failure = status$failure
       )
     ),
     class = c("focus_group_result", "list")
   )
 }
 
+#' Print a focus group result
+#'
+#' Prints the topic, the participant and message counts, and the total token
+#' count. When some calls did not report their usage, the count is shown as a
+#' lower bound ("at least ..."), or as "unknown" when no call reported it, and
+#' a further line says how many calls are affected.
+#' @param x A `focus_group_result`.
+#' @param ... Unused.
+#' @return `x`, invisibly.
+#' @keywords internal
 #' @export
 print.focus_group_result <- function(x, ...) {
   cat("<focus_group_result>\n")
   cat("Topic: ", x$metadata$topic, "\n", sep = "")
   cat("Participants: ", x$metadata$n_participants,
       " | Messages: ", nrow(x$transcript),
-      " | Tokens: ", x$usage$total, "\n", sep = "")
+      " | Tokens: ", .fg_usage_text(x$usage$total, x$usage$unknown), "\n", sep = "")
+  cat(.fg_usage_note(x$usage$unknown))
   invisible(x)
 }
 
@@ -565,9 +658,9 @@ print.focus_group_result <- function(x, ...) {
 #'
 #' @return A named list of FGAgent objects (participants + 1 moderator), keyed
 #'   by agent ID. When the participants are drawn from the bundled ANES
-#'   records, the list carries the `source_rows` and `source_ids` attributes
-#'   described in [create_agents_from_survey()], identifying the rows and
-#'   persona IDs drawn.
+#'   records, the list carries the `source_rows` attribute described in
+#'   [create_agents_from_survey()], giving the rows of
+#'   `LLMR::anes_2024_personas` that were drawn.
 #'
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -606,7 +699,7 @@ create_agents <- function(n_participants, config, demographics = NULL,
   # 100 rows are diversity-selected, not a representative sample. For the
   # respondents' stated answers as well, use create_agents_from_data() on the
   # full frame; for other populations, create_agents_from_survey(). The roster
-  # records which rows were drawn, with their persona ids.
+  # records which rows were drawn.
   if (is.null(demographics) && is.null(survey_responses) &&
       is.null(direct_persona_descriptions)) {
     personas <- LLMR::anes_2024_personas
@@ -753,8 +846,17 @@ create_agents <- function(n_participants, config, demographics = NULL,
 #'   analysis and a model summary are generated.
 #' @param .runner Optional function used instead of live model calls for the two
 #'   model analyses.
-#' @return A `focus_group_analysis` containing returned analysis components and
-#'   an `issues` table.
+#'
+#' @details
+#' The two model analyses add their usage to the token fields of the
+#' `FocusGroup` object, including calls made before one of them fails. The
+#' `usage` component of a `focus_group_result` passed in is not changed: it
+#' records the session as run. An error from a model analysis is not caught.
+#'
+#' @return A `focus_group_analysis` containing the returned analysis
+#'   components, `basic_stats`, `topics`, `tfidf`, `readability`, `themes`,
+#'   `model_summary`, and `plots`, and an `issues` table with columns
+#'   `component` and `reason` for the components that were skipped or failed.
 #'
 #' @examples
 #' transcript <- data.frame(
@@ -909,8 +1011,8 @@ analyze_focus_group <- function(focus_group_result,
   themes <- character()
   model_summary <- character()
   if (!is.null(config)) {
-    themes <- fg$analyze_themes(config = config, .runner = .runner)
-    model_summary <- fg$summarize(config = config, .runner = .runner)
+    themes <- .fg_legacy_usage(fg, fg$analyze_themes(config = config, .runner = .runner))
+    model_summary <- .fg_legacy_usage(fg, fg$summarize(config = config, .runner = .runner))
   }
 
   plots <- list()

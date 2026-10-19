@@ -23,8 +23,16 @@ NULL
 #'   those rows with at least `response_text`.
 #' @field is_moderator Logical. `TRUE` if the agent is the moderator, `FALSE` otherwise.
 #' @field history List. A log of utterances made by this agent during the simulation.
-#' @field tokens_sent_agent Numeric. Total tokens sent by this agent.
-#' @field tokens_received_agent Numeric. Total tokens received by this agent.
+#' @field tokens_sent_agent Numeric. Tokens sent by this agent's calls, as
+#'   reported; calls that reported no count add nothing.
+#' @field tokens_received_agent Numeric. Tokens received by this agent's calls,
+#'   as reported.
+#' @field tokens_total_agent Numeric. Total tokens of this agent's calls: each
+#'   call's reported total, or its sent and received counts when it reported
+#'   no total.
+#' @field usage_unknown_agent Numeric. Number of this agent's calls whose usage
+#'   was incomplete, so that the three token fields are lower bounds when it is
+#'   positive; `NA` when that number cannot be determined.
 #'
 #' @section Customizing Agents:
 #' `FGAgent` is designed to be flexible:
@@ -68,6 +76,8 @@ FGAgent <- R6::R6Class("FGAgent",
     history = list(),
     tokens_sent_agent = 0,
     tokens_received_agent = 0,
+    tokens_total_agent = 0,
+    usage_unknown_agent = 0,
 
     #' @description Initialize a new FGAgent.
     #' @param id Character. A unique identifier for the agent.
@@ -111,6 +121,8 @@ FGAgent <- R6::R6Class("FGAgent",
       self$history <- list()
       self$tokens_sent_agent <- 0
       self$tokens_received_agent <- 0
+      self$tokens_total_agent <- 0
+      self$usage_unknown_agent <- 0
 
       persona_elements <- private$construct_persona_elements(agent_details, is_moderator)
       self$persona_description <- persona_elements$description
@@ -141,7 +153,13 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   already made" digest of the agent's own prior turns is added to the system
     #'   message (participants only) to discourage self-repetition.
     #' @return A list with `text` (the generated utterance) and `meta` (a list
-    #'   of call metadata: token counts, finish reason, provider, model, timing).
+    #'   of call metadata: `response_id`, `finish_reason`, `sent_tokens`,
+    #'   `rec_tokens`, `total_tokens`, `usage_unknown`, `duration_s`,
+    #'   `provider`, and `model`). The token counts cover the first call and,
+    #'   when the reply was incomplete, its retry; each is `NA` unless every
+    #'   one of those calls reported it, and `usage_unknown` counts the calls
+    #'   whose usage was incomplete. The other fields describe the final reply.
+    #'   The agent's token fields are updated even when the retry fails.
     generate_utterance = function(topic,
                                   conversation_history_string,
                                   utterance_prompt_template,
@@ -217,25 +235,18 @@ FGAgent <- R6::R6Class("FGAgent",
                                          instruction = instruction, self_state = ss)
       }
 
+      usage <- .fg_usage_recorder()
+      on.exit(.fg_add_agent_usage(self, usage$value()), add = TRUE)
       response_obj <- .fg_call_llm(
         config = current_config,
         messages = msgs,
-        .runner = self$.runner,
+        .runner = self$.runner, .usage = usage$add,
         tries = 5,
         wait_seconds = 2,
         backoff_factor = 3
       )
 
       utterance_text <- .fg_response_text(response_obj)
-      u <- extract_token_counts(response_obj)
-      # NA-safe: a provider that reports no usage yields NA counts, which must
-      # accumulate as 0, not turn the running totals into NA for good.
-      agg_sent <- .fg_tok0(u$sent)
-      agg_rec  <- .fg_tok0(u$rec)
-      self$tokens_sent_agent     <- self$tokens_sent_agent     + agg_sent
-      self$tokens_received_agent <- self$tokens_received_agent + agg_rec
-
-      # meta is built from aggregates after any retry so the caller always has full usage.
       final_response_obj <- response_obj
       
       # With role-flip the agent's own voice is in the assistant channel, so the
@@ -287,19 +298,11 @@ FGAgent <- R6::R6Class("FGAgent",
         response_obj2 <- .fg_call_llm(
           config = current_config,
           messages = retry_msgs,
-          .runner = self$.runner,
+          .runner = self$.runner, .usage = usage$add,
           tries = 3,
           wait_seconds = 2,
           backoff_factor = 2
         )
-        u2 <- extract_token_counts(response_obj2)
-        retry_sent <- .fg_tok0(u2$sent)
-        retry_rec <- .fg_tok0(u2$rec)
-        agg_sent <- agg_sent + retry_sent
-        agg_rec <- agg_rec + retry_rec
-        self$tokens_sent_agent <- self$tokens_sent_agent + retry_sent
-        self$tokens_received_agent <- self$tokens_received_agent + retry_rec
-
         cand <- trimws(.fg_response_text(response_obj2))
         cand <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cand, ignore.case = TRUE)
         retry_incomplete <- !nzchar(cand) ||
@@ -313,12 +316,14 @@ FGAgent <- R6::R6Class("FGAgent",
         final_response_obj <- response_obj2
       }
 
+      observed <- usage$value()
       meta <- list(
         response_id   = .fg_response_field(final_response_obj, "response_id", NA_character_),
         finish_reason = .fg_response_finish(final_response_obj),
-        sent_tokens   = as.integer(agg_sent),
-        rec_tokens    = as.integer(agg_rec),
-        total_tokens  = as.integer(agg_sent + agg_rec),
+        sent_tokens   = .fg_message_count(observed, "sent"),
+        rec_tokens    = .fg_message_count(observed, "rec"),
+        total_tokens  = .fg_message_count(observed, "total"),
+        usage_unknown = observed$unknown,
         duration_s    = .fg_response_field(final_response_obj, "duration_s", NA_real_),
         provider      = self$config$provider %||% NA_character_,
         model         = self$config$model %||% NA_character_
@@ -343,6 +348,8 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   is role-flipped so the agent reads its own prior turns as its own voice;
     #'   `NULL` keeps the legacy flat construction.
     #' @return Numeric. A score from 0 (no desire) to 10 (very strong desire).
+    #'   A reply that cannot be read as a score is an error; the usage of the
+    #'   calls made, including a retry, is recorded on the agent first.
     get_need_to_talk = function(topic,
                                 conversation_history_string,
                                 desire_prompt_template,
@@ -391,15 +398,14 @@ FGAgent <- R6::R6Class("FGAgent",
                                                 self_state = NULL)
       }
 
+      usage <- .fg_usage_recorder()
+      on.exit(.fg_add_agent_usage(self, usage$value()), add = TRUE)
       score_once <- function(cfg) {
         ro <- .fg_call_llm(
           config = cfg, messages = desire_msgs,
-          .runner = self$.runner,
+          .runner = self$.runner, .usage = usage$add,
           tries = 5, wait_seconds = 2, backoff_factor = 3
         )
-        u <- extract_token_counts(ro)
-        self$tokens_sent_agent <- self$tokens_sent_agent + .fg_tok0(u$sent)
-        self$tokens_received_agent <- self$tokens_received_agent + .fg_tok0(u$rec)
         ro
       }
 

@@ -37,12 +37,20 @@ analysis and a model summary are generated.}
 model analyses.}
 }
 \value{
-A \code{focus_group_analysis} containing returned analysis components and
-an \code{issues} table.
+A \code{focus_group_analysis} containing the returned analysis
+components, \code{basic_stats}, \code{topics}, \code{tfidf}, \code{readability}, \code{themes},
+\code{model_summary}, and \code{plots}, and an \code{issues} table with columns
+\code{component} and \code{reason} for the components that were skipped or failed.
 }
 \description{
 Runs descriptive analyses offline. Thematic analysis and a model-generated
 summary are opt-in and run only when \code{config} is supplied.
+}
+\details{
+The two model analyses add their usage to the token fields of the
+\code{FocusGroup} object, including calls made before one of them fails. The
+\code{usage} component of a \code{focus_group_result} passed in is not changed: it
+records the session as run. An error from a model analysis is not caught.
 }
 \examples{
 transcript <- data.frame(

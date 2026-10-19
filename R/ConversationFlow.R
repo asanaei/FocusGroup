@@ -277,10 +277,8 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       score_per_agent <- function(ids) {
         for (pid in ids) {
           agent <- self$agents[[pid]]
-          sent_before <- agent$tokens_sent_agent
-          rec_before <- agent$tokens_received_agent
           sc <- tryCatch(
-            agent$get_need_to_talk(
+            .fg_with_group_usage(focus_group, agent$get_need_to_talk(
               topic = focus_group$topic,
               conversation_history_string = history_string,
               # In roleflip mode use the placeholder-free desire instruction (so
@@ -292,17 +290,12 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
               last_speaker_id = last_utterance_info$speaker_id,
               last_utterance_text = last_utterance_info$text,
               conversation_log = focus_group$conversation_log
-            ),
+            )),
             error = function(e) {
               failures[[pid]] <<- conditionMessage(e)
               NA_real_
             }
           )
-          sent_used <- .fg_tok0(agent$tokens_sent_agent - sent_before)
-          rec_used <- .fg_tok0(agent$tokens_received_agent - rec_before)
-          if ((sent_used + rec_used) > 0) {
-            .fg_add_group_usage(focus_group, sent_used, rec_used)
-          }
           desire_scores[pid] <<- as.numeric(sc)
         }
       }
@@ -343,32 +336,31 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
                                  instruction = instruction, self_state = NULL)
       }
 
+      # Record a broadcast's usage on the group, one record per returned row,
+      # and on each agent when the rows can be matched to the agents scored.
+      # Returns the ids in row order, or NULL when the rows cannot be matched.
       record_group_usage <- function(out, ids) {
-        row_usage_found <- FALSE
-        for (i in seq_along(ids)) {
-          pid <- ids[[i]]
-          row_obj <- if (is.data.frame(out)) out[i, , drop = FALSE] else
-            lapply(out, function(x) if (length(x) >= i) x[[i]] else NULL)
-          usage <- extract_token_counts(row_obj)
-          if ((usage$sent + usage$rec) > 0) {
-            row_usage_found <- TRUE
-            self$agents[[pid]]$tokens_sent_agent <- self$agents[[pid]]$tokens_sent_agent + usage$sent
-            self$agents[[pid]]$tokens_received_agent <- self$agents[[pid]]$tokens_received_agent + usage$rec
-            .fg_add_group_usage(focus_group, usage$sent, usage$rec)
-          }
+        rows <- .fg_usage_rows(out)
+        row_level <- is.data.frame(out) || length(rows) == length(ids)
+        mapping <- seq_along(rows)
+        if (is.list(out) && "agent_id" %in% names(out)) {
+          mapping <- match(out$agent_id, ids)
+        } else if (is.list(out) && ".experiment_id" %in% names(out)) {
+          mapping <- match(out$.experiment_id, seq_along(ids))
         }
-        if (!row_usage_found) {
-          usage <- extract_token_counts(out)
-          if ((usage$sent + usage$rec) > 0) {
-            sent_each <- floor(usage$sent / length(ids))
-            rec_each <- floor(usage$rec / length(ids))
-            for (pid in ids) {
-              self$agents[[pid]]$tokens_sent_agent <- self$agents[[pid]]$tokens_sent_agent + sent_each
-              self$agents[[pid]]$tokens_received_agent <- self$agents[[pid]]$tokens_received_agent + rec_each
-            }
-            .fg_add_group_usage(focus_group, usage$sent, usage$rec)
-          }
+        matched <- row_level && length(rows) == length(ids) &&
+          !anyNA(mapping) && !anyDuplicated(mapping)
+        for (i in seq_along(rows)) {
+          usage <- .fg_usage_record(rows[[i]])
+          if (!row_level) usage$unknown <- NA_real_
+          .fg_record_group(focus_group, usage)
+          if (matched) .fg_add_agent_usage(self$agents[[ids[[mapping[[i]]]]]], usage)
         }
+        if (!matched) {
+          warning(paste("Broadcast usage could not be matched to individual agent calls.",
+                        "Per-agent usage is unavailable for this batch."), call. = FALSE)
+        }
+        if (matched) ids[mapping] else NULL
       }
 
       # Broadcast one homogeneous group. Returns the ids it could NOT score (an
@@ -387,16 +379,21 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
                                    tries = 5, wait_seconds = 2, backoff_factor = 3,
                                    progress = FALSE),
           error = function(...) NULL)
+        if (is.null(out)) {
+          .fg_add_group_usage(focus_group, 0, 0, 0, NA_real_)
+          return(ids)
+        }
+        mapped <- record_group_usage(out, ids)
+        if (is.null(mapped)) return(ids)
         if (is.null(out) || is.null(out$success) || is.null(out$response_text)) return(ids)
         unscored <- character(0)
-        for (i in seq_along(ids)) {
+        for (i in seq_along(mapped)) {
           txt <- out$response_text[i]
           sc <- if (isTRUE(out$success[i]) && nzchar(trimws(txt %||% "")))
             parse_score_0_10(txt) else NA_integer_
-          if (!is.na(sc)) desire_scores[ids[[i]]] <<- as.numeric(sc)
-          else unscored <- c(unscored, ids[[i]])
+          if (!is.na(sc)) desire_scores[mapped[[i]]] <<- as.numeric(sc)
+          else unscored <- c(unscored, mapped[[i]])
         }
-        record_group_usage(out, ids)
         unscored
       }
 
@@ -417,8 +414,9 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
             "broadcast_shared_config" else "broadcast_grouped_config"
           # A group whose broadcast fails must not leave its agents at the
           # default score of 0; collect those ids and score them per-agent
-          # below. Only when EVERY group fails do we drop to the full per-agent
-          # path (and relabel the mode accordingly).
+          # below, after the broadcast's usage has been recorded. Only when
+          # EVERY group fails do we drop to the full per-agent path (and
+          # relabel the mode accordingly).
           failed_ids <- character(0)
           for (g in groups) failed_ids <- c(failed_ids, broadcast_group(g))
           used_broadcast <- length(failed_ids) < length(eligible_ids)

@@ -135,4 +135,3 @@ test_that("run_focus_group names the phase and value of an invalid guide count",
   expect_error(FocusGroup:::.fg_build_question_script(c(Engagement = 3e9), "topic"),
                "phase 'Engagement' exceeds the largest supported count")
 })
-

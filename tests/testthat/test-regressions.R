@@ -142,7 +142,7 @@ test_that("placeholder replacement keeps backslashes and regex metacharacters", 
                    "x\\y {{keep}}")
 })
 
-test_that("NA token usage accumulates as zero, not NA", {
+test_that("unreported token usage stays NA on messages and adds nothing to subtotals", {
   expect_identical(.fg_tok0(NA_integer_), 0)
   expect_identical(.fg_tok0(NULL), 0)
   expect_identical(.fg_tok0(7L), 7)
@@ -150,7 +150,7 @@ test_that("NA token usage accumulates as zero, not NA", {
   fg <- run_mocked_fg(tok = list(sent = NA_integer_, rec = NA_integer_))
   meta_na <- vapply(fg$conversation_log[-1], function(m) is.na(m$sent_tokens),
                     logical(1))
-  expect_false(any(meta_na))
+  expect_true(all(meta_na))
 })
 
 test_that("the System roster row is excluded and messages have unique ids and shared rounds", {

@@ -6,7 +6,25 @@
 \usage{
 extract_token_counts(response_obj)
 }
+\arguments{
+\item{response_obj}{A response, a result data frame, or a list of token
+fields.}
+}
+\value{
+A list with the subtotals \code{sent}, \code{rec}, and \code{total} of the
+reported counts; \code{unknown}, the number of calls with any count missing;
+and \code{sent_unknown}, \code{rec_unknown}, and \code{total_unknown}, the number of
+calls missing each count.
+}
 \description{
-Extract token counts from an LLM response-like object
+Reads the token usage of the calls in a response: an \code{llmr_response}, a
+result data frame with one row per call, or a list of token fields.
+}
+\details{
+Each call's counts are read separately. A count the call did not report is
+unknown and adds nothing to the subtotals; a count that is not a nonnegative
+whole number is treated as unknown, with a warning. A call's total is its
+reported total, or the sum of its sent and received counts when both are
+known.
 }
 \keyword{internal}

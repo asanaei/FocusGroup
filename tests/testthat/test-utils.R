@@ -41,16 +41,19 @@ test_that("get_default_prompt_templates returns the expected named templates", {
 })
 
 test_that("extract_token_counts never returns NA when usage is unreported", {
-  # A provider that reports no usage yields NA token columns; the counter must
-  # coerce to 0 so callers' if((sent+rec)>0) guards do not hit a missing value.
+  # Observed subtotals remain finite while missing components are counted.
   u <- extract_token_counts(list(sent_tokens = NA_integer_, rec_tokens = NA_integer_))
   expect_equal(u$sent, 0L)
   expect_equal(u$rec, 0L)
   expect_false(is.na(u$sent + u$rec))
-  expect_no_error(if ((u$sent + u$rec) > 0) NULL)
+  expect_equal(u$unknown, 1)
+  expect_equal(u$sent_unknown, 1)
+  expect_equal(u$rec_unknown, 1)
+  expect_equal(u$total_unknown, 1)
   # a frame with a mix of NA and real counts sums the reals, NAs as 0
   u2 <- extract_token_counts(data.frame(sent_tokens = c(NA, 5L),
                                         rec_tokens = c(NA, 2L)))
   expect_false(is.na(u2$sent))
+  expect_equal(u2$unknown, 1)
 })
 

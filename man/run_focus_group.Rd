@@ -74,11 +74,38 @@ confirmation; a finite whole number.}
 
 \item{.runner}{Optional function used instead of live model calls. It
 receives a data frame with \code{config} and \code{messages} list-columns and returns
-those rows with at least \code{response_text}.}
+those rows with at least \code{response_text}. Token columns such as
+\code{sent_tokens}, \code{rec_tokens}, and \code{total_tokens} are optional; when they are
+absent, usage is unknown.}
 }
 \value{
-A \code{focus_group_result} with the group, transcript, summary,
-participant table, token usage, and sanitized metadata.
+A \code{focus_group_result}, a list with these components:
+\describe{
+\item{focus_group}{The \code{FocusGroup} object that ran the session. It keeps
+the model configuration, so model analyses can be run on it later.}
+\item{transcript}{A data frame with one row per logged message, starting
+with the \code{"System"} message that lists the roster. Its columns are
+\code{message_id}, \code{round}, \code{speaker_id}, \code{is_moderator}, \code{text}, \code{phase},
+\code{response_id}, \code{finish_reason}, \code{sent_tokens}, \code{rec_tokens},
+\code{total_tokens}, \code{duration_s}, \code{provider}, \code{model}, \code{timestamp} (in UTC),
+and the list-column \code{metadata}.}
+\item{summary}{The final summary. It is \code{NA} when the final summary call
+failed, and \code{character(0)} in a partial result that stopped before it.}
+\item{participants}{A data frame with one row per agent: \code{id}, \code{role},
+\code{is_moderator}, \code{persona}, \code{demographics}, \code{survey_responses},
+\code{provider}, and \code{model}.}
+\item{usage}{A list of the token subtotals \code{sent}, \code{rec}, and \code{total},
+and the count \code{unknown} described in Details. It records the session as
+run; model analyses run later add to the counters of \code{focus_group} but
+not to this list.}
+\item{metadata}{A list with \code{topic}, \code{purpose}, \code{flow}, \code{message_mode},
+\code{n_participants}, \code{estimated_calls}, \code{provider}, \code{model}, \code{complete}
+(\code{TRUE} for a finished session, \code{FALSE} for a partial one), and
+\code{failure} (\code{NULL}, or a list with the \code{phase} and \code{message} of the
+error that stopped the session). It holds no configuration object.}
+}
+Results saved by FocusGroup 0.5.2 and earlier lack \code{usage$unknown},
+\code{metadata$complete}, and \code{metadata$failure}.
 }
 \description{
 Constructs the agents, moderator guide, and turn-taking flow, then runs one
@@ -98,6 +125,35 @@ does not score the previous speaker, or more, since incomplete replies are
 retried and a long discussion triggers interim summaries. \code{max_calls}
 applies to the estimate, and only to live runs: with \code{.runner} the session
 runs whatever the estimate.
+
+When a model call fails partway through the session (a provider error that
+persists after retries, an error from \code{.runner}, a reply still incomplete
+after its retry, or a failed interim summary), the turns already completed
+are not lost. The function raises an error of class
+\code{focusgroup_incomplete_session} whose \code{partial} field holds the
+\code{focus_group_result} built from those turns, with \code{metadata$complete} set to
+\code{FALSE}. The error's \code{phase} field names the script phase that was running,
+such as \code{"engagement_question"}, or \code{"interim_summary"}, and its \code{parent}
+field holds the original error. Errors raised before the session starts,
+such as an invalid argument or the \code{max_calls} check, carry no partial
+result. A failed final summary is not an error of this kind: the function
+warns and returns the complete transcript with an \code{NA} summary.
+
+Token usage that a provider did not report is unknown, not zero. A call's
+total is its reported total, or the sum of its sent and received counts when
+both are known. The \code{usage} component adds the reported counts of every
+call FocusGroup makes, including retries of incomplete replies, desire
+scores, and interim summaries, and its \code{unknown} element counts the calls
+whose usage was incomplete. When \code{unknown} is positive the subtotals are
+lower bounds, and when it is \code{NA}, as after a call that raised an error, the
+number of such calls cannot be determined. Retries made inside
+\code{LLMR::call_llm_robust()} are not visible here and are not counted. A
+reported count that is not a nonnegative whole number is treated as
+unknown, with a warning.
+
+In the transcript, a message's token count is \code{NA} unless every call behind
+the message reported it. The message's \code{metadata} element \code{usage_unknown}
+gives the number of those calls whose usage was incomplete.
 }
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -123,16 +179,23 @@ result <- run_focus_group(
 )
 result$transcript[, c("speaker_id", "phase", "text")]
 
-\donttest{
-if (nzchar(Sys.getenv("GROQ_API_KEY"))) {
-  live <- run_focus_group(
-    topic = "Library funding priorities",
-    config = cfg,
-    n_participants = 4,
-    guide = guide,
-    flow = "round_robin"
-  )
-  live$summary
-}
-}
+# The scripted runner reports no token counts, so usage is unknown.
+result$usage
+
+# A session that fails partway returns what it completed.
+failing <- local({
+  calls <- 0
+  function(experiments, ...) {
+    calls <<- calls + 1
+    if (calls == 3) stop("The provider is unavailable.")
+    scripted(experiments)
+  }
+})
+partial <- tryCatch(
+  run_focus_group("Library funding priorities", cfg, n_participants = 2,
+                  guide = guide, flow = "round_robin", verbose = FALSE,
+                  .runner = failing),
+  focusgroup_incomplete_session = function(e) e$partial
+)
+partial$metadata[c("complete", "failure")]
 }

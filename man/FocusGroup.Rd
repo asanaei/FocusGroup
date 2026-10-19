@@ -15,6 +15,18 @@ Engagement, Exploration, Closing) guided by a question script, manages agent
 interactions via a turn-taking flow, and provides methods for analysis and
 visualization of the conversation.
 }
+\details{
+The group's token fields count every model call made on its behalf: the
+moderator's and participants' turns with their retries, desire scores,
+interim and final summaries, and model analyses run later, such as
+\code{analyze_themes()}. \code{\link[=run_focus_group]{run_focus_group()}} describes how unreported usage is
+handled. A transcript imported with \code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}} adds
+no calls. Objects saved by FocusGroup 0.5.2 and earlier lack
+\code{total_tokens} and \code{calls_usage_unknown}.
+
+A session run by \code{\link[=run_focus_group]{run_focus_group()}} carries a \code{session_status} attribute,
+a list with \code{complete} and \code{failure} as in that function's \code{metadata}.
+}
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
@@ -76,9 +88,19 @@ replayed (e.g. in the GUI continuation experiment) with the same construction.}
 
 \item{\code{max_participant_responses}}{Integer. Maximum number of participant exchanges per round before the moderator can intervene. Can also be set globally via \code{options(focusgroup.max_participant_responses = N)}.}
 
-\item{\code{total_tokens_sent}}{Numeric. Total tokens sent across all LLM calls in the group.}
+\item{\code{total_tokens_sent}}{Numeric. Tokens sent across all LLM calls in the
+group, as reported; calls that reported no count add nothing.}
 
-\item{\code{total_tokens_received}}{Numeric. Total tokens received across all LLM calls.}
+\item{\code{total_tokens_received}}{Numeric. Tokens received across all LLM calls,
+as reported.}
+
+\item{\code{total_tokens}}{Numeric. Total tokens across all LLM calls: each call's
+reported total, or its sent and received counts when it reported no total.}
+
+\item{\code{calls_usage_unknown}}{Numeric. Number of calls whose usage was
+incomplete, so that the three token fields are lower bounds when it is
+positive; \code{NA} when that number cannot be determined, as after a call that
+raised an error.}
 }
 \if{html}{\out{</div>}}
 }
@@ -178,7 +200,10 @@ the simulation stops at whichever condition is met first.}
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-Invisibly returns the \code{conversation_log}.
+Invisibly returns the \code{conversation_log}. When a call fails,
+the error propagates and the messages completed so far remain in
+\code{conversation_log}. A failed final summary is not an error: it warns
+and leaves \code{final_summary} as \code{NA}.
 }
 }
 \if{html}{\out{<hr>}}
@@ -206,7 +231,9 @@ Generate a summary of the conversation using an LLM.
 
 \item{\code{max_tokens}}{Integer. Optional. Max tokens for the summary.}
 
-\item{\code{internal_call}}{Logical. If TRUE, this is an internal call (e.g. for context window management) and token counts are not added to the agent who owns \code{admin_config}.}
+\item{\code{internal_call}}{Logical. \code{TRUE} for a summary made for context
+management during the session. Either way, the call's usage is added
+to the group's token fields and not to any agent's.}
 
 \item{\code{transcript_override}}{Character. Optional. If provided, this transcript is summarized instead of \code{self$conversation_log}.}
 
@@ -217,7 +244,8 @@ returns the rows with at least \code{response_text}.}
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-Character string containing the generated summary.
+Character string containing the generated summary. An empty
+reply is an error; its usage is recorded first.
 }
 }
 \if{html}{\out{<hr>}}

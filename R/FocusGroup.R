@@ -42,8 +42,28 @@ NULL
 #' @field max_tokens_moderator Integer. Default max tokens for moderator utterances.
 #' @field max_tokens_desire Integer. Default max tokens for desire-to-talk queries.
 #' @field max_participant_responses Integer. Maximum number of participant exchanges per round before the moderator can intervene. Can also be set globally via `options(focusgroup.max_participant_responses = N)`.
-#' @field total_tokens_sent Numeric. Total tokens sent across all LLM calls in the group.
-#' @field total_tokens_received Numeric. Total tokens received across all LLM calls.
+#' @field total_tokens_sent Numeric. Tokens sent across all LLM calls in the
+#'   group, as reported; calls that reported no count add nothing.
+#' @field total_tokens_received Numeric. Tokens received across all LLM calls,
+#'   as reported.
+#' @field total_tokens Numeric. Total tokens across all LLM calls: each call's
+#'   reported total, or its sent and received counts when it reported no total.
+#' @field calls_usage_unknown Numeric. Number of calls whose usage was
+#'   incomplete, so that the three token fields are lower bounds when it is
+#'   positive; `NA` when that number cannot be determined, as after a call that
+#'   raised an error.
+#'
+#' @details
+#' The group's token fields count every model call made on its behalf: the
+#' moderator's and participants' turns with their retries, desire scores,
+#' interim and final summaries, and model analyses run later, such as
+#' `analyze_themes()`. [run_focus_group()] describes how unreported usage is
+#' handled. A transcript imported with [focus_group_from_transcript()] adds
+#' no calls. Objects saved by FocusGroup 0.5.2 and earlier lack
+#' `total_tokens` and `calls_usage_unknown`.
+#'
+#' A session run by [run_focus_group()] carries a `session_status` attribute,
+#' a list with `complete` and `failure` as in that function's `metadata`.
 #'
 #' @return An R6 generator. `FocusGroup$new()` returns a session object;
 #'   most analyses run through [run_focus_group()], which builds, runs, and
@@ -84,6 +104,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
     max_participant_responses = 2L,
     total_tokens_sent = 0,
     total_tokens_received = 0,
+    total_tokens = 0,
+    calls_usage_unknown = 0,
 
     #' @description Initialize a new FocusGroup simulation.
     #' @param topic Character. The main discussion topic.
@@ -153,6 +175,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       self$total_tokens_sent <- 0
       self$total_tokens_received <- 0
+      self$total_tokens <- 0
+      self$calls_usage_unknown <- 0
     },
 
     #' @description Run the full focus group simulation.
@@ -162,7 +186,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'   decides to end. If both `num_rounds` and `question_script` are provided,
     #'   the simulation stops at whichever condition is met first.
     #' @param verbose Logical. If `TRUE`, prints progress and utterances to the console.
-    #' @return Invisibly returns the `conversation_log`.
+    #' @return Invisibly returns the `conversation_log`. When a call fails,
+    #'   the error propagates and the messages completed so far remain in
+    #'   `conversation_log`. A failed final summary is not an error: it warns
+    #'   and leaves `final_summary` as `NA`.
     run_simulation = function(num_rounds = NULL, verbose = FALSE) {
       if (length(self$conversation_log)) {
         stop(
@@ -228,6 +255,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         if (needs_summary) {
           if (verbose) cat("\n--- Generating interim summary for context management ---\n")
           current_transcript_for_summary <- private$get_recent_transcript_for_summary(30)
+          attr(self, "execution_phase") <- "interim_summary"
           interim_summary_text <- self$summarize(
             config = self$admin_config,
             summary_level = 3,
@@ -273,12 +301,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param config An explicit `llm_config` object for the summarization model.
     #' @param summary_level Integer (1-3). 1: Prose overview, 2: Detailed bulleted, 3: Short bulleted takeaways.
     #' @param max_tokens Integer. Optional. Max tokens for the summary.
-    #' @param internal_call Logical. If TRUE, this is an internal call (e.g. for context window management) and token counts are not added to the agent who owns `admin_config`.
+    #' @param internal_call Logical. `TRUE` for a summary made for context
+    #'   management during the session. Either way, the call's usage is added
+    #'   to the group's token fields and not to any agent's.
     #' @param transcript_override Character. Optional. If provided, this transcript is summarized instead of `self$conversation_log`.
     #' @param .runner Optional function used instead of live model calls. It
     #'   receives a data frame with `config` and `messages` list-columns and
     #'   returns the rows with at least `response_text`.
-    #' @return Character string containing the generated summary.
+    #' @return Character string containing the generated summary. An empty
+    #'   reply is an error; its usage is recorded first.
     summarize = function(config, summary_level = 1, max_tokens = NULL,
                          internal_call = FALSE, transcript_override = NULL,
                          .runner = NULL) {
@@ -342,6 +373,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       response_obj <- .fg_call_llm(
         config = current_call_config,
+        .usage = function(u) .fg_record_group(self, u),
         messages = list(list(role = "user", content = full_prompt)),
         .runner = .runner %||% self$agents[[self$moderator_id]]$.runner,
         tries = 5,
@@ -350,10 +382,6 @@ FocusGroup <- R6::R6Class("FocusGroup",
       )
       summary_text <- .fg_response_text(response_obj)
 
-      if (!internal_call) { # Only add to group totals if it's an "external" summarization request
-          u <- extract_token_counts(response_obj)
-          private$record_token_usage(u$sent, u$rec)
-      }
       if (!nzchar(trimws(summary_text))) {
         stop("Summarization returned an empty model response.", call. = FALSE)
       }
@@ -711,14 +739,13 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       response_obj <- .fg_call_llm(
         config = current_call_config,
+        .usage = function(u) .fg_record_group(self, u),
         messages = list(list(role = "user", content = theme_prompt)),
         .runner = .runner %||% self$agents[[self$moderator_id]]$.runner,
         tries = 5
       )
 
       themes_summary <- .fg_response_text(response_obj)
-      u <- extract_token_counts(response_obj)
-      private$record_token_usage(u$sent, u$rec)
       if (!nzchar(trimws(themes_summary))) {
         stop("Thematic analysis returned an empty model response.", call. = FALSE)
       }
@@ -984,16 +1011,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
           tidytext::unnest_tokens(output = bigram, input = text, token = "ngrams", n = 2) %>%
           dplyr::filter(!is.na(bigram)) # Remove NA bigrams that might result from very short texts
 
-        # Optional: Remove bigrams containing stop words
-        # This is a common step to make n-grams more meaningful
-        # We separate the bigram, check each word, then filter
+        # Split each bigram and remove it when either word is a stop word.
         bigrams_separated <- bigrams_tokenized %>%
           tidyr::separate(bigram, c("word1", "word2"), sep = " ", remove = FALSE, fill = "right")
-
-        # Anti-join against stop words for each part of the bigram
-        # A bigram is removed if EITHER word1 OR word2 is a stop word.
-        # You might adjust this logic (e.g., remove only if both are stop words, or if first/last are)
-        # Use tidytext::stop_words directly to avoid loading into global env # Ensure stop_words is loaded
 
         bigrams_cleaned <- bigrams_separated %>%
           dplyr::anti_join(tidytext::stop_words, by = c("word1" = "word")) %>%
@@ -1222,8 +1242,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
   ),
 
   private = list(
-    record_token_usage = function(sent = 0L, rec = 0L) {
-      .fg_add_group_usage(self, sent, rec)
+    record_token_usage = function(sent = 0L, rec = 0L, total, unknown) {
+      .fg_add_group_usage(self, sent, rec, total, unknown)
     },
 
     advance_round = function(current_round, verbose = FALSE) {
@@ -1236,6 +1256,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         return(FALSE) # Script ended
       }
       current_phase_name <- current_phase_details$phase
+      attr(self, "execution_phase") <- current_phase_name
       # Determine the current question text appropriately per phase
       question_phases <- c("icebreaker_question", "engagement_question", "exploration_question", "probing_focused", "ending_question", "generic_discussion", "transition")
       if (!is.null(current_phase_details$text) && nzchar(current_phase_details$text)) {
@@ -1340,8 +1361,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       # Fill placeholders specific to moderator prompts
       # Some placeholders might be specific to certain moderator prompts (e.g., {{next_focus_group_question}})
-      # These should be dynamically determined or passed if needed.
-      # For now, `generate_utterance` will use what's available in its `prompt_values`.
+      # generate_utterance() fills the remaining agent-specific placeholders.
 
       # Construct conversation history for the moderator
       history_for_moderator <- make_prompt_history(
@@ -1350,7 +1370,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         max_tokens_history = 64000L
       )
 
-      mod_res <- moderator_agent$generate_utterance(
+      mod_res <- .fg_with_group_usage(self, moderator_agent$generate_utterance(
         topic = self$topic,
         conversation_history_string = history_for_moderator,
         utterance_prompt_template = moderator_template_filled,
@@ -1359,7 +1379,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         conversation_summary_so_far = self$current_conversation_summary,
         current_phase = current_phase_name,
         conversation_log = self$conversation_log
-      )
+      ))
       mod_text <- if (is.list(mod_res)) mod_res$text else as.character(mod_res)
       mod_meta <- if (is.list(mod_res) && !is.null(mod_res$meta)) mod_res$meta else list()
       private$log_message(self$moderator_id, mod_text, round = current_round,
@@ -1367,9 +1387,6 @@ FocusGroup <- R6::R6Class("FocusGroup",
                           meta = mod_meta)
       if (verbose) cat(paste0(self$moderator_id, " (Moderator): ", mod_text, "\n"))
 
-      # Update total tokens (per-call accounting)
-      private$record_token_usage(mod_meta$sent_tokens %||% 0L,
-                                 mod_meta$rec_tokens %||% 0L)
 
 
       # A script may contain several closing turns. End after the final closing
@@ -1409,7 +1426,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
                 max_tokens_history = 64000L
               )
 
-              part_res <- next_participant$generate_utterance(
+              part_res <- .fg_with_group_usage(self, next_participant$generate_utterance(
                 topic = self$topic,
                 conversation_history_string = history_for_participant,
                 utterance_prompt_template = .fg_pick_template(self$prompt_templates, "utterance"),
@@ -1418,7 +1435,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
                 conversation_summary_so_far = self$current_conversation_summary,
                 current_phase = current_phase_name,
                 conversation_log = self$conversation_log
-              )
+              ))
               part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
               part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()
               selection_metadata <- self$turn_taking_flow$selection_metadata %||% list()
@@ -1435,9 +1452,6 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
               self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
 
-              # Update total tokens (per-call accounting)
-              private$record_token_usage(part_meta$sent_tokens %||% 0L,
-                                         part_meta$rec_tokens %||% 0L)
 
               participants_responded_this_round <- participants_responded_this_round + 1
 
@@ -1508,6 +1522,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         model = meta$model %||% NA_character_,
         metadata = meta$metadata %||% list()
       )
+      if (!is.null(meta$usage_unknown)) msg$metadata$usage_unknown <- meta$usage_unknown
       self$conversation_log <- c(self$conversation_log, list(msg))
     },
 
@@ -1576,5 +1591,11 @@ print.FocusGroup <- function(x, ...) {
       length(setdiff(names(x$agents), x$moderator_id)), "\n", sep = "")
   cat("  Messages: ", length(x$conversation_log),
       " in ", length(rounds), " round(s)\n", sep = "")
+  status <- attr(x, "session_status")
+  if (!is.null(status)) {
+    cat("  Status: ", if (isTRUE(status$complete)) "complete" else
+        paste0("incomplete (stopped during ", status$failure$phase %||% "an unknown phase", ")"),
+        "\n", sep = "")
+  }
   invisible(x)
 }
