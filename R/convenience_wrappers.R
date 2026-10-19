@@ -285,7 +285,9 @@ NULL
 #'     failed, and `character(0)` in a partial result that stopped before it.}
 #'   \item{participants}{A data frame with one row per agent: `id`, `role`,
 #'     `is_moderator`, `persona`, `demographics`, `survey_responses`,
-#'     `provider`, and `model`.}
+#'     `provider`, and `model`. When the participants were drawn from the
+#'     bundled ANES records, the rows drawn are recorded in
+#'     `attr(result$focus_group$agents, "source_rows")`.}
 #'   \item{usage}{A list of the token subtotals `sent`, `rec`, and `total`,
 #'     and the count `unknown` described in Details. It records the session as
 #'     run; model analyses run later add to the counters of `focus_group` but
@@ -485,7 +487,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
          call. = FALSE)
   }
   if (value > .Machine$integer.max) {
-    stop("The model-output estimate (", format(value, big.mark = ","),
+    stop("The model-output estimate (", format(value, big.mark = ",", scientific = FALSE),
          ") exceeds the integer range; reduce the guide counts, ",
          "`n_participants`, or `max_participant_responses`.", call. = FALSE)
   }
@@ -1279,9 +1281,11 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'   decoded demographics frame. The selector refers to the file's own rows and
 #'   is applied before respondents without any demographic value are left out;
 #'   a message says how many selected respondents were left out for that
-#'   reason. Positions must be whole numbers within the file, and neither a
-#'   logical selector nor a predicate's result may contain `NA`. A position
-#'   given more than once selects its respondent once.
+#'   reason. Positions must be whole numbers within the file. In a logical
+#'   selector or a predicate's result, `NA` counts as not selected, as in
+#'   [subset()], so `function(df) df$age != "18-24"` leaves out respondents
+#'   whose age is missing. A position given more than once selects its
+#'   respondent once.
 #' @param weights Optional sampling weights: a column name in the file, or a
 #'   numeric vector aligned to the file's rows. Used only to weight which
 #'   respondents are drawn; the weight column is not rendered into the
@@ -1298,17 +1302,19 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' Respondents are drawn without replacement, so a participant is never a
 #' second copy of another. When the selection leaves more eligible respondents
 #' than `n_participants`, that many are sampled, with probability proportional
-#' to `weights` when supplied; when it leaves exactly `n_participants`, all of
-#' them are used; when it leaves fewer, the call is refused. The option
-#' `focusgroup.seed` makes the draw reproducible without changing the caller's
-#' random-number state.
+#' to `weights` when supplied, and the draw needs at least `n_participants`
+#' respondents with a positive weight. When the selection leaves exactly
+#' `n_participants`, all of them are used, whatever their weights; when it
+#' leaves fewer, the call is refused. The option `focusgroup.seed` makes the
+#' draw reproducible without changing the caller's random-number state.
 #'
 #' Invalid weights are refused rather than repaired. The call stops when the
 #' named weight column is not in the file, when the weights are not numeric
 #' (a factor, text, or logical values), when their length differs from the
-#' number of rows, when any weight is missing, negative, or not finite, or
-#' when no eligible respondent has a positive weight. The error names the
-#' column or the offending rows.
+#' number of rows, when any weight is missing, negative, or not finite, when
+#' no eligible respondent has a positive weight, or when a draw has fewer
+#' respondents with a positive weight than participants to fill. The error
+#' names the column or the offending rows.
 #'
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID. Two attributes record which respondents were drawn. The
@@ -1421,11 +1427,17 @@ create_agents_from_survey <- function(n_participants,
   n_left_out <- sum(selected & !has_demo)
   if (n_left_out > 0L) {
     message(sprintf(
-      "%d selected respondent(s) have no demographic values and were left out.",
-      n_left_out))
+      "%d %srespondent(s) have no demographic values and were left out.",
+      n_left_out, if (is.null(rows)) "" else "selected "))
   }
   keep <- selected & has_demo
-  if (!any(keep)) stop("`rows` selected no eligible respondents.", call. = FALSE)
+  if (!any(keep)) {
+    stop(if (is.null(rows)) {
+      "No respondent in the file has a value for any of `demographic_vars`."
+    } else {
+      "`rows` selected no respondents with demographic values."
+    }, call. = FALSE)
+  }
   demo_df <- demo_df[keep, , drop = FALSE]
   if (!is.null(survey_df)) survey_df <- survey_df[keep, , drop = FALSE]
   if (!is.null(weights_vec)) {
@@ -1443,9 +1455,11 @@ create_agents_from_survey <- function(n_participants,
 
 # Resolve a `rows` selector to row positions in `df`, which has `n` rows. A
 # predicate is evaluated once; its result, like a logical selector, must give
-# one non-missing value per row. Integer positions must be whole numbers
-# between 1 and `n`; their order is kept and a repeated position counts once,
-# so a selector cannot draw the same respondent twice.
+# one value per row, and NA counts as not selected, as in subset(), so that a
+# predicate over a variable with missing values selects the rows where it is
+# TRUE. Integer positions must be whole numbers between 1 and `n`; their order
+# is kept and a repeated position counts once, so a selector cannot draw the
+# same respondent twice.
 .fg_row_indices <- function(rows, df, n) {
   if (is.null(rows)) return(seq_len(n))
   predicate <- is.function(rows)
@@ -1459,10 +1473,6 @@ create_agents_from_survey <- function(n_participants,
            " one logical value per respondent; invalid positions: ",
            paste(utils::head(bad, 6L), collapse = ", "),
            ".", call. = FALSE)
-    }
-    if (anyNA(rows)) {
-      stop(label, " contains missing values at position(s) ",
-           paste(utils::head(which(is.na(rows)), 6L), collapse = ", "), ".", call. = FALSE)
     }
     return(which(rows))
   }

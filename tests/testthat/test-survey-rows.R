@@ -59,3 +59,24 @@ test_that("invalid row selectors are refused", {
   expect_error(survey_agents(f, n_participants = 1, rows = c(TRUE, FALSE)),
                "one logical value per respondent")
 })
+
+test_that("a predicate over a variable with missing values selects where it is TRUE", {
+  f <- write_survey(); on.exit(unlink(f), add = TRUE)
+  expect_no_message(a <- survey_agents(f, n_participants = 2,
+                                       rows = function(df) df$age != "45-54"))
+  expect_identical(unname(ages_of(a)), c("25-34", "35-44"))
+})
+
+test_that("a file without demographic values is refused with a message that fits", {
+  f <- write_survey(); on.exit(unlink(f), add = TRUE)
+  expect_error(suppressMessages(survey_agents(f, n_participants = 1, rows = 1)),
+               "`rows` selected no respondents with demographic values")
+  d <- data.frame(AGE = haven::labelled(c(-9L, -9L), c("Refused" = -9)))
+  g <- tempfile(fileext = ".dta"); on.exit(unlink(g), add = TRUE)
+  haven::write_dta(d, g)
+  msg <- testthat::capture_messages(expect_error(
+    create_agents_from_survey(1, g, LLMR::llm_config("openai", "m"), demographic_vars = c(age = "AGE")),
+    "No respondent in the file has a value for any of `demographic_vars`"))
+  expect_match(msg, "^2 respondent\\(s\\) have no demographic values")
+})
+

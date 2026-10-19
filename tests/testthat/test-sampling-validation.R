@@ -36,10 +36,17 @@ test_that("row selectors validate positions and evaluate predicates once", {
     expect_error(.sampling_agents(rows = rows), "position.*2")
   }
   expect_error(.sampling_agents(rows = c(TRUE, FALSE)), "logical value per respondent")
-  expect_error(.sampling_agents(rows = c(TRUE, NA, FALSE, FALSE)), "position.*2")
-  for (f in list(function(d) 1:4, function(d) TRUE, function(d) c(TRUE, NA, FALSE, FALSE))) {
+  for (f in list(function(d) 1:4, function(d) TRUE, function(d) c("TRUE", "TRUE", "TRUE", "TRUE"))) {
     expect_error(.sampling_agents(rows = f), "predicate.*position")
   }
+  # NA in a logical selector or a predicate's result counts as not selected.
+  na_rows <- .sampling_agents(n = 2, rows = c(TRUE, NA, FALSE, TRUE))
+  expect_identical(unname(attr(na_rows, "source_rows")), c(1L, 4L))
+  d <- .sampling_data(); d$age[2] <- NA
+  na_pred <- .sampling_agents(d, n = 2, rows = function(df) df[[1]] != "25")
+  expect_identical(unname(attr(na_pred, "source_rows")), c(3L, 4L))
+  expect_error(.sampling_agents(d, n = 3, rows = function(df) df[[1]] != "25"),
+               "only 2 distinct")
   calls <- 0L
   d <- .sampling_data()
   attr(d, "dictionary") <- data.frame(handle = "age", question = "Age in years")

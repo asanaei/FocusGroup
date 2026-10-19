@@ -38,9 +38,11 @@ value per row in the file, or a predicate \verb{function(df) -> logical} over th
 decoded demographics frame. The selector refers to the file's own rows and
 is applied before respondents without any demographic value are left out;
 a message says how many selected respondents were left out for that
-reason. Positions must be whole numbers within the file, and neither a
-logical selector nor a predicate's result may contain \code{NA}. A position
-given more than once selects its respondent once.}
+reason. Positions must be whole numbers within the file. In a logical
+selector or a predicate's result, \code{NA} counts as not selected, as in
+\code{\link[=subset]{subset()}}, so \code{function(df) df$age != "18-24"} leaves out respondents
+whose age is missing. A position given more than once selects its
+respondent once.}
 
 \item{weights}{Optional sampling weights: a column name in the file, or a
 numeric vector aligned to the file's rows. Used only to weight which
@@ -82,17 +84,19 @@ inferences from the answers; it states them and lets the model interpret.
 Respondents are drawn without replacement, so a participant is never a
 second copy of another. When the selection leaves more eligible respondents
 than \code{n_participants}, that many are sampled, with probability proportional
-to \code{weights} when supplied; when it leaves exactly \code{n_participants}, all of
-them are used; when it leaves fewer, the call is refused. The option
-\code{focusgroup.seed} makes the draw reproducible without changing the caller's
-random-number state.
+to \code{weights} when supplied, and the draw needs at least \code{n_participants}
+respondents with a positive weight. When the selection leaves exactly
+\code{n_participants}, all of them are used, whatever their weights; when it
+leaves fewer, the call is refused. The option \code{focusgroup.seed} makes the
+draw reproducible without changing the caller's random-number state.
 
 Invalid weights are refused rather than repaired. The call stops when the
 named weight column is not in the file, when the weights are not numeric
 (a factor, text, or logical values), when their length differs from the
-number of rows, when any weight is missing, negative, or not finite, or
-when no eligible respondent has a positive weight. The error names the
-column or the offending rows.
+number of rows, when any weight is missing, negative, or not finite, when
+no eligible respondent has a positive weight, or when a draw has fewer
+respondents with a positive weight than participants to fill. The error
+names the column or the offending rows.
 }
 \examples{
 # A small labeled file stands in for a survey release; the call is the same

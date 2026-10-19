@@ -93,7 +93,9 @@ and the list-column \code{metadata}.}
 failed, and \code{character(0)} in a partial result that stopped before it.}
 \item{participants}{A data frame with one row per agent: \code{id}, \code{role},
 \code{is_moderator}, \code{persona}, \code{demographics}, \code{survey_responses},
-\code{provider}, and \code{model}.}
+\code{provider}, and \code{model}. When the participants were drawn from the
+bundled ANES records, the rows drawn are recorded in
+\code{attr(result$focus_group$agents, "source_rows")}.}
 \item{usage}{A list of the token subtotals \code{sent}, \code{rec}, and \code{total},
 and the count \code{unknown} described in Details. It records the session as
 run; model analyses run later add to the counters of \code{focus_group} but
