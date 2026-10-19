@@ -27,11 +27,12 @@ NEWS.md lists each change in behavior and names each new error.
 ## Dependencies
 
 FocusGroup Imports LLMR (>= 0.8.8) for all model calls. It Suggests
-LLMR.shiny (>= 0.1.3), the current CRAN version, for the optional Studio,
-which now uses that version's usage counters and its options for reading a
-CSV file without type inference. The Studio checks the installed LLMR.shiny
-version and refuses to start with an older one. Every use of LLMR.shiny and
-of the other suggested packages is guarded with `requireNamespace()`.
+LLMR.shiny (>= 0.1.3) for the optional Studio, and so requires LLMR.shiny
+0.1.3, which is submitted to CRAN ahead of this package. The Studio now uses
+that version's usage counters and its options for reading a CSV file without
+type inference. It checks the installed LLMR.shiny version and refuses to
+start with an older one. Every use of LLMR.shiny and of the other suggested
+packages is guarded with `requireNamespace()`.
 
 ## Examples and tests
 
@@ -44,8 +45,8 @@ call in any environment. The test suite mocks every model call.
 
 - local macOS (Darwin 25.6.0, aarch64-apple-darwin20), R 4.4.3:
   `R CMD check --as-cran` on the built tarball, once against LLMR 0.8.11
-  (the CRAN version) and once against the development version of LLMR, both
-  with LLMR.shiny 0.1.3.
+  (the CRAN version) and once against LLMR 0.8.14, which is submitted ahead
+  of this package, both with LLMR.shiny 0.1.3.
 
 ## R CMD check results
 
@@ -53,3 +54,7 @@ call in any environment. The test suite mocks every model call.
 
 - "checking for future file timestamps ... NOTE: unable to verify current
   time". Environmental; the check machine had no access to a time service.
+
+## Reverse dependencies
+
+None on CRAN.
