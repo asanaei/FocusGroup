@@ -99,9 +99,9 @@ test_that("missing text becomes an empty imported utterance", {
   df <- data.frame(speaker = c("Moderator", "Ana"),
                    text = c("Welcome.", NA_character_),
                    stringsAsFactors = FALSE)
-  fg <- focus_group_from_transcript(df)
+  expect_warning(fg <- focus_group_from_transcript(df), "1 utterance.*missing text")
   expect_identical(fg$conversation_log[[2]]$text, "")
-  expect_identical(fg$conversation_log[[2]]$total_tokens, 0L)
+  expect_identical(fg$conversation_log[[2]]$total_tokens, NA_integer_)
   expect_true(is.na(fg$conversation_log[[2]]$provider))
 })
 

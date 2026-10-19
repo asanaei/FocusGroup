@@ -19,14 +19,16 @@ focus_group_from_transcript(
 Default "speaker".}
 
 \item{text_col}{Character. Name of the column holding the utterance text.
-Default "text".}
+Default "text". Missing text becomes an empty utterance, with a warning
+giving the number of such turns.}
 
 \item{topic}{Character or \code{NULL}. The discussion topic, used by the
 model-dependent analyses and stored on the object. \code{NULL} falls back to
 "Imported transcript".}
 
 \item{moderator_id}{Character or \code{NULL}. Exact speaker id to treat as the
-moderator. When \code{NULL}, the exact aliases described above are used.}
+moderator. When \code{NULL}, an \code{is_moderator} column or the exact aliases
+described above are used.}
 }
 \value{
 A \link{FocusGroup} object with a populated \code{conversation_log}.
@@ -46,19 +48,54 @@ descriptive analyses run offline, and only the model-dependent methods
 One lightweight agent is created per speaker so that speaker-aware methods
 have a roster to report on; these agents carry a minimal placeholder persona
 and are not meant to continue the conversation. Set \code{moderator_id} when the
-transcript identifies the moderator. When it is \code{NULL}, the moderator is the
-speaker whose id, ignoring case and surrounding spaces, is exactly one of
-"mod", "moderator", "facilitator", or "interviewer"; an id such as
-"Moderator 1" or "Modesto" does not match. When no speaker matches, a
-non-speaking "MOD" agent is added so the object is complete, a message says
-so, and every speaker is analyzed as a participant. Rows whose speaker is missing
-or blank are dropped with a warning; rows with speaker "System" are kept in
-the log but excluded from analyses, matching how the simulator treats its
-own roster message.
+transcript identifies the moderator. When it is \code{NULL} and \code{data} has no
+\code{is_moderator} column, the moderator is the speaker whose id, ignoring case
+and surrounding spaces, is exactly one of "mod", "moderator",
+"facilitator", or "interviewer"; an id such as "Moderator 1" or "Modesto"
+does not match, and two matching speakers are an error. When no speaker is
+the moderator, a non-speaking "MOD" agent is added so the object is
+complete, a message says so, and every speaker is analyzed as a
+participant. Rows whose speaker is missing or blank are dropped with a
+warning; rows with speaker "System" are kept in the log but excluded from
+analyses, matching how the simulator treats its own roster message.
+
+Columns that a transcript exported by this package carries are kept when
+\code{data} has them, so a saved transcript can be read back without losing its
+record: \code{message_id}, \code{round}, \code{is_moderator}, \code{phase}, \code{response_id},
+\code{finish_reason}, \code{sent_tokens}, \code{rec_tokens}, \code{total_tokens},
+\code{duration_s}, \code{provider}, \code{model}, \code{timestamp}, and the list-column
+\code{metadata}. A field that is absent takes the value an imported turn has
+always had: messages are numbered in order, \code{round} counts the moderator's
+turns (0 throughout when there is no moderator), \code{phase} is \code{"imported"},
+and the other fields are \code{NA}. In particular, token counts that the
+transcript does not supply are unknown (\code{NA}), not zero, and importing adds
+no model calls to the object's usage counters.
+
+Supplied fields are checked rather than coerced. \code{message_id} must hold
+distinct positive whole numbers increasing down the rows; \code{round} and the
+token counts nonnegative whole numbers; \code{duration_s} nonnegative numbers;
+and \code{metadata} lists or \code{NULL}. Numbers stored as text are accepted, and
+\code{NA} is allowed except in \code{message_id}. A value that fails these checks is
+an error naming the column and its rows.
+
+An \code{is_moderator} column must hold \code{TRUE} or \code{FALSE} in every row, as
+logical values or as the text "TRUE" and "FALSE"; it must give each speaker
+a single role and mark at most one
+speaker; it must agree with \code{moderator_id} when both are given. A column
+that marks no speaker means the transcript has no moderator, and the
+aliases are not consulted. "System" cannot be the moderator. If a
+participant is already named "MOD", the placeholder moderator is named
+"MOD_2", or the next free suffix.
+
+Timestamps may be date-times, dates, numbers of seconds since 1970-01-01
+UTC, or ISO 8601 text such as "2026-03-01", "2026-03-01 14:30:00", or
+"2026-03-01T14:30:00.5-05:00". Text without an offset is read as UTC, and
+all timestamps are stored in UTC. A timestamp that cannot be read becomes
+\code{NA}, with one warning giving the number of such values.
 }
 \examples{
 transcript <- data.frame(
-  speaker = c("Moderator", "Ana", "Ben", "Ana", "Moderator", "Ben"),
+  speaker = c("Chair", "Ana", "Ben", "Ana", "Chair", "Ben"),
   text = c(
     "Welcome, everyone. What do you make of the new library hours?",
     "They help working parents like me; evenings matter most.",
@@ -68,7 +105,9 @@ transcript <- data.frame(
     "Staff are stretched thin before noon, so lines are longer."
   )
 )
-fg <- focus_group_from_transcript(transcript, topic = "library hours")
+# "Chair" is not one of the moderator aliases, so name the moderator.
+fg <- focus_group_from_transcript(transcript, topic = "library hours",
+                                  moderator_id = "Chair")
 fg$analyze_participation_balance()$participation_stats
 }
 \seealso{

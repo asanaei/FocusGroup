@@ -725,67 +725,18 @@ replace_placeholders_known <- function(template_string, values_list) {
 # list of entries with message_id/round/speaker_id/text/is_moderator). Accepts a FocusGroup
 # (its log is returned as-is), an already-shaped list, or a data frame with a
 # speaker and a text column (named explicitly or auto-detected from common
-# names). Shared by the GUI's Analyze tab and focus_group_from_transcript().
-# Data-frame rows get phase "imported" so phase-aware analyses and plots have a
-# value to group on; a speaker whose id is exactly a moderator alias (mod,
-# moderator, facilitator, interviewer; case and surrounding spaces ignored) is
-# flagged as the moderator.
+# names). A data frame goes through .fg_import_log(), the conversion that
+# focus_group_from_transcript() uses, so supplied fields and moderator flags
+# are read the same way in both.
 .fg_as_log <- function(obj, speaker_col = NULL, text_col = NULL,
                        moderator_id = NULL) {
   if (inherits(obj, "FocusGroup")) return(obj$conversation_log)
   if (is.list(obj) && !is.data.frame(obj) && length(obj) &&
       is.list(obj[[1]]) && !is.null(obj[[1]]$text)) return(obj)
   if (is.data.frame(obj)) {
-    sc <- speaker_col %||% intersect(c("speaker_id","speaker","agent","role"), names(obj))[1]
-    tc <- text_col %||% intersect(c("text","utterance","message","content"), names(obj))[1]
-    valid_name <- function(x) {
-      is.character(x) && length(x) == 1L && !is.na(x) && nzchar(x)
-    }
-    if (!valid_name(sc) || !valid_name(tc)) {
-      stop("Could not find speaker and text columns.", call. = FALSE)
-    }
-    if (!all(c(sc, tc) %in% names(obj)))
-      stop("Columns '", sc, "' and '", tc, "' must both be present in the transcript.",
-           call. = FALSE)
-    speakers <- as.character(obj[[sc]])
-    moderator_flags <- if (!is.null(moderator_id)) {
-      speakers == moderator_id
-    } else {
-      # Exact alias match, never a substring: "Modesto" is not a moderator.
-      aliases <- c("mod", "moderator", "facilitator", "interviewer")
-      flags <- tolower(trimws(speakers)) %in% aliases
-      if (sum(unique(speakers[flags]) %in% speakers) > 1L &&
-          length(unique(speakers[flags])) > 1L) {
-        stop(paste(
-          "More than one speaker matches a moderator alias;",
-          "supply `moderator_id`."), call. = FALSE)
-      }
-      flags
-    }
-    rounds <- cumsum(moderator_flags)
-    return(lapply(seq_len(nrow(obj)), function(i) {
-      speaker <- as.character(obj[[sc]][i])
-      text <- as.character(obj[[tc]][i])
-      if (is.na(text)) text <- ""
-      list(
-        message_id = as.integer(i),
-        round = as.integer(rounds[[i]]),
-        speaker_id = speaker,
-        text = text,
-        is_moderator = isTRUE(moderator_flags[[i]]),
-        timestamp = as.POSIXct(NA),
-        phase = "imported",
-        response_id = NA_character_,
-        finish_reason = NA_character_,
-        sent_tokens = 0L,
-        rec_tokens = 0L,
-        total_tokens = 0L,
-        duration_s = NA_real_,
-        provider = NA_character_,
-        model = NA_character_,
-        metadata = list()
-      )
-    }))
+    sc <- speaker_col %||% intersect(c("speaker_id", "speaker", "agent", "role"), names(obj))[1]
+    tc <- text_col %||% intersect(c("text", "utterance", "message", "content"), names(obj))[1]
+    return(.fg_import_log(obj, sc, tc, moderator_id))
   }
   stop("Unrecognized transcript format.", call. = FALSE)
 }

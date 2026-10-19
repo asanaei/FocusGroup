@@ -130,6 +130,29 @@
   and vignettes now describe the exact-alias rule; they still described an
   earlier substring match.
 
+* `focus_group_from_transcript()` keeps the fields a transcript supplies:
+  `message_id`, `round`, `is_moderator`, `phase`, `response_id`,
+  `finish_reason`, the three token counts, `duration_s`, `provider`, `model`,
+  `timestamp`, and `metadata`. It used to keep only the speaker and the text,
+  setting every phase to "imported", the timestamp, provider, and model to
+  `NA`, and the rounds from moderator turns, which left every round 0 when no
+  moderator was found. Token counts the transcript does not supply are `NA`;
+  they used to be 0.
+
+* Missing text among the imported turns becomes an empty utterance with the
+  warning "1 utterance(s) with missing text were imported as empty text."; the
+  conversion used to be silent. A supplied field that cannot be converted is
+  an error naming the column and rows ("Column 'round' contains invalid
+  values at source row(s) 4."). An `is_moderator` column that gives a speaker
+  two roles, marks more than one speaker, or disagrees with `moderator_id` is
+  an error. Timestamps are read in UTC, and timestamps that cannot be parsed
+  become `NA` with a warning giving their number.
+
+* When an `is_moderator` column marks no speaker as the moderator, the
+  placeholder message gives that as the reason. If a participant is already
+  named "MOD", the placeholder moderator is named "MOD_2", or the next free
+  suffix.
+
 # FocusGroup 0.5.2
 
 Corrections replacing 0.5.1, which was never published.
