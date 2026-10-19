@@ -40,6 +40,19 @@ test_that("legacy continuation agents are reconstructed without changing the sav
   out <- .fg_generate_once(legacy, "Hours", "", "State your view.", config = LLMR::llm_config("openai", "example-model"),
     .runner = .usage_runner(list(list(sent = 2, rec = 3, total = 9))))
   expect_equal(out$meta$total_tokens, 9)
+  # The rebuilt agent sends the saved persona and style unchanged.
+  seen <- NULL
+  capture <- function(experiments, ...) {
+    seen <<- experiments$messages[[1]]
+    .usage_runner(list(list(sent = 2, rec = 3, total = 9)))(experiments, ...)
+  }
+  .fg_generate_once(legacy, "Hours", "",
+    "{{persona_description}} | {{communication_style_instruction}} | State your view.",
+    config = LLMR::llm_config("openai", "example-model"), .runner = capture)
+  sent <- paste(vapply(seen, function(m) m$content, ""), collapse = "\n")
+  expect_match(sent, "A participant.", fixed = TRUE)
+  expect_identical(lengths(regmatches(sent, gregexpr("Plain speech.", sent, fixed = TRUE))), 1L)
+  expect_false(grepl("Your communication style is", sent, fixed = TRUE))
   expect_equal(legacy$tokens_sent_agent, 11)
   expect_false("tokens_total_agent" %in% names(legacy))
   expect_error(legacy$generate_utterance(), "historical method")

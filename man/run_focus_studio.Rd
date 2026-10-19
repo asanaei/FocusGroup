@@ -46,7 +46,8 @@ the rows its participants were drawn from, but no model configuration or
 runner function, since a configuration can hold a literal API key.
 
 A continuation from a session saved by FocusGroup 0.5.2 or earlier rebuilds
-the saved \code{FGAgent} agents with the current class, so that their usage is
+the saved \code{FGAgent} agents with the current class and their saved persona,
+style, and records, so that their prompts are unchanged and their usage is
 recorded as described in \code{\link[=run_focus_group]{run_focus_group()}}; agents of other classes are
 used as saved.
 }

@@ -49,7 +49,8 @@
 #' runner function, since a configuration can hold a literal API key.
 #'
 #' A continuation from a session saved by FocusGroup 0.5.2 or earlier rebuilds
-#' the saved `FGAgent` agents with the current class, so that their usage is
+#' the saved `FGAgent` agents with the current class and their saved persona,
+#' style, and records, so that their prompts are unchanged and their usage is
 #' recorded as described in [run_focus_group()]; agents of other classes are
 #' used as saved.
 #'
@@ -1546,15 +1547,18 @@ run_focus_studio <- function(...) {
   a <- if (inherits(agent, "R6")) agent$clone(deep = TRUE) else agent
   # An FGAgent saved by an earlier version carries that version's methods,
   # which record usage without its completeness. Rebuild it with the current
-  # class from its persona; a subclass is used as saved.
+  # class and copy its persona fields as saved, so the prompt is unchanged; a
+  # subclass is used as saved.
   if (identical(class(agent), c("FGAgent", "R6")) &&
       !"tokens_total_agent" %in% names(agent)) {
-    a <- FGAgent$new(agent$id, list(
-      direct_persona_description = agent$persona_description,
-      communication_style = agent$communication_style_instruction,
-      demographics = agent$demographics, survey_responses = agent$survey_responses),
-      config = config %||% agent$config, is_moderator = agent$is_moderator,
+    a <- FGAgent$new(agent$id,
+      list(direct_persona_description = agent$persona_description),
+      config = config %||% agent$config, is_moderator = isTRUE(agent$is_moderator),
       .runner = .runner %||% agent$.runner)
+    for (field in c("persona_description", "communication_style_instruction",
+                    "role", "demographics", "survey_responses", "history")) {
+      if (field %in% names(agent)) a[[field]] <- agent[[field]]
+    }
   }
   if (!is.null(config)) a$config <- config
   if (!is.null(.runner)) a$.runner <- .runner
