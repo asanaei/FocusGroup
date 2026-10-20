@@ -58,6 +58,11 @@ reference:
       - focus_group_from_transcript
       - analyze_focus_group
 
+  - title: Summarize a discussion
+    contents:
+      - summarize_focus_group
+      - fg_turns
+
   - title: Graphical study interface
     contents:
       - run_focus_studio
