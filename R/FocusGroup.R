@@ -1948,7 +1948,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       mark <- private$state$call_on_mark %||% 0L
       participant_ids <- setdiff(names(self$agents), self$moderator_id)
       spoke <- unlist(lapply(self$conversation_log, function(m) {
-        if (as.integer(m$message_id %||% 0L) > mark) m$speaker_id
+        if (isTRUE(as.integer(m$message_id %||% NA_integer_) > mark)) m$speaker_id
       }))
       setdiff(participant_ids, spoke)
     },

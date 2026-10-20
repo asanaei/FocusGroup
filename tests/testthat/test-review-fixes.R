@@ -20,13 +20,17 @@ test_that("the untouched default plans within max_calls and runs offline", {
                        "exploration_question", "probing_focused",
                        "ending_question", "generic_discussion")
   q <- sum(phases %in% response_phases)
-  est <- length(script) + q * 2L + q * 2L * 6L + 1L
+  # Moderator lines, two replies per question with six desire scores each,
+  # up to six replies at each of the three call-on points, and the summary.
+  est <- length(script) + q * 2L + q * 2L * 6L + 3L * 6L + 1L
+  expect_identical(est, 111L)
   expect_lte(est, eval(formals(run_focus_group)$max_calls))
 
   out <- suppressWarnings(run_focus_group(
     "local transit", .rv_cfg(), verbose = FALSE, seed = 110,
     .runner = .rv_echo_runner))
   expect_true(length(out$focus_group$conversation_log) > 0)
+  expect_identical(out$metadata$estimated_calls, est)
 })
 
 test_that("direct personas acquire no fabricated demographic records", {
