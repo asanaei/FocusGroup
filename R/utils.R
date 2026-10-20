@@ -321,6 +321,251 @@ format_conversation_history <- function(conversation_log,
                          "exploration_question", "probing_focused",
                          "ending_question", "generic_discussion")
 
+# ---- Handles ------------------------------------------------------------------
+# Agents see each other under handles, not under the IDs the researcher gave
+# them: the researcher's records keep the IDs, and every prompt shows the
+# handles. By default participants are "P1", "P2", ... in roster order and the
+# moderator is "Moderator".
+
+# The handle of every agent, named by agent ID, from the `handles` argument of
+# FocusGroup$new(): NULL for the neutral handles, "ids" for the agent IDs, or
+# a character vector naming some agents by ID with the handle each is to have;
+# the others keep their neutral handles. A handle cannot be empty, repeated,
+# "System", or contain a standalone number from 0 to 10, which the desire-score
+# parser would read as a score.
+.fg_resolve_handles <- function(handles, ids, moderator_id) {
+  participants <- setdiff(ids, moderator_id)
+  neutral <- stats::setNames(rep("Moderator", length(ids)), ids)
+  neutral[participants] <- paste0("P", seq_along(participants))
+  if (is.null(handles)) return(neutral)
+  if (identical(handles, "ids")) return(stats::setNames(ids, ids))
+  if (!is.character(handles) || !length(handles)) {
+    stop("`handles` must be `NULL`, \"ids\", or a character vector named by agent ID.",
+         call. = FALSE)
+  }
+  given <- names(handles)
+  if (is.null(given) || anyNA(given) || any(!nzchar(given))) {
+    stop("Every element of `handles` must be named by the agent ID it labels.",
+         call. = FALSE)
+  }
+  unknown <- setdiff(given, ids)
+  if (length(unknown)) {
+    stop("`handles` names agents that are not in the roster: ",
+         paste(unknown, collapse = ", "), ".", call. = FALSE)
+  }
+  if (anyDuplicated(given)) {
+    stop("`handles` names agent ", given[anyDuplicated(given)], " more than once.",
+         call. = FALSE)
+  }
+  if (anyNA(handles) || any(!nzchar(trimws(handles)))) {
+    stop("A handle must be a non-empty string.", call. = FALSE)
+  }
+  out <- neutral
+  out[given] <- trimws(unname(handles))
+  repeated <- out[duplicated(tolower(out)) | duplicated(tolower(out), fromLast = TRUE)]
+  if (length(repeated)) {
+    stop("Each agent needs its own handle; ", paste(unique(repeated), collapse = ", "),
+         " would be shared.", call. = FALSE)
+  }
+  if (any(tolower(out) == "system")) {
+    stop("\"System\" cannot be a handle: it labels the roster row.", call. = FALSE)
+  }
+  numbered <- out[grepl("\\b(10|[0-9])\\b", out, perl = TRUE)]
+  if (length(numbered)) {
+    stop("A handle cannot contain a standalone number from 0 to 10, which would be ",
+         "read as a desire score: ", paste(numbered, collapse = ", "),
+         ". Use a form such as \"P3\".", call. = FALSE)
+  }
+  out
+}
+
+# The label an agent answers to in a discussion: its handle, or its ID for an
+# agent used outside a session or saved by an earlier version.
+.fg_agent_label <- function(agent) {
+  handle <- agent$handle
+  if (is.character(handle) && length(handle) == 1L && !is.na(handle) && nzchar(handle)) {
+    handle
+  } else {
+    agent$id
+  }
+}
+
+# The sentence that tells a participant its handle, or NULL for the moderator
+# and for an agent outside a session.
+.fg_handle_sentence <- function(agent) {
+  if (isTRUE(agent$is_moderator) || is.null(agent$handle)) return(NULL)
+  sprintf("In this discussion you are %s.", .fg_agent_label(agent))
+}
+
+# The system text of a desire-scoring call, shared by the per-agent and the
+# broadcast paths so that both send the same messages.
+.fg_desire_system_text <- function(agent) {
+  paste(c(agent$persona_description, .fg_handle_sentence(agent),
+          "You are rating your own desire to speak next."),
+        collapse = "\n")
+}
+
+# The log as the agents see it, for a turn-taking flow or another helper that
+# receives the session: speakers under their handles. A plain list standing in
+# for a session, or a session saved by an earlier version, has its log
+# returned as it is. `log` replaces the session's own log, as for a cut
+# transcript in the Studio's continuation experiment.
+.fg_agent_log <- function(focus_group, log = NULL) {
+  view <- if (inherits(focus_group, "FocusGroup")) {
+    focus_group$.__enclos_env__$private$agent_view
+  }
+  if (is.null(log)) log <- focus_group$conversation_log
+  if (is.function(view)) view(log) else log
+}
+
+# Regular-expression metacharacters escaped, so that a handle matches only
+# itself.
+.fg_regex_escape <- function(x) {
+  gsub("([.|()\\\\^{}+$*?\\[\\]])", "\\\\\\1", x, perl = TRUE)
+}
+
+# The participant a moderator line gives the floor to, or NA. The line's last
+# question, the last sentence ending in "?", must name exactly one
+# participant handle, either opening with it ("P3, do you agree?") or closing
+# with it ("Could you say more, P3?"), and must not also put the question to
+# the group ("What does everyone think?"). `handles` are the participants'
+# handles named by agent ID; the agent ID is returned.
+.fg_addressee <- function(text, handles) {
+  if (!length(handles) || !is.character(text) || length(text) != 1L || is.na(text)) {
+    return(NA_character_)
+  }
+  plain <- gsub("[*_]", "", text)
+  sentences <- trimws(strsplit(plain, "(?<=[.!?])\\s+", perl = TRUE)[[1]])
+  sentences <- sub("[\"')\\]\\s]+$", "", sentences, perl = TRUE)
+  questions <- sentences[grepl("\\?$", sentences)]
+  if (!length(questions)) return(NA_character_)
+  question <- questions[[length(questions)]]
+  group <- paste0("(?i)\\b(everyone|everybody|anyone|anybody|others|the rest of you|",
+                  "all of you|you all|the group|the whole group)\\b")
+  if (grepl(group, question, perl = TRUE)) return(NA_character_)
+  bounded <- function(h) paste0("(?<![[:alnum:]_])", .fg_regex_escape(h), "(?![[:alnum:]_])")
+  named <- vapply(handles, function(h) grepl(bounded(h), question, perl = TRUE), logical(1))
+  if (sum(named) != 1L) return(NA_character_)
+  h <- .fg_regex_escape(handles[named])
+  opens <- grepl(paste0("^[\\s\"'(\\[]*", h, "\\s*,"), question, perl = TRUE)
+  closes <- grepl(paste0(",\\s*", h, "\\s*\\?$"), question, perl = TRUE)
+  if (opens || closes) names(handles)[named] else NA_character_
+}
+
+# Remove a label the speaker wrote for itself at the start of its reply, such
+# as "**MOD:**" or "P3:". `labels` are the speaker's own labels; another
+# speaker's label is content and stays. Returns the text and whether a label
+# was removed.
+.fg_strip_self_label <- function(text, labels) {
+  labels <- unique(labels[!is.na(labels) & nzchar(labels)])
+  if (!length(labels) || !length(text) || is.na(text) || !nzchar(text)) {
+    return(list(text = text, removed = FALSE))
+  }
+  pattern <- paste0("^\\s*[*_]{0,2}\\s*(?:",
+                    paste(.fg_regex_escape(labels), collapse = "|"),
+                    ")\\s*[*_]{0,2}\\s*:\\s*[*_]{0,2}\\s*")
+  if (!grepl(pattern, text, perl = TRUE, ignore.case = TRUE)) {
+    return(list(text = text, removed = FALSE))
+  }
+  list(text = sub(pattern, "", text, perl = TRUE, ignore.case = TRUE), removed = TRUE)
+}
+
+# The labels an agent might write for itself at the start of a reply: its
+# handle and ID, and for the moderator also "MOD" and "Moderator".
+.fg_self_labels <- function(agent) {
+  labels <- c(.fg_agent_label(agent), agent$id)
+  if (isTRUE(agent$is_moderator)) labels <- c(labels, "MOD", "Moderator")
+  unique(labels)
+}
+
+# The text of the roster row, from the participants' and the moderator's
+# labels.
+.fg_roster_text <- function(participants, moderator) {
+  paste0("Participants: ", paste(participants, collapse = ", "),
+         "; Moderator: ", moderator)
+}
+
+# A setting that must be TRUE or FALSE.
+.fg_check_flag <- function(x, name) {
+  if (!is.logical(x) || length(x) != 1L || is.na(x)) {
+    stop("`", name, "` must be `TRUE` or `FALSE`.", call. = FALSE)
+  }
+  invisible(x)
+}
+
+# ---- Call-ons -----------------------------------------------------------------
+
+.fg_call_on_names <- c("opening", "midpoint", "end")
+
+# Appended to the turn instruction of a participant the moderator called on.
+.fg_called_on_cue <- "The moderator has asked you directly for your view."
+
+.fg_default_call_on_text <- "{participant}, I'd like to hear from you as well. What are your thoughts?"
+
+# The guide items at which the moderator calls on the participants who have
+# not spoken: `call_on_silent` resolved against the phases of the guide.
+# "opening" is the first discussion item, "midpoint" discussion item
+# ceiling(D / 2) of D, and "end" the last; item numbers count every guide
+# item and must name discussion items. Returns the items in order, each
+# once, with the name of each point ("item:<k>" for a number).
+.fg_call_on_points <- function(call_on_silent, phases) {
+  none <- list(points = character(), items = integer())
+  if (is.null(call_on_silent) || isFALSE(call_on_silent) ||
+      identical(call_on_silent, "none")) {
+    return(none)
+  }
+  if (isTRUE(call_on_silent)) call_on_silent <- .fg_call_on_names
+  discussion <- which(phases %in% .fg_response_phases)
+  if (is.character(call_on_silent)) {
+    if (anyNA(call_on_silent) || !all(call_on_silent %in% .fg_call_on_names)) {
+      stop("`call_on_silent` must be \"none\", FALSE, any of \"opening\", \"midpoint\", ",
+           "and \"end\", or guide item numbers.", call. = FALSE)
+    }
+    if (!length(discussion)) return(none)
+    d <- length(discussion)
+    at <- c(opening = discussion[[1]], midpoint = discussion[[ceiling(d / 2)]],
+            end = discussion[[d]])
+    named <- .fg_call_on_names[.fg_call_on_names %in% call_on_silent]
+    items <- as.integer(at[named])
+    keep <- !duplicated(items)
+    ord <- order(items[keep])
+    return(list(points = named[keep][ord], items = items[keep][ord]))
+  }
+  v <- call_on_silent
+  if (!is.numeric(v) || !length(v) || anyNA(v) || any(!is.finite(v)) ||
+      any(v != floor(v)) || any(v < 1) || any(v > length(phases))) {
+    stop("`call_on_silent` item numbers must be whole numbers from 1 to ",
+         length(phases), ", the guide's items.", call. = FALSE)
+  }
+  items <- sort(unique(as.integer(v)))
+  bad <- setdiff(items, discussion)
+  if (length(bad)) {
+    stop("`call_on_silent` names guide item(s) ",
+         paste(sprintf("%d (%s)", bad, phases[bad]), collapse = ", "),
+         " that participants do not answer; choose discussion items.", call. = FALSE)
+  }
+  list(points = paste0("item:", items), items = items)
+}
+
+# The call-on line, checked: one string containing "{participant}".
+.fg_check_call_on_text <- function(call_on_text) {
+  if (is.null(call_on_text)) return(.fg_default_call_on_text)
+  if (!is.character(call_on_text) || length(call_on_text) != 1L || is.na(call_on_text) ||
+      !grepl("{participant}", call_on_text, fixed = TRUE)) {
+    stop("`call_on_text` must be one string containing \"{participant}\", ",
+         "which is replaced by the participant's handle.", call. = FALSE)
+  }
+  call_on_text
+}
+
+# The name a session's routing record gives its turn-taking flow.
+.fg_flow_name <- function(flow) {
+  if (inherits(flow, "RoundRobinFlow")) "round_robin"
+  else if (inherits(flow, "ProbabilisticFlow")) "probabilistic"
+  else if (inherits(flow, "DesireBasedFlow")) "desire_based"
+  else class(flow)[1]
+}
+
 # A copy of a session that shares nothing mutable with it: the group, each
 # agent, and the turn-taking flow, whose roster is pointed at the copied
 # agents. Attributes the session carries are kept.

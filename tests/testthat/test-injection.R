@@ -59,10 +59,14 @@ test_that("two arms injected at guide item 4 share the prefix and each run the f
   expect_identical(out$arms$objection$metadata$branch$prefix_hash,
                    out$arms$control$metadata$branch$prefix_hash)
   # The prefix ends with the moderator's line for item 4, the second
-  # engagement question.
+  # engagement question. Before it come the four guide lines and the
+  # call-on line for P3, the one participant round robin left silent at the
+  # icebreaker.
   expect_identical(objection$speaker_id[[m]], "MOD")
   expect_identical(objection$text[[m]] , out$prefix$transcript$text[[m]])
-  expect_identical(sum(objection$is_moderator[seq_len(m)]), 4L)
+  expect_identical(sum(objection$is_moderator[seq_len(m)]), 5L)
+  expect_identical(sum(vapply(objection$metadata[seq_len(m)],
+                              function(x) !is.null(x$call_on), logical(1))), 1L)
   expect_identical(objection$phase[[m]], "engagement_question")
 
   # The injected message is flagged with its arm and cut point.
@@ -80,11 +84,12 @@ test_that("two arms injected at guide item 4 share the prefix and each run the f
   expect_identical(out$injections$message_id, injected$message_id)
 
   # A full remainder in each branch: every later question, the closing, and
-  # the final summary.
+  # the final summary. Round robin gives everyone a turn after the first
+  # call-on, so the later call-on points find no one silent.
   for (arm in out$arms) {
     tr <- arm$transcript
     expect_true(arm$metadata$complete)
-    expect_identical(sum(tr$is_moderator), 8L)
+    expect_identical(sum(tr$is_moderator), 9L)
     expect_identical(sum(tr$phase == "exploration_question" & tr$is_moderator), 3L)
     expect_identical(tr$phase[[nrow(tr)]], "closing")
     expect_identical(arm$summary, "A short summary of the session.")
@@ -245,7 +250,12 @@ test_that("points, injections, probes, and arms are checked before any call", {
                 error = identity)
   expect_match(conditionMessage(e), "beyond the 2 item")
   expect_false(inherits(e, "focusgroup_incomplete_session"))
-  expect_error(run(injections = fg_injection("Text.", fg_before_turn(2))),
+  # One turn for the question and one for each participant the moderator
+  # may call on at its end.
+  expect_error(run(injections = fg_injection("Text.", fg_before_turn(4))),
+               "beyond the 3 participant turn")
+  expect_error(run(injections = fg_injection("Text.", fg_before_turn(2)),
+                   call_on_silent = "none"),
                "beyond the 1 participant turn")
   expect_error(run(injections = fg_injection("Text.", fg_after_item(1), from = "P1")),
                "participant")
@@ -286,7 +296,7 @@ test_that("a point the session never reaches is reported", {
     question_script = list(list(phase = "engagement_question", text = "Q1?"),
                            list(phase = "engagement_question", text = "Q2?"),
                            list(phase = "closing", text = "Close.")),
-    max_participant_responses = 1)
+    max_participant_responses = 1, call_on_silent = "none")
   expect_warning(
     fg$run_simulation(num_rounds = 1,
                       injections = fg_injection(.objection, fg_after_item(2)),
@@ -302,7 +312,7 @@ test_that("a point the session never reaches is reported", {
     question_script = list(list(phase = "engagement_question", text = "Q1?"),
                            list(phase = "engagement_question", text = "Q2?"),
                            list(phase = "closing", text = "Close.")),
-    max_participant_responses = 1)
+    max_participant_responses = 1, call_on_silent = "none")
   before <- stub$n
   expect_error(
     fg2$run_arms(list(a = fg_injection("A.", fg_after_item(2)), b = NULL),
@@ -328,7 +338,7 @@ test_that("a failing arm returns the completed arms and the prefix", {
     arms = list(objection = fg_injection(.objection, fg_after_item(2)), control = NULL),
     n_participants = 2, guide = list(Engagement = c("Q1?", "Q2?"), Closing = "Close."),
     flow = "round_robin", max_participant_responses = 1, verbose = FALSE,
-    .runner = runner), focusgroup_incomplete_arms = identity)
+    call_on_silent = "none", .runner = runner), focusgroup_incomplete_arms = identity)
   expect_s3_class(e, "focusgroup_incomplete_arms")
   expect_match(conditionMessage(e$parent), "unavailable")
   partial <- e$partial

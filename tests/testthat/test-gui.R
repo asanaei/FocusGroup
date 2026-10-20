@@ -247,8 +247,12 @@ test_that("run planning follows the edited guide", {
   expect_identical(round_robin$moderator_turns, 4L)
   expect_identical(round_robin$question_rounds, 2L)
   expect_identical(round_robin$participant_outputs, 4L)
-  expect_identical(round_robin$utterances, 8L)
-  expect_identical(round_robin$calls, 9L)
+  # The default call-ons fall on both questions (opening and midpoint on the
+  # first, end on the second): up to one line and one reply per participant
+  # at each, the reply a call and the line not.
+  expect_identical(round_robin$call_on_turns, 6L)
+  expect_identical(round_robin$utterances, 20L)
+  expect_identical(round_robin$calls, 15L)
 
   desire <- FocusGroup:::.fg_gui_run_plan(
     guide,
@@ -258,7 +262,11 @@ test_that("run planning follows the edited guide", {
     max_participant_responses = 2L
   )
   expect_identical(desire$desire_calls, 12L)
-  expect_identical(desire$calls, 21L)
+  expect_identical(desire$calls, 27L)
+  unset <- FocusGroup:::.fg_gui_run_plan(guide, "topic", NA_integer_,
+                                         "round_robin", 2L)
+  expect_true(is.na(unset$calls))
+  expect_identical(unset$moderator_turns, 4L)
   expect_identical(
     FocusGroup:::.fg_gui_run_plan(
       list(), "topic", 3L, "round_robin", 1L
@@ -663,7 +671,9 @@ test_that("the run module runs via an injected fake and stores the focus group",
       expect_equal(shared$.usage$last$sent, 100L)
       expect_equal(shared$.usage$last$received, 20L)
       expect_equal(shared$.usage$last$calls, 1)
-      expect_identical(shared$.usage$plan$calls, 6L)
+      # Three moderator lines, one reply to each of the two questions, up to
+      # three replies at each of the two call-on points, and the summary.
+      expect_identical(shared$.usage$plan$calls, 12L)
       expect_match(shared$.usage$plan$label, "utterances; retries excluded")
       expect_identical(seen$config$model_params$temperature, 0.4)
       expect_identical(seen$config$model_params$max_tokens, 480L)

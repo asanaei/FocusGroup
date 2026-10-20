@@ -201,6 +201,7 @@ test_that("desire failures stop the session, or under \"random\" are logged with
     seed = 110,
     max_participant_responses = 1,
     verbose = FALSE,
+    call_on_silent = "none",
     .runner = scripted_runner,
     ...
   )
@@ -276,6 +277,7 @@ test_that("empty desire output is a failure and its usage is counted", {
     config = config,
     max_participant_responses = 1,
     verbose = FALSE,
+    call_on_silent = "none",
     .runner = scripted_runner,
     ...
   )

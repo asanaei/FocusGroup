@@ -601,19 +601,31 @@ run_focus_studio <- function(...) {
   } else {
     0L
   }
+  # The Studio runs with the default call-ons: at each point, at most one
+  # call-on line, delivered as written, and one reply per participant.
+  call_on_points <- length(.fg_call_on_points(.fg_call_on_names, phases)$items)
+  call_on_turns <- as.double(call_on_points) * as.double(n_participants)
+  # While the number of participants is not set, the counts that depend on
+  # it are unknown, not zero.
+  known <- !anyNA(c(desire_outputs, call_on_turns))
   list(
-    calls = if (moderator_outputs) {
-      .fg_validate_estimate(
-        moderator_outputs + participant_outputs + desire_outputs + 1
-      )
-    } else {
+    calls = if (!moderator_outputs) {
       0L
+    } else if (!known) {
+      NA_integer_
+    } else {
+      .fg_validate_estimate(
+        moderator_outputs + participant_outputs + desire_outputs +
+          call_on_turns + 1
+      )
     },
-    utterances = as.integer(moderator_outputs + participant_outputs),
+    utterances = as.integer(moderator_outputs + participant_outputs +
+                              2 * call_on_turns),
     moderator_turns = as.integer(moderator_outputs),
     question_rounds = as.integer(question_rounds),
     participant_outputs = as.integer(participant_outputs),
     desire_calls = as.integer(desire_outputs),
+    call_on_turns = as.integer(call_on_turns),
     phases = names(guide)
   )
 }
@@ -1094,7 +1106,9 @@ run_focus_studio <- function(...) {
           "before each response."
         ) else ""
       plan <- estimate_run()
-      scale <- if (identical(shared$mode(), "demo")) {
+      scale <- if (is.na(plan$calls)) {
+        "Set the number of participants to see the planned API calls."
+      } else if (identical(shared$mode(), "demo")) {
         sprintf(
           "In Live mode, this configuration would make %d API calls and produce up to %d transcript utterances.",
           plan$calls, plan$utterances
@@ -1117,6 +1131,11 @@ run_focus_studio <- function(...) {
               plan$moderator_turns,
               length(plan$phases)
             ),
+            if (!is.na(plan$call_on_turns) && plan$call_on_turns > 0L) sprintf(
+              paste("The plan counts up to %d replies from participants the",
+                    "moderator calls on because they have not spoken."),
+              plan$call_on_turns
+            ),
             "Retries and incomplete-utterance continuations are excluded and can add calls.",
             sprintf(
               "Live runs above %d planned calls require confirmation.",
@@ -1131,7 +1150,7 @@ run_focus_studio <- function(...) {
     shiny::observe({
       if (!identical(shared$active_tab(), "run")) return()
       plan <- estimate_run()
-      if (identical(shared$mode(), "live")) {
+      if (identical(shared$mode(), "live") && !is.na(plan$calls)) {
         shared$set_plan(plan$calls, plan_label(plan))
       } else {
         shared$set_plan(0L)
@@ -1653,6 +1672,9 @@ run_focus_studio <- function(...) {
   rows <- vector("list", length(histories) * runs_per_arm)
   out_index <- 0L
   for (history in histories) {
+    # The agent reads the cut log as it read the session: speakers under
+    # their handles.
+    history$log <- .fg_agent_log(fg, history$log)
     history_string <- .fg_history_string(history$log)
     for (run_id in seq_len(runs_per_arm)) {
       response <- .fg_generate_once(

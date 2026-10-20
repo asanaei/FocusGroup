@@ -299,14 +299,17 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         rep(NA_real_, length(self$participant_ids)), self$participant_ids)
       failures <- list()
 
+      # The participants score their desire from the log as they see it,
+      # with every speaker under its handle.
+      agent_log <- .fg_agent_log(focus_group)
       history_string <- make_prompt_history(
-        focus_group$conversation_log,
+        agent_log,
         include_summary = focus_group$current_conversation_summary %||% NULL,
         max_tokens_history = 64000L
       )
 
-      last_utterance_info <- if (length(focus_group$conversation_log) > 0) {
-        focus_group$conversation_log[[length(focus_group$conversation_log)]]
+      last_utterance_info <- if (length(agent_log) > 0) {
+        agent_log[[length(agent_log)]]
       } else {
         list(speaker_id = "N/A", text = "N/A")
       }
@@ -334,7 +337,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
               current_moderator_question = focus_group$current_question_text %||% "N/A",
               last_speaker_id = last_utterance_info$speaker_id,
               last_utterance_text = last_utterance_info$text,
-              conversation_log = focus_group$conversation_log,
+              conversation_log = agent_log,
               max_tokens_retry = focus_group$max_tokens_desire_retry,
               call_params = desire_call_params
             )),
@@ -365,7 +368,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       # then routes each correctly.
       desire_tpl <- .fg_pick_template(focus_group$prompt_templates, "desire")
       desire_legacy <- grepl("\\{\\{(conversation_history|persona_description)\\}\\}", desire_tpl)
-      desire_transcript <- .fg_log_to_transcript(focus_group$conversation_log)
+      desire_transcript <- .fg_log_to_transcript(agent_log)
       build_desire_msg <- function(pid) {
         prompt_values <- list(
           persona_description = self$agents[[pid]]$persona_description,
@@ -379,10 +382,9 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         if (desire_legacy) {
           return(list(list(role = "user", content = instruction)))
         }
-        sys_text <- paste(c(self$agents[[pid]]$persona_description,
-                            "You are rating your own desire to speak next."),
-                          collapse = "\n")
-        .fg_build_agent_messages(desire_transcript, pid, sys_text,
+        agent <- self$agents[[pid]]
+        .fg_build_agent_messages(desire_transcript, .fg_agent_label(agent),
+                                 .fg_desire_system_text(agent),
                                  instruction = instruction, self_state = NULL)
       }
 
@@ -559,7 +561,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       threshold_used <- private$min_desire_threshold
 
       # If no one meets the threshold but there's ongoing conversation, lower the bar
-      if (length(eligible_participants) == 0 && length(focus_group$conversation_log) > 2) {
+      if (length(eligible_participants) == 0 && length(agent_log) > 2) {
         # Allow lower threshold for ongoing conversations to maintain flow
         eligible_participants <- valid[valid >= (private$min_desire_threshold - 1)]
         if (length(eligible_participants)) {

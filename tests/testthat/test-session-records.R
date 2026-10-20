@@ -40,7 +40,7 @@
     guide = list(Engagement = c("Which hours matter?", "Who is left out?"),
                  Closing = "Close the session."),
     flow = flow, max_participant_responses = 2, verbose = FALSE, seed = seed,
-    .runner = runner, ...)
+    call_on_silent = "none", .runner = runner, ...)
 }
 
 test_that("every call is recorded with its messages and its reply as returned", {
@@ -254,7 +254,7 @@ test_that("a custom flow's picks are recorded as custom", {
     topic = "library hours", purpose = "Test.", agents = agents, moderator_id = "MOD",
     turn_taking_flow = FirstFlow$new(agents, "MOD"),
     question_script = list(list(phase = "engagement_question", text = "Which hours?")),
-    max_participant_responses = 2)
+    max_participant_responses = 2, call_on_silent = "none")
   fg$run_simulation()
   rules <- vapply(fg$records$routing, `[[`, character(1), "rule")
   expect_identical(rules, c("custom", "custom"))

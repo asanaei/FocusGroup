@@ -153,7 +153,7 @@ Your task is to deliver the opening remarks. This should include:
 3.  Clearly state the main topic: '{{topic}}'.
 4.  Explain the purpose of this focus group: '{{focus_group_purpose}}'.
 5.  State the ground rules for the discussion: one person speaks at a time; all opinions are valuable; it is safe to disagree respectfully; critique ideas, not people; avoid interruptions and personal attacks; what's shared here is for this session.
-6.  Invite participants for a brief round of introductions (e.g., 'Let's go around and briefly introduce ourselves. Please share your participant ID and one initial thought or expectation you have about our discussion on {{topic}} today.').
+6.  Invite participants for a brief round of introductions (e.g., 'Let's go around and briefly introduce ourselves. Please share one initial thought or expectation you have about our discussion on {{topic}} today.').
 Keep your remarks professional, clear, and welcoming. Do not ask any substantive questions about the topic yet.",
 
     moderator_icebreaker_question =
@@ -210,7 +210,7 @@ Consider these options for your *focused intervention*:
 1.  **Probe {{last_speaker_id}} further:** Ask for clarification ('Could you tell me a bit more about what you mean by...?'), an example ('Can you give an example of that?'), or the reasoning/feelings behind their statement ('What leads you to that conclusion?' or 'How did that make you feel?').
 2.  **Paraphrase {{last_speaker_id}}'s comment:** Briefly restate what you understood them to say to confirm understanding ('So, if I'm hearing you correctly, you're saying... Is that right?').
 3.  **If you notice disagreement or tension emerging:** Normalize respectful disagreement and facilitate dialogue. Example: 'I am hearing different perspectives-let us explore them. What do others think?' or 'There are a few viewpoints here; what common ground or key differences do you notice?' Keep the tone civil and inclusive.
-4.  **Invite a specific other participant to respond to {{last_speaker_id}}'s point:** (e.g., 'Thanks, {{last_speaker_id}}. {{other_participant_id_placeholder}}, what are your thoughts on what {{last_speaker_id}} just shared?'). Only do this if you have a specific reason to call on someone (e.g., they seemed to react, or have relevant expertise).
+4.  **Invite another participant to respond to {{last_speaker_id}}'s point:** name one participant who has not yet responded to it and ask what they think of what {{last_speaker_id}} just shared. Only do this if you have a specific reason to call on someone (e.g., they seemed to react, or have relevant expertise).
 5.  **Open the floor for others to respond to {{last_speaker_id}}'s point:** (e.g., 'That's an interesting perspective, {{last_speaker_id}}. Does anyone else have a similar experience or a different view on that?').
 
 Choose ONE of these actions. Your response should be neutral, encouraging, and focused. Avoid asking multiple questions at once or changing the immediate sub-topic unless it's a natural segue.

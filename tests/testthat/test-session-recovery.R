@@ -3,7 +3,7 @@
   demographics = data.frame(age = c(30, 40)),
   guide = list(Opening = "Welcome.", Engagement = "Which hours?", Closing = "Close."),
   flow = "round_robin", verbose = FALSE, max_participant_responses = 1,
-  .runner = runner, ...)
+  call_on_silent = "none", .runner = runner, ...)
 
 test_that("partial sessions preserve the live prefix, cause, and operation phase", {
   for (n in 1:4) {

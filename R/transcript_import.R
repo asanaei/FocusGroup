@@ -44,19 +44,25 @@
 #' @details
 #' Columns that a transcript exported by this package carries are kept when
 #' `data` has them, so a saved transcript can be read back without losing its
-#' record: `message_id`, `round`, `is_moderator`, `phase`, `response_id`,
-#' `finish_reason`, `sent_tokens`, `rec_tokens`, `total_tokens`,
-#' `duration_s`, `provider`, `model`, `timestamp`, and the list-column
-#' `metadata`. A field that is absent takes these values: messages are
+#' record: `message_id`, `round`, `item`, `is_moderator`, `phase`,
+#' `response_id`, `finish_reason`, `sent_tokens`, `rec_tokens`,
+#' `total_tokens`, `duration_s`, `provider`, `model`, `timestamp`, and the
+#' list-column `metadata`. A field that is absent takes these values: messages are
 #' numbered in order, `is_moderator` follows the moderator found as described
 #' above, `round` counts the moderator's turns (0 throughout when there is no
-#' moderator), `phase` is `"imported"`, `metadata` is an empty list, and the
+#' moderator), `item` starts a new guide item at each moderator turn (0
+#' before the first and for "System" rows), `phase` is `"imported"`,
+#' `metadata` is an empty list, and the
 #' other fields are `NA`. In particular, token counts that the transcript does
 #' not supply are unknown (`NA`), not zero, and importing adds no model calls
 #' to the object's usage counters.
 #'
+#' The speakers keep their labels: the object's `handles` are the speaker
+#' ids, as with `handles = "ids"` in [FocusGroup], and every message's
+#' `handle` is its speaker id. A `handle` column in `data` is not read.
+#'
 #' Supplied fields are checked rather than coerced. `message_id` must hold
-#' distinct positive whole numbers increasing down the rows; `round` and the
+#' distinct positive whole numbers increasing down the rows; `round`, `item`, and the
 #' token counts nonnegative whole numbers; `duration_s` nonnegative numbers;
 #' and `metadata` lists or `NULL`. Numbers stored as text are accepted, and
 #' `NA` is allowed except in `message_id`. A value that fails these checks is
@@ -188,16 +194,21 @@ focus_group_from_transcript <- function(data,
   }
 
   the_topic <- topic %||% "Imported transcript"
-  fg <- FocusGroup$new(
-    topic = the_topic,
-    purpose = paste("Analyze an imported focus group transcript on:", the_topic),
-    agents = agents,
-    moderator_id = resolved_moderator_id,
-    turn_taking_flow = RoundRobinFlow$new(agents, resolved_moderator_id),
-    # A one-entry placeholder script: the conversation already happened, so
-    # nothing here is meant to run (and the empty-script message is not useful).
-    question_script = list(list(phase = "generic_discussion", text = the_topic))
-  )
+  # The imported text names its speakers, so the agents see the speaker
+  # labels as they are; nothing runs here, so no message says so.
+  fg <- withCallingHandlers(
+    FocusGroup$new(
+      topic = the_topic,
+      purpose = paste("Analyze an imported focus group transcript on:", the_topic),
+      agents = agents,
+      moderator_id = resolved_moderator_id,
+      turn_taking_flow = RoundRobinFlow$new(agents, resolved_moderator_id),
+      # A one-entry placeholder script: the conversation already happened, so
+      # nothing here is meant to run (and the empty-script message is not useful).
+      question_script = list(list(phase = "generic_discussion", text = the_topic)),
+      handles = "ids"
+    ),
+    focusgroup_handles_ids = function(m) invokeRestart("muffleMessage"))
   fg$conversation_log <- log
   fg
 }
@@ -326,9 +337,14 @@ focus_group_from_transcript <- function(data,
        (is.list(data$timestamp) && !inherits(data$timestamp, "POSIXt")))) {
     invalid("timestamp", seq_len(n))
   }
+  # Without an `item` column, a new item begins at each moderator message;
+  # the turns before the first, and the "System" rows, are item 0.
+  item <- if ("item" %in% names(data)) number("item", NA_integer_) else
+    as.integer(ifelse(speakers == "System", 0L, cumsum(flags)))
   fields <- list(message_id = message_id,
     round = if ("round" %in% names(data)) number("round", NA_integer_) else as.integer(cumsum(flags)),
-    speaker_id = speakers, is_moderator = flags, text = text,
+    item = item,
+    speaker_id = speakers, handle = speakers, is_moderator = flags, text = text,
     phase = character_field("phase", "imported"),
     response_id = character_field("response_id"), finish_reason = character_field("finish_reason"),
     sent_tokens = number("sent_tokens", NA_integer_), rec_tokens = number("rec_tokens", NA_integer_),

@@ -10,12 +10,20 @@
 #' `fg_before_turn(t)` is the moment just before the `t`-th participant turn
 #' of the session, counting from 1 across all questions, before the speaker
 #' of that turn is chosen. A probe may also be asked at `"start"`, before the
-#' moderator's first line, or at `"end"`, after the last message and before
-#' the final summary.
+#' moderator's first line, or at `"end"`, after the last message, the
+#' closing line included, and before the final summary. A probe or an
+#' injection may be placed at `"before_closing"`, after the last discussion
+#' item and the call-ons that follow it and before the closing line; in a
+#' guide without a closing item it comes just before `"end"`.
 #'
 #' Guide items are numbered in the order the session runs them: with
 #' `guide = c(Opening = 1, Icebreaker = 1, Engagement = 2, Exploration = 3,
 #' Closing = 1)`, item 4 is the second engagement question.
+#'
+#' Participant turns count every reply, those that answer the moderator's
+#' call-on lines among them (see `call_on_silent` in [run_focus_group()]).
+#' When `fg_before_turn(t)` falls on the reply to a call-on line, it comes
+#' after that line.
 #'
 #' @param k One positive whole number, the guide item.
 #' @param t One positive whole number, the participant turn.
@@ -49,7 +57,7 @@ fg_before_turn <- function(t) {
 
 #' @export
 format.fg_point <- function(x, ...) {
-  if (x$type %in% c("start", "end")) x$type else
+  if (x$type %in% .fg_named_points) x$type else
     sprintf("fg_%s(%d)", x$type, x$value)
 }
 
@@ -59,25 +67,31 @@ print.fg_point <- function(x, ...) {
   invisible(x)
 }
 
-# A point as given to a probe: an fg_point, or "start" or "end".
+# The points named by a word rather than a number.
+.fg_named_points <- c("start", "before_closing", "end")
+
+# A point as given to a probe or an injection: an fg_point, or one of the
+# named points a probe ("start", "before_closing", "end") or an injection
+# ("before_closing") accepts.
 .fg_as_point <- function(at, allow_ends = FALSE, what = "`at`") {
   if (inherits(at, "fg_point")) return(at)
-  if (allow_ends && is.character(at) && length(at) == 1L && at %in% c("start", "end")) {
+  allowed <- if (allow_ends) .fg_named_points else "before_closing"
+  if (is.character(at) && length(at) == 1L && !is.na(at) && at %in% allowed) {
     return(.fg_point(at, NA_integer_))
   }
-  stop(what, " must be ", if (allow_ends) "\"start\", \"end\", " else "",
+  stop(what, " must be ", paste0("\"", allowed, "\", ", collapse = ""),
        "fg_after_item(k), or fg_before_turn(t).", call. = FALSE)
 }
 
 # The checkpoint a point refers to inside the session engine.
 .fg_point_event <- function(point) {
-  if (point$type %in% c("start", "end")) point$type else
+  if (point$type %in% .fg_named_points) point$type else
     paste0(point$type, ":", point$value)
 }
 
 # The label of a checkpoint, as a user would write the point.
 .fg_event_label <- function(event) {
-  if (event %in% c("start", "end")) return(event)
+  if (event %in% .fg_named_points) return(event)
   parts <- strsplit(event, ":", fixed = TRUE)[[1]]
   sprintf("fg_%s(%s)", parts[[1]], parts[[2]])
 }
@@ -99,9 +113,13 @@ print.fg_point <- function(x, ...) {
 #' point, sender, visibility, and the `message_id` it follows.
 #'
 #' A message `from = "moderator"` is logged under the moderator's id, so the
-#' moderator reads it as its own line. Any other `from` names an outside
-#' voice, such as `"Guest expert"`, logged under that name; it may not be a
-#' participant id or `"System"`.
+#' moderator reads it as its own line; so is a message from the moderator's
+#' id or handle. Any other `from` names an outside voice, such as
+#' `"Guest expert"`, logged under that name and shown to the agents as
+#' written; it may not be a participant id, a participant's handle, or
+#' `"System"`. A moderator message that puts its last question to one
+#' participant by handle ("P2, what do you make of that?") gives that
+#' participant the next turn.
 #'
 #' With `visibility = "shared"` the message enters the shared log and every
 #' agent sees it from then on. With `visibility = "participants"` it is kept
@@ -109,8 +127,9 @@ print.fg_point <- function(x, ...) {
 #' moderator also reads; the participants see it as part of the discussion.
 #'
 #' @param text One non-empty string, the message.
-#' @param at Where the message goes: [fg_after_item()] or [fg_before_turn()].
-#'   When an injection and a probe share a point, the probe is asked first.
+#' @param at Where the message goes: [fg_after_item()], [fg_before_turn()],
+#'   or `"before_closing"`. When an injection and a probe share a point, the
+#'   probe is asked first.
 #' @param from `"moderator"` or the name of an outside speaker.
 #' @param visibility `"shared"` or `"participants"`.
 #' @param label Optional name for the injection in the records; by default
@@ -164,7 +183,9 @@ print.fg_injection <- function(x, ...) {
 #'
 #' @param question One non-empty string, the question.
 #' @param at One point, or a list of points, at which to ask it:
-#'   [fg_after_item()], [fg_before_turn()], `"start"`, or `"end"`.
+#'   [fg_after_item()], [fg_before_turn()], `"start"`, `"before_closing"`,
+#'   or `"end"`. `"end"` comes after the closing line; `"before_closing"`
+#'   comes before it.
 #' @param label Optional name for the probe in the records; by default
 #'   `"probe_1"`, `"probe_2"`, ... in the order the probes are given.
 #' @param participants Optional character vector of participant ids to ask;
@@ -362,12 +383,14 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
                                  message_mode = c("roleflip", "flat"),
                                  verbose = TRUE,
                                  max_participant_responses = NULL,
-                                 max_calls = 100L, confirm = FALSE,
+                                 max_calls = 120L, confirm = FALSE,
                                  max_tokens_config = NULL,
                                  reasoning_effort = NULL,
                                  on_desire_failure = c("error", "random"),
                                  probes = NULL, moderator_verbatim = FALSE,
-                                 .runner = NULL) {
+                                 call_on_silent = c("opening", "midpoint", "end"),
+                                 call_on_text = NULL, handles = NULL,
+                                 final_summary = TRUE, .runner = NULL) {
   message_mode <- match.arg(message_mode)
   on_desire_failure <- match.arg(on_desire_failure)
   arms <- .fg_arm_list(arms)
@@ -380,8 +403,11 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
     max_calls = max_calls, confirm = confirm,
     max_tokens_config = max_tokens_config, reasoning_effort = reasoning_effort,
     on_desire_failure = on_desire_failure, probes = probes,
-    moderator_verbatim = moderator_verbatim, n_arms = length(arms),
+    moderator_verbatim = moderator_verbatim, call_on_silent = call_on_silent,
+    call_on_text = call_on_text, handles = handles,
+    final_summary = final_summary, n_arms = length(arms),
     .runner = .runner, seed_env = environment())
+  setup$final_summary <- final_summary
   out <- .fg_execute_arms(setup, arms, verbose)
   if (verbose) cat("Arms complete.\n")
   out
@@ -396,7 +422,8 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
   }
   run <- tryCatch(
     withr::with_options(list(focusgroup.message_mode = setup$message_mode),
-                        fg$run_arms(arms, probes = setup$probes, verbose = verbose)),
+                        fg$run_arms(arms, probes = setup$probes, verbose = verbose,
+                                    final_summary = setup$final_summary %||% TRUE)),
     error = function(e) e)
   # An error raised before the session began, such as an arm whose point
   # lies outside the guide, carries no partial result.

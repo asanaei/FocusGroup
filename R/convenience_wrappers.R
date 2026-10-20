@@ -430,12 +430,15 @@ run_focus_group <- function(topic, config, n_participants = 6,
                             demographics = NULL, survey_responses = NULL,
                             flow = "desire_based", seed = NULL,
                             message_mode = c("roleflip", "flat"), verbose = TRUE,
-                            max_participant_responses = NULL, max_calls = 100L,
+                            max_participant_responses = NULL, max_calls = 120L,
                             confirm = FALSE, max_tokens_config = NULL,
                             reasoning_effort = NULL,
                             on_desire_failure = c("error", "random"),
                             injections = NULL, probes = NULL,
-                            moderator_verbatim = FALSE, .runner = NULL) {
+                            moderator_verbatim = FALSE,
+                            call_on_silent = c("opening", "midpoint", "end"),
+                            call_on_text = NULL, handles = NULL,
+                            final_summary = TRUE, .runner = NULL) {
   message_mode <- match.arg(message_mode)
   on_desire_failure <- match.arg(on_desire_failure)
   injections <- .fg_injection_list(injections)
@@ -448,13 +451,16 @@ run_focus_group <- function(topic, config, n_participants = 6,
     max_calls = max_calls, confirm = confirm,
     max_tokens_config = max_tokens_config, reasoning_effort = reasoning_effort,
     on_desire_failure = on_desire_failure, probes = probes,
-    moderator_verbatim = moderator_verbatim, n_arms = 1L, .runner = .runner,
+    moderator_verbatim = moderator_verbatim, call_on_silent = call_on_silent,
+    call_on_text = call_on_text, handles = handles,
+    final_summary = final_summary, n_arms = 1L, .runner = .runner,
     seed_env = environment())
 
   result <- .fg_execute_session(setup$fg, flow, message_mode,
                                 setup$n_participants, setup$estimated_calls,
                                 verbose, run_meta = setup$run_meta,
-                                injections = injections, probes = setup$probes)
+                                injections = injections, probes = setup$probes,
+                                final_summary = final_summary)
 
   if (verbose) cat("Simulation complete.\n")
   result
@@ -469,10 +475,14 @@ run_focus_group <- function(topic, config, n_participants = 6,
                               message_mode, verbose, max_participant_responses,
                               max_calls, confirm, max_tokens_config,
                               reasoning_effort, on_desire_failure, probes,
-                              moderator_verbatim, n_arms, .runner, seed_env) {
+                              moderator_verbatim, call_on_silent = "none",
+                              call_on_text = NULL, handles = NULL,
+                              final_summary = TRUE, n_arms, .runner, seed_env) {
   .fg_validate_config(config)
   reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
   probes <- .fg_probe_list(probes)
+  .fg_check_flag(final_summary, "final_summary")
+  call_on_text <- .fg_check_call_on_text(call_on_text)
   if (!is.null(max_tokens_config) && !is.list(max_tokens_config)) {
     stop("`max_tokens_config` must be `NULL` or a named list.", call. = FALSE)
   }
@@ -517,12 +527,17 @@ run_focus_group <- function(topic, config, n_participants = 6,
   response_limit <- as.integer(response_limit)
 
   # Check the estimate from the phase counts first, so that an enormous
-  # numeric count is refused before it is expanded into a script.
+  # numeric count is refused before it is expanded into a script. Each
+  # call-on point adds at most one reply per participant.
   if (!is.null(guide)) {
     counts <- .fg_guide_counts(guide)
     questions <- sum(counts[names(counts) %in% c("Icebreaker", "Engagement", "Exploration")])
+    points_bound <- if (is.numeric(call_on_silent)) length(call_on_silent) else
+      if (isFALSE(call_on_silent) || identical(call_on_silent, "none") ||
+          is.null(call_on_silent)) 0 else length(.fg_call_on_names)
     .fg_validate_estimate(sum(counts) + questions * as.double(response_limit) *
-      (if (identical(flow, "desire_based")) (1 + as.double(n_participants)) else 1) + 1)
+      (if (identical(flow, "desire_based")) (1 + as.double(n_participants)) else 1) +
+      points_bound * as.double(n_participants) + 1)
   }
   question_script <- .fg_build_question_script(guide, topic)
   estimate_script <- question_script
@@ -554,9 +569,14 @@ run_focus_group <- function(topic, config, n_participants = 6,
   probe_outputs <- sum(vapply(probes, function(p) {
     length(p$at) * as.double(length(p$participants %||% seq_len(n_participants)))
   }, numeric(1)))
+  # The moderator's call-on lines are delivered as written; the replies to
+  # them need no desire score.
+  call_on <- .fg_call_on_points(call_on_silent, phases)
+  call_on_outputs <- length(call_on$items) * as.double(n_participants)
+  summary_outputs <- if (isTRUE(final_summary)) 1 else 0
   estimated_calls <- .fg_validate_estimate(
-    (moderator_outputs + participant_outputs + desire_outputs + probe_outputs + 1) *
-      as.double(n_arms)
+    (moderator_outputs + participant_outputs + desire_outputs + call_on_outputs +
+       probe_outputs + summary_outputs) * as.double(n_arms)
   )
   if (is.null(.runner) && estimated_calls > max_calls && !confirm) {
     stop(
@@ -602,7 +622,10 @@ run_focus_group <- function(topic, config, n_participants = 6,
     admin_config = config,
     max_tokens_config = max_tokens_config %||% list(),
     max_participant_responses = response_limit,
-    reasoning_effort = reasoning_effort
+    reasoning_effort = reasoning_effort,
+    handles = handles,
+    call_on_silent = call_on_silent,
+    call_on_text = call_on_text
   )
 
   list(fg = fg, flow = flow, message_mode = message_mode,
@@ -628,7 +651,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
 # The model-output estimate must be a whole number that fits in an integer.
 .fg_validate_estimate <- function(value) {
   if (!is.numeric(value) || length(value) != 1L || !is.finite(value) ||
-      value < 1 || value != floor(value)) {
+      value < 0 || value != floor(value)) {
     stop("The model-output estimate is unavailable: ", format(value), ".",
          call. = FALSE)
   }
@@ -643,14 +666,15 @@ run_focus_group <- function(topic, config, n_participants = 6,
 .fg_execute_session <- function(fg, flow, message_mode, n_participants,
                                 estimated_calls, verbose = FALSE,
                                 run_meta = list(), injections = NULL,
-                                probes = NULL) {
+                                probes = NULL, final_summary = TRUE) {
   result <- function() .fg_focus_group_result(
     fg, flow, message_mode, n_participants, estimated_calls, run_meta)
   tryCatch(
     withr::with_options(list(focusgroup.message_mode = message_mode),
                        fg$run_simulation(verbose = verbose,
                                          injections = injections,
-                                         probes = probes)),
+                                         probes = probes,
+                                         final_summary = final_summary)),
     error = function(e) {
       # An error raised before the session began, such as an injection
       # point outside the guide, carries no partial result.
@@ -675,7 +699,8 @@ run_focus_group <- function(topic, config, n_participants = 6,
 
 .fg_transcript_data <- function(log) {
   out <- data.frame(
-    message_id = integer(), round = integer(), speaker_id = character(),
+    message_id = integer(), round = integer(), item = integer(),
+    speaker_id = character(), handle = character(),
     is_moderator = logical(), text = character(), phase = character(),
     response_id = character(), finish_reason = character(),
     sent_tokens = integer(), rec_tokens = integer(), total_tokens = integer(),
@@ -696,7 +721,13 @@ run_focus_group <- function(topic, config, n_participants = 6,
   out <- data.frame(
     message_id = vapply(log, function(x) as.integer(scalar(x$message_id, NA_integer_)), integer(1)),
     round = vapply(log, function(x) as.integer(scalar(x$round, NA_integer_)), integer(1)),
+    item = vapply(log, function(x) {
+      as.integer(scalar(x$item, scalar(x$round, NA_integer_)))
+    }, integer(1)),
     speaker_id = vapply(log, function(x) as.character(scalar(x$speaker_id, "")), character(1)),
+    handle = vapply(log, function(x) {
+      as.character(scalar(x$handle, scalar(x$speaker_id, "")))
+    }, character(1)),
     is_moderator = vapply(log, function(x) isTRUE(x$is_moderator), logical(1)),
     text = vapply(log, function(x) as.character(scalar(x$text, "")), character(1)),
     phase = vapply(log, function(x) as.character(x$phase %||% "unknown"), character(1)),
@@ -720,6 +751,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
 .fg_participant_data <- function(agents) {
   out <- data.frame(
     id = vapply(agents, function(agent) agent$id, character(1)),
+    handle = vapply(agents, .fg_agent_label, character(1)),
     role = vapply(agents, function(agent) agent$role %||%
                     if (isTRUE(agent$is_moderator)) "moderator" else "participant",
                   character(1)),
@@ -733,7 +765,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
     agent$config$provider %||% NA_character_, character(1))
   out$model <- vapply(agents, function(agent)
     agent$config$model %||% NA_character_, character(1))
-  out[c("id", "role", "is_moderator", "persona", "demographics",
+  out[c("id", "handle", "role", "is_moderator", "persona", "demographics",
         "survey_responses", "provider", "model")]
 }
 
@@ -779,7 +811,13 @@ run_focus_group <- function(topic, config, n_participants = 6,
         disclosure = records$info$disclosure %||% NA_character_,
         versions = records$info$versions %||% .fg_versions(),
         started = records$info$started %||% as.POSIXct(NA),
-        branch = run_meta$branch
+        branch = run_meta$branch,
+        handles = .fg_handles_data(focus_group),
+        call_on_silent = list(
+          points = as.character(focus_group$call_on_silent$points %||% character()),
+          items = as.integer(focus_group$call_on_silent$items %||% integer())),
+        call_on_text = focus_group$call_on_text %||% NA_character_,
+        final_summary = !isFALSE(records$info$final_summary)
       ),
       calls = .fg_calls_data(records$calls),
       routing = .fg_routing_data(records$routing),
@@ -788,6 +826,15 @@ run_focus_group <- function(topic, config, n_participants = 6,
     ),
     class = c("focus_group_result", "list")
   )
+}
+
+# The handle of every agent in roster order: the label the agents saw.
+.fg_handles_data <- function(focus_group) {
+  agents <- focus_group$agents
+  data.frame(
+    agent_id = vapply(agents, function(a) as.character(a$id), character(1), USE.NAMES = FALSE),
+    handle = vapply(agents, .fg_agent_label, character(1), USE.NAMES = FALSE),
+    stringsAsFactors = FALSE)
 }
 
 # A session's token limits by call type.
@@ -930,6 +977,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
     flow = col("flow", "character"), rule = col("rule", "character"),
     selected_id = col("selected_id", "character"),
     message_id = col("message_id", "integer"),
+    trigger_message_id = col("trigger_message_id", "integer"),
     threshold = col("threshold", "double"),
     tie_break = col("tie_break", "character"),
     scoring_mode = col("scoring_mode", "character"),
@@ -1105,19 +1153,26 @@ create_agents <- function(n_participants, config, demographics = NULL,
       NULL
     }
 
+    # Identifier columns stay with the raw record but never enter the
+    # persona, which the agents read.
+    shown_demographics <- agent_demographics[
+      !names(agent_demographics) %in% .fg_identifier_columns]
+    shown_survey <- if (!is.null(agent_survey)) {
+      agent_survey[!names(agent_survey) %in% .fg_identifier_columns]
+    }
     persona <- if (!is.null(direct_persona_descriptions)) {
       direct_persona_descriptions[
         ((i - 1L) %% length(direct_persona_descriptions)) + 1L
       ]
     } else {
-      generate_persona(agent_demographics, agent_survey)
+      generate_persona(shown_demographics, shown_survey)
     }
     if (is.null(direct_persona_descriptions)) {
       report[[i]] <- rbind(
         .fg_supplied_rows(paste0("P", i), "demographic",
-                          .fg_supplied_record(demographics, i), agent_demographics),
+                          .fg_supplied_record(demographics, i), shown_demographics),
         .fg_supplied_rows(paste0("P", i), "item",
-                          .fg_supplied_record(survey_responses, i), agent_survey))
+                          .fg_supplied_record(survey_responses, i), shown_survey))
     }
 
     agents[[paste0("P", i)]] <- FGAgent$new(
@@ -1149,7 +1204,7 @@ create_agents <- function(n_participants, config, demographics = NULL,
 
   if (is.null(direct_persona_descriptions)) {
     agents <- .fg_attach_report(
-      agents, .fg_check_report(.fg_bind_report(report), agents))
+      agents, .fg_check_report(.fg_mark_identifiers(.fg_bind_report(report)), agents))
   }
   return(agents)
 }
@@ -1853,7 +1908,8 @@ create_agents_from_survey <- function(n_participants,
   }
   # Survey vars: explicit, else any labeled var that is neither a demographic
   # nor the sampling-weight column, which is not something a respondent said.
-  if (is.null(survey_vars)) {
+  auto_survey <- is.null(survey_vars)
+  if (auto_survey) {
     has_label <- vapply(names(raw_lab), function(v) nzchar(label_of(v)), logical(1))
     survey_vars <- setdiff(names(raw_lab)[has_label],
                            c(unname(demographic_vars), weight_col))
@@ -1883,6 +1939,22 @@ create_agents_from_survey <- function(n_participants,
             paste(absent, collapse = ", "), ".", call. = FALSE)
   }
   requested <- c(unname(demographic_vars), unname(survey_vars))
+  # Identifiers never enter a persona: the columns named as identifiers and,
+  # among automatically chosen items, variables without value labels whose
+  # values differ in every row of the file, as a case ID's do.
+  identifier_vars <- intersect(requested, .fg_identifier_columns)
+  if (auto_survey) {
+    distinct <- Filter(function(v) {
+      v %in% names(raw_lab) && .fg_distinct_in_every_row(raw_lab[[v]])
+    }, setdiff(unname(survey_vars), identifier_vars))
+    if (length(distinct)) {
+      message("Left out of the personas as respondent identifiers, since their ",
+              "values differ in every row of the file: ",
+              paste(unlist(distinct), collapse = ", "),
+              ". Name them in `survey_vars` to render them.")
+      identifier_vars <- c(identifier_vars, unlist(distinct))
+    }
+  }
   unused <- list(`value_labels` = setdiff(unique(value_labels$variable), requested),
                  `scale_template` = setdiff(names(scale_template)[nzchar(names(scale_template))],
                                             requested))
@@ -1903,13 +1975,19 @@ create_agents_from_survey <- function(n_participants,
     if (!v %in% names(raw_lab)) {
       return(.fg_dropped_rows(nrow(raw_lab), "the variable is not in the file", NA_character_))
     }
+    if (v %in% identifier_vars) {
+      out <- .fg_dropped_rows(nrow(raw_lab), "identifier column", NA_character_)
+      out$code <- .fg_value_text(unclass(raw_lab[[v]]))
+      return(out)
+    }
     supplied <- if (!is.null(value_labels)) {
       value_labels[value_labels$variable == v, , drop = FALSE]
     }
     .fg_render_column(raw_lab[[v]], v, na_strings, supplied,
                       .fg_template_for(scale_template, v))
   })
-  present <- fields[fields$variable %in% names(raw_lab), , drop = FALSE]
+  present <- fields[fields$variable %in% names(raw_lab) &
+                      !fields$variable %in% identifier_vars, , drop = FALSE]
   .fg_question_conditions(present)
   cut <- present[present$question_source == "label" & nchar(present$question) == 80L, ,
                  drop = FALSE]
@@ -2043,6 +2121,27 @@ create_agents_from_survey <- function(n_participants,
   out
 }
 
+# Columns that identify a respondent. They are recorded in a roster's
+# `source_ids` and never rendered into a persona.
+.fg_identifier_columns <- c("id", "respondent_id", "persona_id")
+
+# Whether a survey variable looks like a case identifier: no value labels,
+# no missing value, and a different value in every row.
+.fg_distinct_in_every_row <- function(x) {
+  labels <- attr(x, "labels", exact = TRUE)
+  if (length(labels)) return(FALSE)
+  v <- as.vector(unclass(x))
+  length(v) >= 2L && !anyNA(v) && !anyDuplicated(v)
+}
+
+# Report rows for identifier columns left out of the personas.
+.fg_mark_identifiers <- function(report) {
+  hit <- report$variable %in% .fg_identifier_columns & report$status == "dropped"
+  report$reason[hit] <- "identifier column"
+  report$issue[hit] <- NA_character_
+  report
+}
+
 # Record on a roster which rows of `data` its participants were drawn from
 # (`source_rows`, named by agent ID) and, when `data` has identifier columns,
 # their identifiers (`source_ids`). The moderator is not a respondent and is
@@ -2050,7 +2149,7 @@ create_agents_from_survey <- function(n_participants,
 .fg_roster_provenance <- function(agents, data, rows) {
   ids <- names(agents)[!vapply(agents, function(a) isTRUE(a$is_moderator), logical(1))]
   attr(agents, "source_rows") <- stats::setNames(as.integer(rows), ids)
-  columns <- intersect(c("id", "respondent_id", "persona_id"), names(data))
+  columns <- intersect(.fg_identifier_columns, names(data))
   if (length(columns)) {
     source_ids <- as.data.frame(data[rows, columns, drop = FALSE])
     rownames(source_ids) <- ids
@@ -2138,13 +2237,17 @@ create_agents_from_data <- function(data, n_participants, config,
                 "military service", "attention to politics")
     demographic_cols <- intersect(common, names(data))
   }
-  # a sampling-weight column and a score/sort column are not persona facts
+  # a sampling-weight column and a score/sort column are not persona facts,
+  # and an identifier column would show the respondent's ID to the agents
   weight_col <- if (is.character(weights) && length(weights) == 1L) weights else character(0)
+  id_cols <- setdiff(intersect(.fg_identifier_columns, names(data)),
+                     c(reserved_panel_cols, weight_col))
+  id_kinds <- ifelse(id_cols %in% demographic_cols, "demographic", "item")
   demographic_cols <- setdiff(intersect(demographic_cols, names(data)),
-                              c(reserved_panel_cols, weight_col))
+                              c(reserved_panel_cols, weight_col, id_cols))
   drop_cols <- intersect(c("ideology_score", weight_col), names(data))
   survey_cols <- setdiff(names(data), c(demographic_cols, drop_cols,
-                                        reserved_panel_cols))
+                                        reserved_panel_cols, id_cols))
 
   to_char <- function(df) {
     if (!ncol(df)) return(data.frame(row.names = seq_len(nrow(df))))
@@ -2191,7 +2294,8 @@ create_agents_from_data <- function(data, n_participants, config,
   if (is_silicon_panel) return(agents)
 
   # The values are rendered as given, so the report records each one as shown
-  # or, when it is missing or empty, as dropped.
+  # or, when it is missing or empty, as dropped. Identifier columns are
+  # recorded as dropped.
   rendered <- lapply(c(as.list(demo_df), as.list(survey_df)), function(v) {
     none <- .fg_no_value(v)
     data.frame(code = v, text = ifelse(none, NA_character_, v),
@@ -2202,6 +2306,16 @@ create_agents_from_data <- function(data, n_participants, config,
                issue = ifelse(none, "missing", NA_character_), flag = v,
                stringsAsFactors = FALSE)
   })
+  if (length(id_cols)) {
+    fields <- rbind(fields, data.frame(
+      kind = id_kinds, variable = id_cols, question = id_cols,
+      question_source = "variable", stringsAsFactors = FALSE))
+    rendered <- c(rendered, lapply(id_cols, function(col) {
+      out <- .fg_dropped_rows(nrow(data), "identifier column", NA_character_)
+      out$code <- .fg_value_text(data[[col]])
+      out
+    }))
+  }
   source_rows <- attr(agents, "source_rows")
   report <- .fg_rendering_report(names(source_rows), source_rows, fields, rendered)
   .fg_attach_report(agents, .fg_check_report(report, agents))

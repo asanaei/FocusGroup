@@ -72,6 +72,11 @@ FGAgent <- R6::R6Class("FGAgent",
     demographics = NULL,
     #' @field survey_responses Named list. Raw survey responses used to build persona.
     survey_responses = NULL,
+    #' @field handle Character or `NULL`. The label under which this agent
+    #'   appears in the discussion and by which it recognizes its own turns,
+    #'   set by [FocusGroup] from its `handles`; `NULL` outside a session,
+    #'   when `id` is used.
+    handle = NULL,
     is_moderator = FALSE,
     history = list(),
     tokens_sent_agent = 0,
@@ -141,9 +146,11 @@ FGAgent <- R6::R6Class("FGAgent",
     #' @param current_moderator_question Character. The current question posed by the moderator.
     #' @param conversation_summary_so_far Character. A summary of earlier parts of the conversation.
     #' @param current_phase Character. The current phase of the focus group (e.g., "icebreaker", "exploration").
-    #' @param conversation_log List or NULL. The structured conversation log. When
+    #' @param conversation_log List or NULL. The structured conversation log,
+    #'   with speakers under the labels this agent is to see. When
     #'   supplied (and the template is not a legacy flat template), the message is
-    #'   built role-flipped: this agent's own prior turns become `assistant`
+    #'   built role-flipped: this agent's own prior turns, those under its
+    #'   `handle` (or, without one, its `id`), become `assistant`
     #'   messages and others' become labeled `user` messages. `NULL` keeps the
     #'   legacy flat single-user-message construction.
     #' @param standing_rules Character or NULL. The system-message standing rules
@@ -158,10 +165,13 @@ FGAgent <- R6::R6Class("FGAgent",
     #' @return A list with `text` (the generated utterance) and `meta` (a list
     #'   of call metadata: `response_id`, `finish_reason`, `sent_tokens`,
     #'   `rec_tokens`, `total_tokens`, `usage_unknown`, `duration_s`,
-    #'   `provider`, and `model`). The token counts cover the first call and,
+    #'   `provider`, `model`, and `metadata`). The token counts cover the first call and,
     #'   when the reply was incomplete, its retry; each is `NA` unless every
     #'   one of those calls reported it, and `usage_unknown` counts the calls
     #'   whose usage was incomplete. The other fields describe the final reply.
+    #'   A label the agent wrote for itself at the start of the reply, such as
+    #'   "P3:" or "**MOD:**", is removed from `text`, and `metadata` then
+    #'   holds `self_label_removed = TRUE`; another speaker's label is kept.
     #'   The agent's token fields are updated even when the retry fails.
     generate_utterance = function(topic,
                                   conversation_history_string,
@@ -224,8 +234,10 @@ FGAgent <- R6::R6Class("FGAgent",
         msgs <- list(list(role = "user", content = final_prompt))
       } else {
         transcript <- .fg_log_to_transcript(conversation_log)
+        own <- .fg_agent_label(self)
         sys_text <- paste(c(
           self$persona_description,
+          .fg_handle_sentence(self),
           self$communication_style_instruction %||% "",
           if (!is.null(conversation_summary_so_far) &&
               nzchar(conversation_summary_so_far) &&
@@ -235,8 +247,8 @@ FGAgent <- R6::R6Class("FGAgent",
         ), collapse = "\n\n")
         instruction <- final_prompt   # the filled template = this turn's task/question
         ss <- if (isTRUE(self_state) && !self$is_moderator)
-          .fg_self_state(transcript, self$id) else NULL
-        msgs <- .fg_build_agent_messages(transcript, self$id, sys_text,
+          .fg_self_state(transcript, own) else NULL
+        msgs <- .fg_build_agent_messages(transcript, own, sys_text,
                                          instruction = instruction, self_state = ss)
       }
 
@@ -258,16 +270,19 @@ FGAgent <- R6::R6Class("FGAgent",
       
       # With role-flip the agent's own voice is in the assistant channel, so the
       # "As <id>..." leakage the old persona-specific rewrites fought is rare.
-      # Keep one thin guard against a leading role preamble; drop the rest.
+      # Keep one thin guard against a leading role preamble, and remove a
+      # label the agent wrote for itself ("P3:", "**MOD:**"); drop the rest.
       original_text <- utterance_text
-      cleaned <- trimws(original_text)
-      cleaned <- .fg_strip_role_preamble(cleaned)
-      if (!nzchar(cleaned)) cleaned <- original_text
+      labels <- .fg_self_labels(self)
+      unlabeled <- .fg_strip_self_label(trimws(original_text), labels)
+      self_label_removed <- unlabeled$removed
+      cleaned <- .fg_strip_role_preamble(unlabeled$text)
+      if (!nzchar(cleaned)) cleaned <- unlabeled$text
       # Keep the longer/non-empty between cleaned and original
       if (nchar(cleaned) >= 20 || nchar(original_text) == 0) {
         utterance_text <- cleaned
       } else {
-        utterance_text <- trimws(original_text)
+        utterance_text <- unlabeled$text
       }
       .fg_note_call(response_obj, cleaned_text = utterance_text)
 
@@ -312,8 +327,9 @@ FGAgent <- R6::R6Class("FGAgent",
           backoff_factor = 2,
           .call = list(type = call_type, agent_id = self$id, attempt = 2L)
         )
-        cand <- trimws(.fg_response_text(response_obj2))
-        cand <- .fg_strip_role_preamble(cand)
+        cand <- .fg_strip_self_label(trimws(.fg_response_text(response_obj2)), labels)
+        self_label_removed <- cand$removed
+        cand <- .fg_strip_role_preamble(cand$text)
         .fg_note_call(response_obj2, cleaned_text = cand)
         retry_incomplete <- !nzchar(cand) ||
           identical(.fg_response_finish(response_obj2), "length") ||
@@ -336,7 +352,8 @@ FGAgent <- R6::R6Class("FGAgent",
         usage_unknown = observed$unknown,
         duration_s    = .fg_response_field(final_response_obj, "duration_s", NA_real_),
         provider      = self$config$provider %||% NA_character_,
-        model         = self$config$model %||% NA_character_
+        model         = self$config$model %||% NA_character_,
+        metadata      = if (isTRUE(self_label_removed)) list(self_label_removed = TRUE) else list()
       )
 
       self$history <- c(self$history, list(list(topic = topic, text = utterance_text, timestamp = Sys.time(), phase = current_phase)))
@@ -414,10 +431,8 @@ FGAgent <- R6::R6Class("FGAgent",
         desire_msgs <- list(list(role = "user", content = final_prompt))
       } else {
         transcript <- .fg_log_to_transcript(conversation_log)
-        sys_text <- paste(c(self$persona_description,
-                            "You are rating your own desire to speak next."),
-                          collapse = "\n")
-        desire_msgs <- .fg_build_agent_messages(transcript, self$id, sys_text,
+        desire_msgs <- .fg_build_agent_messages(transcript, .fg_agent_label(self),
+                                                .fg_desire_system_text(self),
                                                 instruction = final_prompt,
                                                 self_state = NULL)
       }
@@ -502,13 +517,14 @@ FGAgent <- R6::R6Class("FGAgent",
       transcript <- .fg_log_to_transcript(conversation_log)
       sys_text <- paste(c(
         self$persona_description,
+        .fg_handle_sentence(self),
         self$communication_style_instruction %||% "",
         if (!is.null(conversation_summary) && nzchar(conversation_summary) &&
             !identical(conversation_summary, "N/A"))
           paste0("Summary of earlier discussion: ", conversation_summary),
         .fg_standing_rules(self$is_moderator)
       ), collapse = "\n\n")
-      msgs <- .fg_build_agent_messages(transcript, self$id, sys_text,
+      msgs <- .fg_build_agent_messages(transcript, .fg_agent_label(self), sys_text,
                                        instruction = instruction, self_state = NULL)
       config <- self$config
       budget <- max_tokens %||% config$model_params$max_tokens %||% 300L

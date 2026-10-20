@@ -178,7 +178,7 @@ test_that("the System roster row is excluded and messages have unique ids and sh
   expect_named(
     pb$participation_stats,
     c("speaker_id", "messages", "words", "avg_words",
-      "message_percentage", "word_percentage"),
+      "message_percentage", "word_percentage", "called_on"),
     ignore.order = FALSE
   )
   expect_false("System" %in% pb$participation_stats$speaker_id)
@@ -259,7 +259,7 @@ test_that("the GUI persona path applies the seed to the respondent draw", {
   )
   expect_named(
     result1$participants,
-    c("id", "role", "is_moderator", "persona", "demographics",
+    c("id", "handle", "role", "is_moderator", "persona", "demographics",
       "survey_responses", "provider", "model"),
     ignore.order = FALSE
   )

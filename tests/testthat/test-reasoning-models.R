@@ -107,7 +107,7 @@ test_that("the session's choice follows the final-answer scores", {
     moderator_id = "MOD",
     turn_taking_flow = create_conversation_flow("desire_based", agents, "MOD"),
     question_script = list(list(phase = "engagement_question", text = "Which hours?")),
-    max_participant_responses = 1)
+    max_participant_responses = 1, call_on_silent = "none")
   fg$run_simulation()
   speakers <- vapply(fg$conversation_log, `[[`, character(1), "speaker_id")
   expect_identical(speakers, c("System", "MOD", "P2"))

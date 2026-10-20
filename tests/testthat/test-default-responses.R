@@ -14,7 +14,8 @@ test_that("the load default and actual live gate use two responses", {
       count <<- count + length(messages)
       data.frame(response_text = rep("8", length(messages)), success = TRUE, sent = 0, rec = 0)
     }, .package = "LLMR")
-  call <- function(...) run_focus_group("Hours", cfg, demographics = data.frame(age = 31:36), verbose = FALSE, ...)
+  call <- function(...) run_focus_group("Hours", cfg, demographics = data.frame(age = 31:36), verbose = FALSE,
+                                      call_on_silent = "none", ...)
   expect_error(call(max_calls = 92), "Estimated model outputs.*93")
   expect_identical(count, 0L)
   result <- call(max_calls = 93)

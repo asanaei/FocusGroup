@@ -49,7 +49,7 @@ test_that("run_focus_group returns the fixed result class and fields", {
   expect_true(is.data.frame(result$participants))
   expect_named(
     result$participants,
-    c("id", "role", "is_moderator", "persona", "demographics",
+    c("id", "handle", "role", "is_moderator", "persona", "demographics",
       "survey_responses", "provider", "model"),
     ignore.order = FALSE
   )
@@ -81,7 +81,8 @@ test_that("result metadata records provenance without retaining a config object"
       "estimated_calls", "provider", "model", "complete", "failure",
       "max_participant_responses", "seed", "on_desire_failure",
       "reasoning_effort", "max_tokens", "call_settings", "prompt_templates",
-      "standing_rules", "disclosure", "versions", "started", "branch"),
+      "standing_rules", "disclosure", "versions", "started", "branch",
+      "handles", "call_on_silent", "call_on_text", "final_summary"),
     ignore.order = FALSE
   )
   expect_identical(result$metadata$message_mode, "roleflip")
