@@ -993,3 +993,64 @@ test_that("the continuation module plans and runs all configured arms", {
     }
   )
 })
+
+test_that("the continuation edits the message it previews when a System row leads the log", {
+  skip_if_not_installed("shiny")
+  skip_if_not_installed("bslib")
+  skip_if_not_installed("LLMR.shiny", "0.1.3")
+  shared <- fake_shared("live", TRUE, active_tab = "experiment")
+  group <- fake_fg()
+  group$conversation_log <- c(
+    list(list(message_id = 1L, round = 0L, speaker_id = "System",
+              text = "Participants: P1, P2; Moderator: Moderator")),
+    lapply(sample_fg_log(), function(m) {
+      m$message_id <- m$message_id + 1L
+      m
+    }))
+  group$moderator_id <- "Moderator"
+  seen <- new.env()
+  capture <- function(fg, log, speaker_id, perturb_message_id, arms, ...) {
+    seen$log <- log
+    seen$perturb_message_id <- perturb_message_id
+    data.frame(speaker_id = speaker_id, perturb_message_id = perturb_message_id,
+               arm_id = "control", arm_label = "Control", is_control = TRUE,
+               run_id = 1L, response_text = "A reply.",
+               stringsAsFactors = FALSE)
+  }
+
+  shiny::testServer(
+    FocusGroup:::.fg_experiment_server,
+    args = list(shared = shared, experiment_fun = capture),
+    {
+      fg(group)
+      session$setInputs(
+        cut = 3L,
+        perturb_message_id = 2L,
+        arm_1_enabled = TRUE,
+        arm_1_label = "Reliable buses",
+        arm_1_text = "The buses are reliable now.",
+        arm_2_enabled = FALSE,
+        arm_3_enabled = FALSE,
+        runs_per_arm = 1L,
+        speaker = "P1"
+      )
+      session$setInputs(run = 1)
+    }
+  )
+
+  # Display row 2 is "Buses are unreliable.", logged as message_id 3.
+  previewed <- FocusGroup:::.fg_display_messages(group$conversation_log)$text[[2]]
+  expect_identical(previewed, "Buses are unreliable.")
+  edited <- FocusGroup:::.fg_perturb_log(seen$log, seen$perturb_message_id,
+                                         "EDITED")
+  changed <- which(vapply(edited, `[[`, character(1), "text") == "EDITED")
+  expect_identical(seen$log[[changed]]$text, previewed)
+  expect_identical(seen$perturb_message_id, 3L)
+})
+
+test_that("display rows map to message ids, or to positions when ids are missing", {
+  log <- list(list(message_id = 2L, text = "a"), list(message_id = 5L, text = "b"))
+  expect_identical(FocusGroup:::.fg_display_message_id(log, 2L), 5L)
+  log[[1]]$message_id <- NULL
+  expect_identical(FocusGroup:::.fg_display_message_id(log, 2L), 2L)
+})

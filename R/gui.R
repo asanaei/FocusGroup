@@ -195,6 +195,16 @@ run_focus_studio <- function(...) {
     stringsAsFactors = FALSE)
 }
 
+# The `message_id` of display row `j` in a cut history whose System row has
+# been dropped: the identifier .fg_perturb_log() matches on. When the log
+# lacks complete ids, .fg_perturb_log() indexes by position, and display row
+# j is position j of the cut history.
+.fg_display_message_id <- function(cut_log, j) {
+  ids <- vapply(cut_log, function(m) as.integer(m$message_id %||% NA_integer_),
+                integer(1))
+  if (anyNA(ids)) as.integer(j) else ids[[j]]
+}
+
 .fg_transcript_csv <- function(transcript) {
   transcript <- as.data.frame(transcript, stringsAsFactors = FALSE)
   keep <- vapply(transcript, function(column) {
@@ -3289,6 +3299,9 @@ run_focus_studio <- function(...) {
       }
       log_idx <- dt$log_index[seq_len(k)]
       log_k <- g$conversation_log[log_idx]
+      # The controls number display rows, which skip the System row; the
+      # experiment edits by message_id, so translate the previewed row.
+      perturb_id <- .fg_display_message_id(log_k, j)
       provider <- shared$provider()
       config_result <- LLMR.shiny::safe_llmr_call(
         LLMR.shiny::build_llm_config(
@@ -3317,7 +3330,7 @@ run_focus_studio <- function(...) {
         focus_group = g,
         log = log_k,
         speaker = speaker,
-        perturb_message_id = j,
+        perturb_message_id = perturb_id,
         arms = arms,
         runs = runs,
         question = input$question %||% "N/A",
