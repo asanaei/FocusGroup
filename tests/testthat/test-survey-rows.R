@@ -27,7 +27,8 @@ ages_of <- function(agents) {
 survey_agents <- function(f, ...) {
   create_agents_from_survey(survey_path = f, config = LLMR::llm_config("openai", "m"),
                             demographic_vars = c(age = "AGE"),
-                            survey_vars = c("Party identification" = "PARTY"), ...)
+                            survey_vars = "PARTY",
+                            question_wording = c(PARTY = "Party identification"), ...)
 }
 
 test_that("integer and logical rows refer to the file's rows", {

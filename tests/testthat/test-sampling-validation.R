@@ -90,7 +90,7 @@ test_that("survey weights are excluded and provenance maps through missing demog
   withr::local_options(list(focusgroup.seed = 110L))
   expect_warning(expect_message(a <- call(demographic_vars = c(age = "age", w = "weight"),
     survey_vars = c("weight", "answer"), rows = c(5, 1, 3, 2)), "1 selected respondent"),
-    "answer \\(no label\\)")
+    "answer \\(\"answer\"\\)")
   expect_identical(unname(attr(a, "source_rows")), c(3L, 5L))
   expect_identical(as.numeric(attr(a, "source_ids")$id), c(13, 15))
   expect_false(any(grepl("weight|w:", vapply(a[1:2], function(x) x$persona_description, ""))))
