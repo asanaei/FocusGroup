@@ -64,11 +64,21 @@
 }
 .player_payload <- function(html) jsonlite::fromJSON(.player_json(html), simplifyVector = FALSE)
 
+# The page outside its data block loads nothing: no address, no element or
+# rule that fetches, no script call that does.
+.player_no_network <- function(html) {
+  expect_false(grepl("http://", html, fixed = TRUE))
+  expect_false(grepl("https://", html, fixed = TRUE))
+  outside <- sub(.player_json(html), "", html, fixed = TRUE)
+  expect_false(grepl(paste0("\\ssrc\\s*=|\\shref\\s*=|url\\(|@import|<link|<img|<iframe|",
+                            "fetch\\(|XMLHttpRequest|WebSocket|sendBeacon|[\"'(]//"),
+                     outside, ignore.case = TRUE))
+}
+
 .player_build <- function(x, ...) {
   path <- fg_player(x, file = tempfile(fileext = ".html"), open = FALSE, ...)
   html <- .player_read(path)
-  expect_false(grepl("http://", html, fixed = TRUE))
-  expect_false(grepl("https://", html, fixed = TRUE))
+  .player_no_network(html)
   list(path = path, html = html, payload = .player_payload(html))
 }
 
@@ -118,7 +128,8 @@
 # holds the top score or won a recorded tie draw.
 .player_check_scores <- function(result, payload) {
   panels <- Filter(function(s) identical(s$kind, "routing"), payload$steps)
-  rows <- result$routing[!result$routing$rule %in% "rotation", , drop = FALSE]
+  rows <- result$routing[!result$routing$rule %in% "rotation" &
+                           !is.na(result$routing$message_id), , drop = FALSE]
   expect_identical(vapply(panels, function(s) as.integer(s$pick), integer(1)), rows$pick)
   desire_rules <- c("highest_score", "threshold_lowered", "highest_below_threshold",
                     "uniform_after_failure")
@@ -140,11 +151,16 @@
       if (length(valid)) {
         expect_identical(unname(recorded[[chosen]]), max(valid))
       }
-      if (sum(valid == max(valid)) > 1L || !length(valid)) {
+      if (!length(valid) || sum(valid == max(valid)) > 1L) {
         expect_true(s$tie || identical(rows$rule[[k]], "uniform_after_failure"))
         expect_identical(rows$tie_break[[k]], "random")
       }
-      if (isTRUE(s$tie)) {
+      # The page says "tie" exactly when the record shows a draw among
+      # several at the top.
+      drawn <- identical(rows$tie_break[[k]], "random") && length(rows$tied[[k]]) > 1L
+      expect_identical(s$tie, drawn)
+      expect_identical(grepl("drawn at random", s$note, fixed = TRUE), drawn)
+      if (drawn) {
         expect_true(chosen %in% unlist(s$tied))
         expect_setequal(unlist(s$tied), rows$tied[[k]])
       }
@@ -216,6 +232,8 @@ test_that("call-ons, addressed turns, injections, and probes are marked as the r
   expect_length(injected, nrow(x$injections))
   expect_identical(injected[[1]]$source, x$injections$from[[1]])
   expect_identical(injected[[1]]$point, x$injections$point[[1]])
+  expect_identical(injected[[1]]$point_label, "after the moderator's line for guide item 3")
+  expect_identical(injected[[1]]$visibility, "shared")
   expect_identical(injected[[1]]$text, x$injections$text[[1]])
 
   probes <- steps[kinds == "probe"]
@@ -310,7 +328,7 @@ test_that("run_focus_group_arms() output gives one file per arm", {
                                          at = fg_after_item(2), from = "Guest expert"),
                 control = NULL),
     guide = .player_guide, demographics = .player_people(3), flow = "desire_based",
-    probes = fg_probe("From 1 to 7?", at = "end"), max_participant_responses = 2,
+    probes = fg_probe("From 1 to 7?", at = list("start", "end")), max_participant_responses = 2,
     seed = 110, verbose = FALSE, .runner = stub$runner)
   dir <- tempfile("player_arms_")
   paths <- fg_player(out, file = dir, open = FALSE)
@@ -323,6 +341,9 @@ test_that("run_focus_group_arms() output gives one file per arm", {
     .player_check_steps(out$arms[[arm]], payloads[[arm]])
     .player_check_scores(out$arms[[arm]], payloads[[arm]])
     expect_match(payloads[[arm]]$subtitle, paste0("arm ", arm, "$"))
+    points <- vapply(Filter(function(s) identical(s$kind, "probe"), payloads[[arm]]$steps),
+                     `[[`, character(1), "point")
+    expect_identical(points, c("start", "end"))
   }
   # The shared messages are the same in both files.
   shared <- function(p) {
@@ -361,6 +382,12 @@ test_that("a FocusGroup after run_simulation() and run_arms() output build", {
   result <- .fg_player_from_object(fg)
   .player_check_steps(result, page$payload)
   .player_check_scores(result, page$payload)
+  messages <- Filter(function(s) s$kind %in% .player_message_kinds, page$payload$steps)
+  expect_identical(vapply(messages, function(s) as.integer(s$message_id), integer(1)),
+                   vapply(fg$conversation_log, function(m) as.integer(m$message_id), integer(1)))
+  expect_identical(vapply(messages, `[[`, character(1), "text"),
+                   vapply(fg$conversation_log, `[[`, character(1), "text"))
+  expect_identical(sum(.player_kinds(page$payload) == "routing"), length(fg$records$routing))
   expect_match(page$payload$subtitle, "^Desire-based selection")
 
   branched <- make_group()
@@ -475,6 +502,31 @@ test_that("a missing record stops with an error naming it", {
   expect_error(build(list(a = 1)), "must be a focus_group_result")
   expect_error(fg_player(x, mode = "slides", open = FALSE), "should be one of")
   expect_error(fg_player(x, open = NA), "`open`")
+})
+
+test_that("values the record lacks are shown as not recorded", {
+  x <- .player_fixture()
+  x$summary <- NA_character_
+  md <- x$transcript$metadata
+  at <- which(vapply(md, function(m) isTRUE(m$injected), logical(1)))
+  md[[at]]$injection$visibility <- NULL
+  x$transcript$metadata <- md
+  steps <- .player_build(x)$payload$steps
+  end <- steps[[length(steps)]]
+  expect_null(end$summary)
+  expect_identical(end$summary_label, "Final summary")
+  expect_match(end$summary_note, "failed")
+  injected <- Filter(function(s) identical(s$kind, "injected"), steps)[[1]]
+  expect_null(injected$visibility)
+  expect_true(grepl("Visibility not recorded.", .player_read(system.file(
+    "player", "template.html", package = "FocusGroup")), fixed = TRUE))
+
+  y <- .player_fixture()
+  y$participants$persona[[2]] <- NA_character_
+  expect_error(fg_player(y, open = FALSE), "participants$persona", fixed = TRUE)
+  y <- .player_fixture()
+  y$probes$agent_id[[1]] <- "P9"
+  expect_error(fg_player(y, open = FALSE), "P9")
 })
 
 test_that("annotations reach the participant's page and card, and unknown IDs are refused", {

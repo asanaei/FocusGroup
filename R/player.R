@@ -321,6 +321,17 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
     stop("Probe '", probes$probe[which(bad_probe)[[1]]], "' names no message of the ",
          "transcript in `after_message_id`.", call. = FALSE)
   }
+  bad_agent <- !probes$agent_id %in% people$id
+  if (any(bad_agent)) {
+    stop("Probe '", probes$probe[which(bad_agent)[[1]]], "' names '",
+         probes$agent_id[which(bad_agent)[[1]]], "' in `agent_id`, who is not a ",
+         "participant of the session.", call. = FALSE)
+  }
+  no_persona <- is.na(people$persona)
+  if (any(no_persona)) {
+    stop("The `participants$persona` record is missing for ",
+         paste(people$id[no_persona], collapse = ", "), ".", call. = FALSE)
+  }
 
   list(transcript = transcript, people = people, moderator = moderator,
        routing = routing, probes = probes, summary = x$summary, metadata = metadata)
@@ -429,12 +440,30 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   paste0(paste(x[-length(x)], collapse = ", "), ", and ", x[[length(x)]])
 }
 
-# A date in English, whatever the locale.
-.fg_player_date <- function(started) {
+# A date in English, whatever the locale, in the time zone the record
+# gives (UTC for the package's own records). With `zone = TRUE` the zone is
+# named after it.
+.fg_player_date <- function(started, zone = FALSE) {
   if (!length(started) || is.na(started[[1]])) return(NA_character_)
+  tz <- attr(started, "tzone")
+  tz <- if (is.null(tz) || is.na(tz[[1]])) "" else tz[[1]]
   t <- as.POSIXct(started[[1]])
-  sprintf("%s %d, %s", month.name[[as.integer(format(t, "%m", tz = "UTC"))]],
-          as.integer(format(t, "%d", tz = "UTC")), format(t, "%Y", tz = "UTC"))
+  out <- sprintf("%s %d, %s", month.name[[as.integer(format(t, "%m", tz = tz))]],
+                 as.integer(format(t, "%d", tz = tz)), format(t, "%Y", tz = tz))
+  if (zone && nzchar(tz)) paste0(out, " (", tz, ")") else out
+}
+
+# A point of the session in words: "fg_after_item(3)" is "after the
+# moderator's line for guide item 3".
+.fg_player_point_label <- function(point) {
+  point <- as.character(.fg_player_scalar(point))
+  if (is.na(point) || !nzchar(point)) return("at a point not recorded")
+  item <- regmatches(point, regexec("^fg_after_item\\(([0-9]+)\\)$", point))[[1]]
+  if (length(item)) return(paste("after the moderator's line for guide item", item[[2]]))
+  turn <- regmatches(point, regexec("^fg_before_turn\\(([0-9]+)\\)$", point))[[1]]
+  if (length(turn)) return(paste("before participant turn", turn[[2]]))
+  switch(point, start = "at the start of the session", end = "at the end of the session",
+         before_closing = "before the closing", paste("at", point))
 }
 
 .fg_player_scalar <- function(x) {
@@ -523,6 +552,17 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
     }
   }
   mixed_verbatim <- any(verbatim[guide_line]) && !all(verbatim[guide_line])
+  item_verbatim <- if (any(guide_line)) {
+    tapply(verbatim[guide_line], tr$item[guide_line], all)
+  } else logical()
+  called <- which(!vapply(call_on, is.null, logical(1)))
+  call_ons <- data.frame(
+    item = tr$item[called],
+    id = vapply(call_on[called], function(x) as.character(.fg_player_scalar(x$participant)),
+                character(1)),
+    stringsAsFactors = FALSE)
+  engine_stripped <- sum(vapply(tr$metadata, function(m) isTRUE(m$self_label_removed),
+                                logical(1)))
 
   message_step <- function(i) {
     m <- tr$metadata[[i]]
@@ -537,13 +577,14 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
       inj <- m$injection %||% list()
       from <- as.character(.fg_player_scalar(inj$from) %|NA|% tr$speaker_id[[i]])
       if (identical(from, "moderator")) from <- "the moderator"
-      visibility <- as.character(.fg_player_scalar(inj$visibility) %|NA|% "shared")
+      visibility <- as.character(.fg_player_scalar(inj$visibility))
       arm <- .fg_player_scalar(inj$arm)
       return(c(list(kind = "injected"), base, list(
         source = from, is_moderator = isTRUE(tr$is_moderator[[i]]),
         point = as.character(.fg_player_scalar(inj$point) %|NA|% ""),
+        point_label = .fg_player_point_label(inj$point),
         arm = if (is.na(arm)) NULL else as.character(arm),
-        visibility = visibility,
+        visibility = if (is.na(visibility)) NULL else visibility,
         color = if (isTRUE(tr$is_moderator[[i]])) .fg_player_moderator_color else
           .fg_player_voice_color)))
     }
@@ -566,8 +607,9 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
     c(list(kind = "turn"), base, list(tag = tag))
   }
 
-  steps <- list(.fg_player_title_step(session, nrow(people), verbatim[guide_line],
-                                      strip_speaker_prefix, stripped))
+  steps <- list(.fg_player_title_step(session, nrow(people), item_verbatim, call_ons,
+                                      handle_of, strip_speaker_prefix, stripped,
+                                      engine_stripped))
   for (i in seq_len(nrow(people))) {
     steps[[length(steps) + 1L]] <- list(kind = "persona", agent = people$id[[i]],
                                         index = i, n = nrow(people))
@@ -622,7 +664,8 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   })
 }
 
-.fg_player_title_step <- function(session, n, guide_verbatim, strip, stripped) {
+.fg_player_title_step <- function(session, n, item_verbatim, call_ons, handle_of,
+                                  strip, stripped, engine_stripped) {
   meta <- session$metadata
   versions <- meta$versions %||% list()
   lines <- character()
@@ -632,27 +675,32 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   }
 
   people <- if (n == 1L) "One participant" else paste(.fg_player_number(n), "participants")
-  delivery <- if (!length(guide_verbatim) || !any(guide_verbatim)) {
+  delivery <- if (!length(item_verbatim) || !any(item_verbatim)) {
     "a moderator whose lines the model writes from each item of the guide"
-  } else if (all(guide_verbatim)) {
+  } else if (all(item_verbatim)) {
     "a moderator who reads each item of the guide as written"
   } else {
-    sprintf("a moderator who reads %d of the %d guide lines as written; the model writes the others from the guide",
-            sum(guide_verbatim), length(guide_verbatim))
+    sprintf(paste("a moderator who reads %d of the %d guide items as written, while the",
+                  "model writes the lines for the others"),
+            sum(item_verbatim), length(item_verbatim))
   }
   lines <- c(lines, paste0(people, " and ", delivery, "."))
   lines <- c(lines, .fg_player_rule_sentence(meta$flow))
 
+  # Call-ons as the transcript records them; the setting is mentioned only
+  # when none took place.
   points <- if (is.list(meta$call_on_silent)) meta$call_on_silent$items
-  if (length(points)) {
-    lines <- c(lines, if (length(points) == 1L) {
-      sprintf("At guide item %d the moderator calls by name on each participant who has not yet spoken.",
-              as.integer(points))
-    } else {
-      sprintf(paste("At guide items %s the moderator calls by name on each participant",
-                    "who has not spoken since the previous of these points."),
-              .fg_player_and(as.integer(points)))
-    })
+  if (nrow(call_ons)) {
+    items <- unique(call_ons$item)
+    parts <- vapply(items, function(k) {
+      sprintf("on %s at guide item %s",
+              .fg_player_and(unname(handle_of[call_ons$id[call_ons$item == k]])), k)
+    }, character(1))
+    lines <- c(lines, paste0("The moderator called by name ", .fg_player_and(parts), "."))
+  } else if (length(points)) {
+    lines <- c(lines, sprintf("Call-ons were set for guide %s %s; none took place.",
+                              if (length(points) == 1L) "item" else "items",
+                              .fg_player_and(as.integer(points))))
   }
   if (any(session$routing$rule %in% "addressed")) {
     lines <- c(lines, paste("When the moderator's question names one participant,",
@@ -661,11 +709,11 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   responses <- as.integer(.fg_player_scalar(meta$max_participant_responses))
   lines <- c(lines, sprintf("%s %s per question%s.", .fg_player_number(responses),
                             if (identical(responses, 1L)) "response" else "responses",
-                            if (length(points)) ", plus any call-ons" else ""))
+                            if (nrow(call_ons)) ", plus the call-ons" else ""))
 
   model <- .fg_player_scalar(meta$model)
   provider <- .fg_player_scalar(meta$provider)
-  date <- .fg_player_date(meta$started)
+  date <- .fg_player_date(meta$started, zone = TRUE)
   fg_version <- .fg_player_scalar(versions$FocusGroup)
   llmr_version <- .fg_player_scalar(versions$LLMR)
   lines <- c(lines, paste0(
@@ -681,10 +729,10 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
     shared <- .fg_player_scalar(branch$prefix_messages)
     point <- .fg_player_scalar(branch$point)
     lines <- c(lines, paste0(
-      "Arm \"", arm, "\": it shares the first ",
-      if (is.na(shared)) "messages" else paste(shared, "messages"),
-      " with the other arms and continues on its own after ",
-      if (is.na(point)) "the branch point" else point, "."))
+      "Arm \"", arm, "\": ",
+      if (is.na(shared)) "its first messages are" else paste("its first", shared, "messages are"),
+      " shared with the other arms, and it continues on its own ",
+      if (is.na(point)) "from the branch point" else .fg_player_point_label(point), "."))
   }
   if (isFALSE(meta$complete)) {
     failure <- meta$failure %||% list()
@@ -702,6 +750,12 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
       paste("A speaker label the model wrote at the start of its own line would be",
             "removed here; no line had one.")
     })
+  }
+  if (engine_stripped) {
+    lines <- c(lines, sprintf(paste(
+      "The package removed a leading speaker label from %d %s as it recorded",
+      "them; the raw replies are in the calls record."), engine_stripped,
+      if (engine_stripped == 1L) "reply" else "replies"))
   }
   lines <- c(lines, "Replayed from the saved record; no model is called.")
   list(kind = "title", kicker = if (!is.na(arm)) "A recorded session, one arm" else
@@ -738,12 +792,11 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   trigger <- row$trigger_message_id[[1]]
   desire_note <- if (identical(flow, "desire_based")) " No desire scores were asked for this turn." else ""
   if (rule %in% c("called_on", "addressed")) {
-    who <- handle_of[[chosen]]
     where <- if (is.na(trigger)) "" else paste0(" in message #", trigger)
     text <- if (identical(rule, "called_on")) {
-      paste0(who, " was called on by the moderator", where, " and takes the floor.", desire_note)
+      paste0("Called on by name", where, ".", desire_note)
     } else {
-      paste0("The moderator's question", where, " named ", who, ", who answers next.", desire_note)
+      paste0("Named in the moderator's question", where, ".", desire_note)
     }
     return(c(base, list(
       scale = "none",
@@ -781,6 +834,8 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
     "The speaker is drawn at random with these chances."
   } else if (identical(rule, "uniform_after_failure")) {
     "No valid score came back; the speaker was drawn at random among those asked."
+  } else if (!any(!is.na(scores))) {
+    "No valid score is recorded for this pick."
   } else {
     top <- if (tie) {
       sprintf("%s tied at the top; %s was drawn at random.", handles(tied), handle_of[[chosen]])
@@ -811,6 +866,7 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   lapply(unique(key), function(k) {
     rows <- probes[key == k, , drop = FALSE]
     list(kind = "probe", probe = rows$probe[[1]], point = rows$point[[1]],
+         point_label = .fg_player_point_label(rows$point[[1]]),
          question = rows$question[[1]],
          after_message_id = rows$after_message_id[[1]],
          answers = lapply(seq_len(nrow(rows)), function(j) {
@@ -844,7 +900,8 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
          list(id = people$id[[i]], turns = unname(counts[[i]]))
        }),
        summary = text,
-       summary_label = "Final summary, written by the model after the session; no agent read it.",
+       summary_label = if (is.null(text)) "Final summary" else
+         "Final summary, written by the model after the session; no agent read it.",
        summary_note = note)
 }
 
