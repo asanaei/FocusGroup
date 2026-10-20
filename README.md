@@ -186,8 +186,13 @@ panel_agents <- create_agents_from_data(
 ```
 
 `create_agents_from_survey()` reads Stata, SPSS, and SAS files through `haven`.
-It decodes selected values from their value labels and uses variable labels as
-question text unless names supplied by the caller replace them.
+It renders each answer from the file's value labels. A number the file leaves
+unlabeled is shown on its scale when the item labels only the endpoints ("On a
+scale of 1 to 7, where 1 is ... and 7 is ..., you place yourself at 5"), and
+as a number in a numeric field such as age. Questions are shown in the wording
+given in `question_wording`, else under the names given to `survey_vars`, else
+under the variable labels, with a warning. `value_labels` replaces labels the
+file cut short and labels stray codes.
 
 ```r
 survey_agents <- create_agents_from_survey(
@@ -195,9 +200,17 @@ survey_agents <- create_agents_from_survey(
   survey_path = "respondents.dta",
   config = config,
   demographic_vars = c(age = "AGE", education = "EDUC"),
-  survey_vars = c("Remote-work preference" = "Q12")
+  survey_vars = c("Q12", "Q13"),
+  question_wording = c(Q12 = "Would you prefer to work from home?",
+                       Q13 = "How long is your commute?")
 )
+persona_rendering_report(survey_agents)
 ```
+
+`persona_rendering_report()` lists, for each participant, every requested field
+and item with the text its persona shows, or the reason it was left out.
+Answers shown in a form that needs checking, such as a code without a label,
+are marked and named in a warning.
 
 When direct persona text is absent, the constructors render the supplied
 demographic fields and survey responses. They do not infer dispositions from

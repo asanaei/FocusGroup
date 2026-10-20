@@ -43,6 +43,7 @@ reference:
       - create_agents
       - create_agents_from_data
       - create_agents_from_survey
+      - persona_rendering_report
 
   - title: Import and analyze transcripts
     contents:
