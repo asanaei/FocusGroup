@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FocusGroup session</title>
+<!--
+  The session player of the FocusGroup package. fg_player() fills the data
+  block below with the session's records as JSON; this page loads nothing
+  else. Every text from the session is inserted with textContent; only
+  **bold** and *italics* are rendered.
+-->
+<style>
+  :root { --bg: #f6f6f4; --ink: #1f1f1f; --muted: #5b5b5b; --line: #d8d8d8; --card: #ffffff; --mod: #6b6b6b; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+    font-family: "Source Sans Pro", "Source Sans 3", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+  #app { display: grid; grid-template-columns: 330px 1fr; grid-template-rows: auto 1fr auto; height: 100vh; }
+  header { grid-column: 1 / 3; padding: 12px 26px; border-bottom: 1px solid var(--line); background: var(--card); }
+  header h1 { margin: 0; font-size: 26px; font-weight: 600; line-height: 1.2; }
+  header p { margin: 3px 0 0; font-size: 17px; color: var(--muted); }
+  #roster { padding: 14px; overflow-y: auto; border-right: 1px solid var(--line); background: var(--card); }
+  .roster-label { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 2px 0 10px; }
+  .agent { border-left: 8px solid #ccc; padding: 8px 10px; margin-bottom: 10px; border-radius: 4px; background: #f4f4f2; }
+  .agent .name { font-size: 20px; font-weight: 600; display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+  .agent .id { font-size: 15px; font-weight: 400; color: var(--muted); }
+  .agent .turns { font-size: 17px; font-weight: 400; color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .agent .note { font-size: 14px; color: var(--muted); margin-top: 3px; }
+  .agent .persona { font-size: 14px; line-height: 1.3; margin-top: 4px; color: #333;
+    display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .agent.speaking, .agent.introducing { outline: 3px solid var(--ink); }
+  #chat { padding: 18px 28px 40px; overflow-y: auto; }
+  .chip { display: inline-block; width: 14px; height: 14px; border-radius: 3px; margin-right: 8px; vertical-align: -1px; flex: none; }
+  .msg { max-width: 980px; margin: 0 0 14px; padding: 12px 16px; border-radius: 8px; background: var(--card);
+    border-left: 8px solid #ccc; font-size: 22px; line-height: 1.4; box-shadow: 0 1px 2px rgba(0,0,0,0.06); }
+  .msg .who { font-size: 17px; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .msg .who .left { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 8px; }
+  .msg .who .handle { font-weight: 700; }
+  .msg .who .id, .msg .who .stage { color: var(--muted); }
+  .msg .who .stage { white-space: nowrap; font-size: 15px; }
+  .tag { display: inline-block; font-size: 14px; padding: 0 7px; border: 1px solid #999; border-radius: 10px; color: #333; background: #fff; }
+  .msg p { margin: 0 0 6px; }
+  .msg p:last-child { margin-bottom: 0; }
+  .msg.moderator { background: #eef0f2; border-left-color: var(--mod); }
+  .msg.system { font-size: 17px; background: transparent; box-shadow: none; border-left: 4px solid var(--line); color: var(--muted); }
+  .msg.injected { border-left-style: dashed; background: #fbfbfb; }
+  .msg .source { font-size: 16px; color: var(--muted); margin-bottom: 6px; }
+  .divider { max-width: 980px; margin: 22px 0 16px; padding-top: 8px; border-top: 2px solid var(--ink); font-size: 17px; color: var(--muted); }
+  .route { max-width: 980px; margin: 0 0 14px; padding: 10px 16px; border: 1px dashed #9a9a9a; border-radius: 8px; background: var(--card); }
+  .route .label { font-size: 18px; color: #3a3a3a; margin-bottom: 6px; }
+  .route .note { font-size: 18px; color: #3a3a3a; margin-top: 6px; }
+  .bar { display: grid; grid-template-columns: 210px 1fr 76px; align-items: center; gap: 12px; margin: 4px 0; font-size: 19px; }
+  .bar .name { display: flex; align-items: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .bar .track { display: block; background: #ececec; height: 20px; border-radius: 3px; }
+  .bar .fill { display: block; height: 20px; border-radius: 3px; }
+  .bar .val { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+  .bar.chosen .name { font-weight: 700; }
+  .bar.chosen .val::after { content: " \2190"; }
+  .bar.absent { color: #8a8a8a; }
+  .route .given { font-size: 19px; margin: 4px 0; }
+  .bar.absent .track { background: transparent; font-size: 16px; font-style: italic; height: auto; }
+  .probe { max-width: 980px; margin: 0 0 14px; padding: 12px 16px; border: 3px double #8a8a8a; border-radius: 8px; background: #fdfdfb; font-size: 20px; line-height: 1.38; }
+  .probe .label { font-size: 16px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .probe .question { font-style: italic; margin: 4px 0 8px; }
+  .probe .answer { display: grid; grid-template-columns: 210px 1fr; gap: 12px; margin: 4px 0; }
+  .probe .answer .name { display: flex; align-items: baseline; font-weight: 600; }
+  .probe .answer .text { white-space: pre-wrap; }
+  .hidden { display: none !important; }
+  .latest { animation: fadein 0.25s ease-in; }
+  @keyframes fadein { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  footer { grid-column: 1 / 3; padding: 8px 24px; font-size: 15px; color: #555; border-top: 1px solid var(--line); background: var(--card);
+    display: flex; justify-content: space-between; gap: 16px; }
+  #pos { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .intro { max-width: 1050px; margin: 22px auto; padding: 26px 40px 28px; background: var(--card); border-radius: 12px;
+    border-left: 16px solid #888; box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+  .intro .kicker { font-size: 21px; color: var(--muted); letter-spacing: 0.03em; }
+  .intro h2 { font-size: 42px; line-height: 1.15; margin: 4px 0 2px; }
+  .intro h2 .id { font-size: 28px; font-weight: 400; color: var(--muted); margin-left: 14px; }
+  .intro .notes { font-size: 23px; color: #444; margin-top: 12px; }
+  .intro .lead { font-size: 21px; color: var(--muted); margin-top: 24px; }
+  .intro .text { font-size: 30px; line-height: 1.42; margin-top: 8px; white-space: pre-wrap; }
+  .intro .text.long { font-size: 23px; }
+  .intro ul { margin: 16px 0 0; padding-left: 1.1em; }
+  .intro li { font-size: 24px; line-height: 1.34; margin-bottom: 8px; }
+  .endpage { max-width: 980px; margin: 26px 0 14px; padding: 22px 28px; background: var(--card); border-radius: 12px;
+    border-top: 6px solid var(--ink); box-shadow: 0 2px 6px rgba(0,0,0,0.08); }
+  .endpage h2 { font-size: 34px; margin: 0 0 12px; }
+  .endpage h3 { font-size: 21px; color: var(--muted); font-weight: 400; margin: 18px 0 6px; }
+  .endpage .count { display: grid; grid-template-columns: 210px 1fr 90px; align-items: center; gap: 12px; margin: 4px 0; font-size: 21px; }
+  .endpage .count .name { display: flex; align-items: center; }
+  .endpage .count .track { display: block; background: #ececec; height: 20px; border-radius: 3px; }
+  .endpage .count .fill { display: block; height: 20px; border-radius: 3px; }
+  .endpage .count .val { text-align: right; font-variant-numeric: tabular-nums; }
+  .endpage .summary { font-size: 22px; line-height: 1.42; }
+  .endpage .summary p { margin: 0 0 8px; }
+  body.static #app { height: auto; min-height: 100vh; }
+  body.static #chat { overflow: visible; }
+  body.static #roster { overflow: visible; }
+  body.static .intro { margin: 0 0 22px; }
+  @media print {
+    #app { display: block; height: auto; }
+    #roster, footer { display: none; }
+    #chat { overflow: visible; padding: 0; }
+    .msg, .route, .probe, .intro, .endpage { break-inside: avoid; box-shadow: none; }
+  }
+  @media (max-width: 900px) {
+    #app { grid-template-columns: 1fr; }
+    #roster { display: none; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header><h1 id="title"></h1><p id="subtitle"></p></header>
+  <aside id="roster"></aside>
+  <main id="chat"></main>
+  <footer><span id="hint"></span><span id="pos"></span></footer>
+</div>
+<script id="fg-data" type="application/json">__FG_PLAYER_DATA__</script>
+<script>
+(function () {
+  "use strict";
+  var D = JSON.parse(document.getElementById("fg-data").textContent);
+  var DOT = " · ";
+  var agents = {};
+  D.agents.forEach(function (a) { agents[a.id] = a; });
+  var isStatic = D.mode === "static";
+  document.title = D.title + ": a replayed session";
+  document.getElementById("title").textContent = D.title;
+  document.getElementById("subtitle").textContent = D.subtitle;
+  document.getElementById("hint").textContent = isStatic ?
+    "Every step is shown. S: show or hide the selection panels." :
+    "Next: right arrow, space, Enter, Page Down, or click. Back: left arrow, Page Up, or Backspace. Home: start. End: all. S: selection panels. F: full screen.";
+  if (isStatic) document.body.classList.add("static");
+
+  function make(tag, cls, text) {
+    var e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined && text !== null) e.textContent = String(text);
+    return e;
+  }
+  function chip(color) { var c = make("span", "chip"); c.style.background = color; return c; }
+  function colorOf(id) { return agents[id] ? agents[id].color : D.moderator.color; }
+  function handleOf(id) { return agents[id] ? agents[id].handle : id; }
+  // The handle the agents saw, and the researcher's ID beside it when the
+  // two differ.
+  function nameNodes(handle, id) {
+    var out = [make("span", "handle", handle)];
+    if (id && id !== handle) out.push(make("span", "id", "ID " + id));
+    return out;
+  }
+  function stageText(s) {
+    var parts = ["#" + s.message_id];
+    if (s.item !== null && s.item !== undefined && s.item > 0) parts.push("item " + s.item);
+    if (s.phase) parts.push(s.phase);
+    return parts.join(DOT);
+  }
+  // Paragraphs, with **bold** and *italics* as written; all else as text.
+  function richText(container, text) {
+    String(text).split(/\n+/).forEach(function (para) {
+      if (!para.trim()) return;
+      var p = make("p");
+      para.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*)/).forEach(function (piece) {
+        var m;
+        if ((m = piece.match(/^\*\*([^*]+)\*\*$/))) { p.appendChild(make("strong", null, m[1])); }
+        else if ((m = piece.match(/^\*([^*]+)\*$/))) { p.appendChild(make("em", null, m[1])); }
+        else if (piece) { p.appendChild(document.createTextNode(piece)); }
+      });
+      container.appendChild(p);
+    });
+  }
+  function header(left, stage) {
+    var w = make("div", "who"), l = make("span", "left");
+    left.forEach(function (n) { l.appendChild(n); });
+    w.appendChild(l);
+    if (stage) w.appendChild(make("span", "stage", stage));
+    return w;
+  }
+  function format(value, scale) {
+    if (value === null || value === undefined) return "–";
+    if (scale === "chance") {
+      var pct = 100 * value;
+      if (pct > 0 && pct < 1) return "<1%";
+      return Math.round(pct) + "%";
+    }
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }
+
+  // The sidebar: one card per participant.
+  var roster = document.getElementById("roster"), chat = document.getElementById("chat");
+  roster.appendChild(make("div", "roster-label", "Participants"));
+  var cards = {};
+  D.agents.forEach(function (a) {
+    var c = make("div", "agent"); c.style.borderLeftColor = a.color;
+    var n = make("div", "name"), nm = make("span");
+    nm.appendChild(chip(a.color)); nm.appendChild(document.createTextNode(a.handle));
+    if (a.id !== a.handle) { nm.appendChild(document.createTextNode(" ")); nm.appendChild(make("span", "id", a.id)); }
+    var t = make("span", "turns", "0 turns");
+    n.appendChild(nm); n.appendChild(t); c.appendChild(n);
+    a.annotations.forEach(function (x) { c.appendChild(make("div", "note", x.name + ": " + x.value)); });
+    c.appendChild(make("div", "persona", a.preview));
+    c.title = a.persona;
+    roster.appendChild(c); cards[a.id] = { card: c, turns: t };
+  });
+
+  function buildTitle(s) {
+    var d = make("div", "intro");
+    d.appendChild(make("div", "kicker", s.kicker));
+    d.appendChild(make("h2", null, s.heading));
+    var ul = make("ul");
+    s.lines.forEach(function (line) { ul.appendChild(make("li", null, line)); });
+    d.appendChild(ul);
+    return d;
+  }
+  function buildPersona(s) {
+    var a = agents[s.agent], d = make("div", "intro persona-page");
+    d.style.borderLeftColor = a.color;
+    d.appendChild(make("div", "kicker", "Participant " + s.index + " of " + s.n));
+    var h = make("h2", null, a.handle);
+    if (a.id !== a.handle) h.appendChild(make("span", "id", "ID " + a.id));
+    d.appendChild(h);
+    a.annotations.forEach(function (x) { d.appendChild(make("div", "notes", x.name + ": " + x.value)); });
+    d.appendChild(make("div", "lead", "The persona as sent to the model, without the standing rules:"));
+    d.appendChild(make("div", "text" + (a.persona.length > 420 ? " long" : ""), a.persona));
+    return d;
+  }
+  function buildMessage(s) {
+    var d, left;
+    if (s.kind === "system") {
+      d = make("div", "msg system");
+      d.appendChild(header([make("span", null, "System message, seen by every agent")], stageText(s)));
+      richText(d, s.text);
+      return d;
+    }
+    if (s.kind === "injected") {
+      d = make("div", "msg injected");
+      d.style.borderLeftColor = s.color;
+      left = [chip(s.color), make("span", "handle", s.is_moderator ? D.moderator.handle : s.handle), make("span", "tag", "injected")];
+      d.appendChild(header(left, stageText(s)));
+      var src = "Injected by the researcher at " + (s.point || "its point") + ", as a comment from " + s.source;
+      if (s.arm) src += ", in the arm “" + s.arm + "”";
+      src += ". " + (s.visibility === "participants" ? "Seen by the participants, not the moderator." : "Seen by every agent.");
+      d.appendChild(make("div", "source", src));
+      richText(d, s.text);
+      return d;
+    }
+    if (s.kind === "moderator") {
+      d = make("div", "msg moderator");
+      left = [chip(D.moderator.color)].concat(nameNodes(s.handle, s.speaker));
+      if (s.tag) left.push(make("span", "tag", s.tag));
+      d.appendChild(header(left, stageText(s)));
+      richText(d, s.text);
+      return d;
+    }
+    d = make("div", "msg turn");
+    d.style.borderLeftColor = colorOf(s.speaker);
+    left = [chip(colorOf(s.speaker))].concat(nameNodes(s.handle, s.speaker));
+    if (s.tag) left.push(make("span", "tag", s.tag));
+    d.appendChild(header(left, stageText(s)));
+    richText(d, s.text);
+    return d;
+  }
+  function buildRouting(s) {
+    var d = make("div", "route");
+    d.appendChild(make("div", "label", s.title));
+    var top = 0;
+    if (s.scale === "value") s.entries.forEach(function (e) { if (e.value !== null && Math.abs(e.value) > top) top = Math.abs(e.value); });
+    s.entries.forEach(function (e) {
+      var a = agents[e.id], b = make("div", "bar");
+      var nm = make("span", "name"); nm.appendChild(chip(a.color)); nm.appendChild(document.createTextNode(a.handle));
+      var tr = make("span", "track"), v = make("span", "val");
+      if (e.status === "asked") {
+        var f = make("span", "fill"), w;
+        if (s.scale === "desire") w = 10 * e.value;
+        else if (s.scale === "chance") w = 100 * e.value;
+        else w = top > 0 ? 100 * Math.abs(e.value) / top : 0;
+        f.style.width = Math.max(0, Math.min(100, w)) + "%"; f.style.background = a.color;
+        tr.appendChild(f); v.textContent = format(e.value, s.scale);
+      } else {
+        b.className += " absent"; tr.textContent = e.reason || "not asked"; v.textContent = "–";
+      }
+      if (e.id === s.chosen) b.className += " chosen";
+      b.appendChild(nm); b.appendChild(tr); b.appendChild(v); d.appendChild(b);
+    });
+    if (!s.entries.length) {
+      var only = make("div", "given");
+      only.appendChild(chip(colorOf(s.chosen))); only.appendChild(make("strong", null, handleOf(s.chosen)));
+      only.appendChild(document.createTextNode(" \u2190 takes the floor"));
+      d.appendChild(only);
+    }
+    if (s.note) d.appendChild(make("div", "note", s.note));
+    return d;
+  }
+  function buildProbe(s) {
+    var d = make("div", "probe");
+    d.appendChild(make("div", "label", "Private question at " + s.point + DOT + "the answers are seen by no agent"));
+    d.appendChild(make("div", "question", s.question));
+    s.answers.forEach(function (x) {
+      var row = make("div", "answer"), nm = make("span", "name");
+      nm.appendChild(chip(colorOf(x.id))); nm.appendChild(document.createTextNode(handleOf(x.id)));
+      row.appendChild(nm);
+      row.appendChild(make("span", "text", x.answer === null ? "(no answer)" : x.answer));
+      d.appendChild(row);
+    });
+    return d;
+  }
+  function buildEnd(s) {
+    var d = make("div", "endpage");
+    d.appendChild(make("h2", null, s.heading));
+    d.appendChild(make("h3", null, "Turns per participant"));
+    var most = 0;
+    s.counts.forEach(function (c) { if (c.turns > most) most = c.turns; });
+    s.counts.forEach(function (c) {
+      var a = agents[c.id], row = make("div", "count"), nm = make("span", "name");
+      nm.appendChild(chip(a.color)); nm.appendChild(document.createTextNode(a.handle));
+      var tr = make("span", "track"), f = make("span", "fill");
+      f.style.width = (most > 0 ? 100 * c.turns / most : 0) + "%"; f.style.background = a.color;
+      tr.appendChild(f);
+      row.appendChild(nm); row.appendChild(tr);
+      row.appendChild(make("span", "val", c.turns + (c.turns === 1 ? " turn" : " turns")));
+      d.appendChild(row);
+    });
+    d.appendChild(make("h3", null, s.summary_label));
+    var body = make("div", "summary");
+    if (s.summary !== null) richText(body, s.summary); else body.appendChild(make("p", null, s.summary_note));
+    d.appendChild(body);
+    return d;
+  }
+  function build(s, i) {
+    var d;
+    if (s.kind === "title") d = buildTitle(s);
+    else if (s.kind === "persona") d = buildPersona(s);
+    else if (s.kind === "routing") d = buildRouting(s);
+    else if (s.kind === "probe") d = buildProbe(s);
+    else if (s.kind === "end") d = buildEnd(s);
+    else d = buildMessage(s);
+    d.setAttribute("data-step", String(i + 1));
+    d.setAttribute("data-kind", s.kind);
+    return d;
+  }
+
+  var nodes = D.steps.map(build);
+  var n = nodes.length;
+  function isPage(i) { return D.steps[i].kind === "title" || D.steps[i].kind === "persona"; }
+  var firstSession = 0;
+  while (firstSession < n && isPage(firstSession)) firstSession++;
+  var showPanels = true, shown = 1, animate = false;
+  function visible(i) { return showPanels || D.steps[i].kind !== "routing"; }
+  function setPanels() {
+    nodes.forEach(function (node, i) { if (D.steps[i].kind === "routing") node.classList.toggle("hidden", !showPanels); });
+  }
+  function counts(upto) {
+    var c = {};
+    D.agents.forEach(function (a) { c[a.id] = 0; });
+    for (var i = 0; i < upto; i++) if (D.steps[i].kind === "turn") c[D.steps[i].speaker] += 1;
+    return c;
+  }
+  function showCounts(c, speaking, introducing) {
+    D.agents.forEach(function (a) {
+      var k = c[a.id];
+      cards[a.id].turns.textContent = k + (k === 1 ? " turn" : " turns");
+      cards[a.id].card.classList.toggle("speaking", a.id === speaking);
+      cards[a.id].card.classList.toggle("introducing", a.id === introducing);
+    });
+  }
+  function clear() { while (chat.firstChild) chat.removeChild(chat.firstChild); }
+
+  function render() {
+    clear();
+    document.getElementById("pos").textContent = isStatic ? n + " steps" : shown + " / " + n;
+    if (isStatic) {
+      nodes.forEach(function (node) { node.classList.remove("latest"); chat.appendChild(node); });
+      showCounts(counts(n), null, null);
+      return;
+    }
+    var last = nodes[shown - 1];
+    if (isPage(shown - 1)) {
+      last.classList.remove("latest");
+      if (animate) { void last.offsetWidth; last.classList.add("latest"); }
+      chat.appendChild(last);
+      var s = D.steps[shown - 1];
+      showCounts(counts(0), null, s.kind === "persona" ? s.agent : null);
+      chat.scrollTop = 0;
+    } else {
+      for (var i = firstSession; i < shown; i++) {
+        nodes[i].classList.remove("latest");
+        chat.appendChild(nodes[i]);
+      }
+      if (animate) { void last.offsetWidth; last.classList.add("latest"); }
+      var step = D.steps[shown - 1];
+      showCounts(counts(shown), step.kind === "turn" ? step.speaker : (step.kind === "routing" ? step.chosen : null), null);
+      chat.scrollTop = chat.scrollHeight;
+    }
+    try { history.replaceState(null, "", "#step=" + shown); } catch (e) { /* a page opened from disk may refuse */ }
+  }
+  function go(k) { shown = Math.max(1, Math.min(n, k)); render(); }
+  function next() {
+    if (shown >= n) return;
+    var k = shown + 1;
+    while (k < n && !visible(k - 1)) k++;
+    go(k);
+  }
+  function prev() {
+    if (shown <= 1) return;
+    var k = shown - 1;
+    while (k > 1 && !visible(k - 1)) k--;
+    go(k);
+  }
+  function fromHash() {
+    var m = /step=(\d+)/.exec(window.location.hash || "");
+    return m ? parseInt(m[1], 10) : null;
+  }
+
+  document.addEventListener("keydown", function (e) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return;
+    var k = e.key;
+    if (k === "s" || k === "S") {
+      showPanels = !showPanels; setPanels();
+      if (!isStatic && !visible(shown - 1)) prev(); else render();
+      return;
+    }
+    if (k === "f" || k === "F") {
+      var root = document.documentElement;
+      if (!document.fullscreenElement) { if (root.requestFullscreen) root.requestFullscreen(); }
+      else if (document.exitFullscreen) document.exitFullscreen();
+      return;
+    }
+    if (isStatic) return;
+    if (k === "ArrowRight" || k === " " || k === "PageDown" || k === "Enter") { e.preventDefault(); next(); }
+    else if (k === "ArrowLeft" || k === "PageUp" || k === "Backspace") { e.preventDefault(); prev(); }
+    else if (k === "Home") { e.preventDefault(); go(1); }
+    else if (k === "End") { e.preventDefault(); go(n); }
+  });
+  chat.addEventListener("click", function () {
+    if (isStatic) return;
+    var sel = window.getSelection ? String(window.getSelection()) : "";
+    if (!sel) next();
+  });
+  window.addEventListener("hashchange", function () {
+    var k = fromHash();
+    if (!isStatic && k !== null && k !== shown) go(k);
+  });
+  var start = fromHash();
+  if (isStatic) render(); else go(start === null ? 1 : start);
+  // Steps fade in as one moves through the session, not on opening.
+  animate = true;
+})();
+</script>
+</body>
+</html>
