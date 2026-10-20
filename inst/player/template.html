@@ -95,7 +95,7 @@
   .endpage .summary p { margin: 0 0 8px; }
   body.static #app { height: auto; min-height: 100vh; }
   body.static #chat { overflow: visible; }
-  body.static #roster { overflow: visible; }
+  body.static #roster { position: sticky; top: 0; align-self: start; max-height: 100vh; overflow-y: auto; }
   body.static .intro { margin: 0 0 22px; }
   @media print {
     #app { display: block; height: auto; }
@@ -121,7 +121,7 @@
 (function () {
   "use strict";
   var D = JSON.parse(document.getElementById("fg-data").textContent);
-  var DOT = " · ";
+  var DOT = " \u00b7 ";
   var agents = {};
   D.agents.forEach(function (a) { agents[a.id] = a; });
   var isStatic = D.mode === "static";
@@ -177,7 +177,7 @@
     return w;
   }
   function format(value, scale) {
-    if (value === null || value === undefined) return "–";
+    if (value === null || value === undefined) return "\u2013";
     if (scale === "chance") {
       var pct = 100 * value;
       if (pct > 0 && pct < 1) return "<1%";
@@ -238,7 +238,7 @@
       left = [chip(s.color), make("span", "handle", s.is_moderator ? D.moderator.handle : s.handle), make("span", "tag", "injected")];
       d.appendChild(header(left, stageText(s)));
       var src = "Injected by the researcher at " + (s.point || "its point") + ", as a comment from " + s.source;
-      if (s.arm) src += ", in the arm “" + s.arm + "”";
+      if (s.arm) src += ", in the arm \u201c" + s.arm + "\u201d";
       src += ". " + (s.visibility === "participants" ? "Seen by the participants, not the moderator." : "Seen by every agent.");
       d.appendChild(make("div", "source", src));
       richText(d, s.text);
@@ -277,7 +277,7 @@
         f.style.width = Math.max(0, Math.min(100, w)) + "%"; f.style.background = a.color;
         tr.appendChild(f); v.textContent = format(e.value, s.scale);
       } else {
-        b.className += " absent"; tr.textContent = e.reason || "not asked"; v.textContent = "–";
+        b.className += " absent"; tr.textContent = e.reason || "not asked"; v.textContent = "\u2013";
       }
       if (e.id === s.chosen) b.className += " chosen";
       b.appendChild(nm); b.appendChild(tr); b.appendChild(v); d.appendChild(b);
