@@ -14,6 +14,7 @@ test_that("the package exports exactly the first-release surface", {
     "fg_probe",
     "focus_group_from_transcript",
     "get_default_prompt_templates",
+    "persona_rendering_report",
     "run_focus_group",
     "run_focus_group_arms",
     "run_focus_studio"

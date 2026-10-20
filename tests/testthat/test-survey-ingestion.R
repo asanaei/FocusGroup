@@ -22,10 +22,11 @@ make_labeled <- function(n = 12) {
   )
 }
 
-test_that(".fg_decode_col decodes labels and NAs the missing vocabulary", {
+test_that(".fg_render_column decodes labels and leaves out the missing vocabulary", {
   x <- haven::labelled(c(1L, 2L, -9L), c("Yes" = 1, "No" = 2, "Refused" = -9))
-  v <- FocusGroup:::.fg_decode_col(x, .fg_default_na_strings)
-  expect_equal(v, c("Yes", "No", NA))
+  v <- FocusGroup:::.fg_render_column(x, "x", .fg_default_na_strings)
+  expect_equal(v$text, c("Yes", "No", NA))
+  expect_equal(v$status, c("rendered", "rendered", "dropped"))
 })
 
 test_that(".fg_col_key prefers an explicit name, then the variable label", {
@@ -41,12 +42,12 @@ test_that("create_agents_from_survey renders the question wording, not the code"
   f <- tempfile(fileext = ".dta"); on.exit(unlink(f), add = TRUE)
   haven::write_dta(d, f)
   cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
-  ag <- create_agents_from_survey(
+  expect_warning(ag <- suppressMessages(create_agents_from_survey(
     n_participants = 3, survey_path = f,
     demographic_vars = c(age = "AGE", education = "EDU"),
     survey_vars = c("PARTY"),
     config = cfg
-  )
+  )), "No question wording was supplied for 1 survey item")
   expect_length(ag, 4L)                       # 3 participants + moderator
   p <- Filter(function(a) !isTRUE(a$is_moderator), ag)[[1]]
   txt <- p$persona_description
@@ -65,7 +66,7 @@ test_that("the `rows` predicate restricts the eligible pool", {
   ag <- create_agents_from_survey(
     n_participants = 4, survey_path = f,
     demographic_vars = c(age = "AGE"),
-    survey_vars = c("PARTY"),
+    survey_vars = c("Party identification" = "PARTY"),
     rows = function(df) df$age == "55+",
     config = cfg
   )

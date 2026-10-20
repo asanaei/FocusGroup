@@ -88,8 +88,9 @@ test_that("survey weights are excluded and provenance maps through missing demog
   cfg <- LLMR::llm_config("openai", "example-model")
   call <- function(...) create_agents_from_survey(2, path, cfg, weights = "weight", ...)
   withr::local_options(list(focusgroup.seed = 110L))
-  expect_message(a <- call(demographic_vars = c(age = "age", w = "weight"),
-    survey_vars = c("weight", "answer"), rows = c(5, 1, 3, 2)), "1 selected respondent")
+  expect_warning(expect_message(a <- call(demographic_vars = c(age = "age", w = "weight"),
+    survey_vars = c("weight", "answer"), rows = c(5, 1, 3, 2)), "1 selected respondent"),
+    "answer \\(no label\\)")
   expect_identical(unname(attr(a, "source_rows")), c(3L, 5L))
   expect_identical(as.numeric(attr(a, "source_ids")$id), c(13, 15))
   expect_false(any(grepl("weight|w:", vapply(a[1:2], function(x) x$persona_description, ""))))

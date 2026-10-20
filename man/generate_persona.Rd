@@ -37,7 +37,8 @@ research instrument should avoid, so the package does not do it.
 Both the demographics and the survey responses are rendered in full (every
 supplied field), not a fixed subset; fields that are missing or empty are
 left out rather than rendered as "NA". Pass survey responses keyed by the
-question wording (for survey-file input, the variable label is used as the
-key) so the model sees the item, not a code name.
+question wording (for survey-file input, \code{question_wording}, the names of
+\code{survey_vars}, or the variable label is used as the key) so the model sees
+the item, not a code name.
 }
 \keyword{internal}

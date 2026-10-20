@@ -38,7 +38,11 @@ A named list of FGAgent objects (participants + 1 moderator), keyed
 by agent ID. When the participants are drawn from the bundled ANES
 records, the list carries the \code{source_rows} attribute described in
 \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}, giving the rows of
-\code{LLMR::anes_2024_personas} that were drawn.
+\code{LLMR::anes_2024_personas} that were drawn. Unless the personas are
+given in \code{direct_persona_descriptions}, the list also carries a
+\code{rendering_report} attribute recording each field supplied for each
+participant and whether the persona shows it; see
+\code{\link[=persona_rendering_report]{persona_rendering_report()}}.
 }
 \description{
 Creates participant agents from supplied records, direct personas, or

@@ -13,6 +13,8 @@ create_agents_from_survey(
   rows = NULL,
   weights = NULL,
   na_strings = .fg_default_na_strings,
+  question_wording = NULL,
+  value_labels = NULL,
   .runner = NULL
 )
 }
@@ -29,13 +31,15 @@ labels. If \code{NULL}, common demographic variables are auto-detected by their
 labels.}
 
 \item{survey_vars}{Variable names (codes) to render as survey responses. May
-be named (names become the question wording shown). If \code{NULL}, labeled
+be named; a name is used as the question only for an item with neither a
+\code{question_wording} entry nor a label in the file. If \code{NULL}, labeled
 variables that are not demographics are used.}
 
 \item{rows}{Optional row selector restricting the eligible respondents before
 sampling: integer positions of rows in the file, a logical vector with one
 value per row in the file, or a predicate \verb{function(df) -> logical} over the
-decoded demographics frame. The selector refers to the file's own rows and
+demographics frame, whose columns hold the text rendered for each field.
+The selector refers to the file's own rows and
 is applied before respondents without any demographic value are left out;
 a message says how many selected respondents were left out for that
 reason. Positions must be whole numbers within the file. In a logical
@@ -51,9 +55,28 @@ personas, even when \code{demographic_vars} or \code{survey_vars} name it. Weigh
 must be nonnegative and finite, with at least one positive; numeric
 values carrying haven value labels are accepted.}
 
-\item{na_strings}{Character vector of value-label substrings treated as
-missing (case-insensitive). Defaults to a small common set; pass your own to
-match another file's missing-data vocabulary.}
+\item{na_strings}{Character vector of value-label substrings, matched as
+regular expressions and ignoring case, that mark an answer as missing.
+Defaults to a small common set; pass your own to match another file's
+missing-data vocabulary.}
+
+\item{question_wording}{Optional named character vector giving the question
+as asked for survey items, keyed by variable name, as in
+\code{c(V241248 = "Where would you place yourself on abortion?")}. It takes
+precedence over the variable labels and the names of \code{survey_vars};
+entries for variables not in \code{survey_vars} are ignored. An item without
+a wording is shown under its variable label (or, lacking one, its name),
+with a warning that lists such items: a variable label is often codebook
+shorthand ("PRE: 7pt scale abortion: self-placement") rather than the
+question.}
+
+\item{value_labels}{Optional labels that replace or extend the file's value
+labels: a data frame with columns \code{variable}, \code{code}, and \code{label}, or a
+named list of named vectors in the form of haven value labels, as in
+\code{list(V241386 = c("Make all unauthorized immigrants felons and send them back to their home country" = 1))}. A supplied label replaces the file's
+label for its code, or labels a code the file leaves unlabeled; use it to
+restore labels the file cut short or to label stray codes. Supplied labels
+are matched against \code{na_strings} like the file's own.}
 
 \item{.runner}{Optional function used instead of live model calls and stored
 on every agent.}
@@ -65,20 +88,27 @@ by agent ID. Two attributes record which respondents were drawn. The
 file, named by participant ID. When the file has columns named \code{id},
 \code{respondent_id}, or \code{persona_id}, the \code{source_ids} attribute is a data
 frame of those columns for the drawn respondents, with participant IDs as
-row names. The moderator appears in neither. Subsetting the list drops the
-attributes, so read them from the list as returned.
+row names. The moderator appears in neither. A third attribute,
+\code{rendering_report}, records for each participant and each requested field
+and item the text shown or the reason it was left out; read it with
+\code{\link[=persona_rendering_report]{persona_rendering_report()}}. Subsetting the list drops the attributes,
+so read them from the list as returned.
 }
 \description{
 Reads a labeled survey file (Stata \code{.dta}, SPSS \code{.sav}, or SAS
-\code{.sas7bdat}), decodes the chosen variables from their value labels, and turns
-each selected respondent into an \code{FGAgent} whose persona states that
-respondent's demographics and survey answers. Numeric codes are decoded from
-the file's own value labels, so the same call works on ANES, GSS, WVS, or any
-other labeled file; nothing about a particular dataset is hard-coded.
+\code{.sas7bdat}) and turns each selected respondent into an \code{FGAgent} whose
+persona states that respondent's demographics and survey answers. Answers
+are rendered from the file's own value labels, so the same call works on
+ANES, GSS, WVS, or any other labeled file; nothing about a particular
+dataset is hard-coded.
 }
 \details{
-The survey answers are keyed by each variable's question wording (its label in
-the file) so the model sees the item, not a code name. The persona draws no
+Each survey answer is shown under its question: the wording supplied in
+\code{question_wording}, else the variable's label in the file, else the name
+given to the variable in \code{survey_vars}. A label is codebook shorthand
+rather than the question asked, so items shown without a wording draw a
+warning. Demographic fields are shown under the names given in
+\code{demographic_vars} ("age: 25"), else their labels. The persona draws no
 inferences from the answers; it states them and lets the model interpret.
 
 Respondents are drawn without replacement, so a participant is never a
@@ -98,6 +128,54 @@ no eligible respondent has a positive weight, or when a draw has fewer
 respondents with a positive weight than participants to fill. The error
 names the column or the offending rows.
 }
+\section{Rendering answers}{
+
+Each answer is rendered by the first of the following rules that applies,
+and the rule used is recorded in the rendering report described under
+Value.
+\itemize{
+\item A code with a value label is shown as its label, without a leading code
+such as "1. ". A label that matches \code{na_strings} marks a missing value,
+and the answer is left out. Two kinds of label from the file are shown
+but flagged, with a warning naming the variable and code: a label
+exactly 80 characters long, since some releases, the ANES 2024 Stata
+file among them, cut longer labels at that length; and the label of a
+negative code, since the ANES and WVS releases use negative codes for
+missing data ("-6. No post interview"). Extend \code{na_strings} to leave
+the latter out.
+\item A number without a label that lies between the two labeled endpoints of
+a scale is shown on that scale: "On a scale of 1 to 7, where 1 is
+Government should provide many fewer services and 7 is Government should
+provide many more services, you place yourself at 5." The endpoints are
+the nearest labeled codes on either side of the answer, and they must be
+the only labels of the scale: no other label may lie below the lower
+endpoint, and labels above the upper endpoint must lie at least the
+scale's width beyond it. An off-scale code such as "99. Haven't thought
+much about this" after a 1 to 7 scale is therefore not an endpoint, and
+negative codes below a scale that starts at zero or above are taken for
+missing-data codes. Labels matching \code{na_strings} are never endpoints, a
+scale with a negative endpoint must be centered on zero, and top or
+bottom codes such as "89 or older" do not make a scale.
+\item A number without a label in a variable that holds numbers is shown as
+the number, as in "age: 25". A variable holds numbers when the file
+labels at most one of its substantive codes, such as the top code "80.
+Eighty years old or older", or labels only top and bottom codes.
+\item A negative number without a label that is not a point on a scale is
+taken for a missing-data code, as negative codes are in the ANES and WVS
+releases, and left out, with a warning. Label it in \code{value_labels} if it
+is an answer.
+\item Any other code without a label is shown as the code, with a warning
+naming the variable and code. Supply its label in \code{value_labels}.
+\item A variable without value labels is shown as stored; an empty value or
+one matching \code{na_strings} is left out.
+}
+
+Answers left out as missing values are announced in a message. Requested
+variables that are not in the file are left out of every persona, with a
+warning. When two variables would be shown under the same text, each is
+shown with its variable name appended, with a warning.
+}
+
 \examples{
 # A small labeled file stands in for a survey release; the call is the same
 # against a full ANES, GSS, or WVS file.
@@ -122,6 +200,7 @@ agents <- create_agents_from_survey(
 agents$P1$persona_description
 }
 \seealso{
-\code{\link[=create_agents_from_data]{create_agents_from_data()}} for an in-memory data frame, and
+\code{\link[=create_agents_from_data]{create_agents_from_data()}} for an in-memory data frame,
+\code{\link[=persona_rendering_report]{persona_rendering_report()}} for the record of each persona, and
 \code{LLMR::anes_2024_personas} for a ready-made example.
 }

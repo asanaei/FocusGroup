@@ -986,7 +986,11 @@ print.focus_group_result <- function(x, ...) {
 #'   by agent ID. When the participants are drawn from the bundled ANES
 #'   records, the list carries the `source_rows` attribute described in
 #'   [create_agents_from_survey()], giving the rows of
-#'   `LLMR::anes_2024_personas` that were drawn.
+#'   `LLMR::anes_2024_personas` that were drawn. Unless the personas are
+#'   given in `direct_persona_descriptions`, the list also carries a
+#'   `rendering_report` attribute recording each field supplied for each
+#'   participant and whether the persona shows it; see
+#'   [persona_rendering_report()].
 #'
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -1078,27 +1082,13 @@ create_agents <- function(n_participants, config, demographics = NULL,
   }
 
   agents <- list()
+  report <- list()
 
   # Create participants
 
   for (i in seq_len(n_participants)) {
-    # data.frame row -> named list of non-missing question:value pairs.
-    # drop = FALSE matters: a single-column frame would otherwise collapse to a
-    # vector and lose the column names.
-    row_to_list <- function(df, i) {
-      row <- df[i, , drop = FALSE]
-      out <- list()
-      for (col in names(row)) {
-        v <- row[[col]]
-        if (length(v) && !is.na(v) && nzchar(v) && !identical(as.character(v), "NA")) {
-          out[[col]] <- as.character(v)
-        }
-      }
-      out
-    }
-
     agent_demographics <- if (!is.null(demographics) && is.data.frame(demographics) && nrow(demographics) > 0) {
-      row_to_list(demographics, ((i - 1L) %% nrow(demographics)) + 1L)
+      .fg_row_fields(demographics, ((i - 1L) %% nrow(demographics)) + 1L)
     } else if (!is.null(demographics) && !is.data.frame(demographics) && is.list(demographics) && length(demographics) >= i) {
       demographics[[i]]
     } else {
@@ -1108,7 +1098,7 @@ create_agents <- function(n_participants, config, demographics = NULL,
     }
 
     agent_survey <- if (!is.null(survey_responses) && is.data.frame(survey_responses) && nrow(survey_responses) > 0) {
-      row_to_list(survey_responses, ((i - 1L) %% nrow(survey_responses)) + 1L)
+      .fg_row_fields(survey_responses, ((i - 1L) %% nrow(survey_responses)) + 1L)
     } else if (!is.null(survey_responses) && !is.data.frame(survey_responses) && is.list(survey_responses) && length(survey_responses) >= i) {
       survey_responses[[i]]
     } else {
@@ -1121,6 +1111,13 @@ create_agents <- function(n_participants, config, demographics = NULL,
       ]
     } else {
       generate_persona(agent_demographics, agent_survey)
+    }
+    if (is.null(direct_persona_descriptions)) {
+      report[[i]] <- rbind(
+        .fg_supplied_rows(paste0("P", i), "demographic",
+                          .fg_supplied_record(demographics, i), agent_demographics),
+        .fg_supplied_rows(paste0("P", i), "item",
+                          .fg_supplied_record(survey_responses, i), agent_survey))
     }
 
     agents[[paste0("P", i)]] <- FGAgent$new(
@@ -1150,6 +1147,10 @@ create_agents <- function(n_participants, config, demographics = NULL,
     .runner = .runner
   )
 
+  if (is.null(direct_persona_descriptions)) {
+    agents <- .fg_attach_report(
+      agents, .fg_check_report(.fg_bind_report(report), agents))
+  }
   return(agents)
 }
 
@@ -1403,8 +1404,9 @@ print.focus_group_analysis <- function(x, ...) {
 #' Both the demographics and the survey responses are rendered in full (every
 #' supplied field), not a fixed subset; fields that are missing or empty are
 #' left out rather than rendered as "NA". Pass survey responses keyed by the
-#' question wording (for survey-file input, the variable label is used as the
-#' key) so the model sees the item, not a code name.
+#' question wording (for survey-file input, `question_wording`, the names of
+#' `survey_vars`, or the variable label is used as the key) so the model sees
+#' the item, not a code name.
 #'
 #' @param demographics A named list (or single-row data frame coerced to one) of
 #'   demographic fields, e.g. `list(age = 63, education = "High school",
@@ -1422,36 +1424,11 @@ generate_persona <- function(demographics, survey_responses = NULL,
                              style = getOption("focusgroup.persona_style", "labeled")) {
   style <- match.arg(style, c("labeled", "paragraph"))
 
-  # Normalize a one-row data frame to a named list; drop NA/empty fields so they
-  # are simply absent rather than rendered as "NA".
-  to_named_list <- function(x) {
-    if (is.null(x)) return(list())
-    if (is.data.frame(x)) x <- as.list(x[1, , drop = FALSE])
-    if (!is.list(x)) x <- as.list(x)
-    x <- lapply(x, function(v) if (length(v)) v[[1]] else NA)
-    keep <- vapply(x, function(v) {
-      !is.null(v) && length(v) == 1L && !is.na(v) && nzchar(trimws(as.character(v)))
-    }, logical(1))
-    x[keep]
-  }
-
-  # Strip leftover code prefixes that some labeled surveys carry on a value
-  # label (e.g. "1. Male"). Trailing parentheticals such as "Asian
-  # (non-Hispanic)" are kept. A no-op on plain text.
-  tidy_value <- function(x) {
-    x <- as.character(x)
-    # Strip a numbered-label prefix ("1. Male") only when whitespace follows
-    # the period, so a decimal value ("1.5") passes through unchanged. A
-    # trailing parenthetical is substantive content ("Asian (non-Hispanic)")
-    # and is never removed.
-    x <- gsub("^[0-9]+\\.\\s+", "", x)
-    trimws(x)
-  }
-
-  demos <- to_named_list(demographics)
-  demos <- lapply(demos, tidy_value)
-  resp  <- to_named_list(survey_responses)
-  resp  <- lapply(resp, tidy_value)
+  # Missing and empty fields are absent rather than rendered as "NA", and the
+  # code prefixes that some labeled surveys carry on a value label ("1. Male")
+  # are stripped.
+  demos <- lapply(.fg_persona_fields(demographics), .fg_tidy_value)
+  resp  <- lapply(.fg_persona_fields(survey_responses), .fg_tidy_value)
 
   demo_text <- if (length(demos)) {
     paste(sprintf("%s: %s", names(demos), unlist(demos, use.names = FALSE)),
@@ -1488,25 +1465,44 @@ generate_persona <- function(demographics, survey_responses = NULL,
                             "don't know", "don.t know", "not asked",
                             "legitimate skip")
 
-# Decode a haven column to its value label (character); leave plain columns as
-# character. NA out values matching `na_strings`.
-.fg_decode_col <- function(col, na_strings) {
-  v <- if (inherits(col, c("haven_labelled", "labelled"))) {
-    as.character(haven::as_factor(col, levels = "labels"))
-  } else as.character(col)
-  if (length(na_strings)) {
-    pat <- paste(na_strings, collapse = "|")
-    v[grepl(pat, v, ignore.case = TRUE)] <- NA
-  }
-  v
-}
-
 # Choose the column key shown to the model: the human variable label (question
 # wording) when present, else the column name. `named` overrides take priority.
 .fg_col_key <- function(raw_lab, code, override = NULL) {
   if (!is.null(override) && nzchar(override)) return(override)
   lab <- tryCatch(attr(raw_lab[[code]], "label"), error = function(...) NULL)
   if (!is.null(lab) && nzchar(lab)) lab else code
+}
+
+# The text shown for each requested variable of one kind and where it comes
+# from. A survey item is shown under its supplied question wording, else its
+# label in the file (codebook shorthand, so this warns), else the name given
+# to it, else the variable name. A demographic field is shown under the name
+# given to it ("age"), else its label, else the variable name.
+.fg_field_keys <- function(data, vars, kind, wording = NULL) {
+  variables <- unname(as.character(vars))
+  given <- names(vars) %||% rep("", length(vars))
+  given[is.na(given)] <- ""
+  label <- vapply(variables, function(v) {
+    lab <- if (v %in% names(data)) attr(data[[v]], "label", exact = TRUE)
+    if (is.character(lab) && length(lab) == 1L && !is.na(lab) && nzchar(lab)) lab else ""
+  }, character(1), USE.NAMES = FALSE)
+  worded <- if (is.null(wording)) rep(NA_character_, length(variables)) else
+    unname(wording[variables])
+  source <- if (kind == "item") {
+    ifelse(!is.na(worded), "wording",
+           ifelse(nzchar(label), "label",
+                  ifelse(nzchar(given), "name", "variable")))
+  } else {
+    ifelse(nzchar(given), "name", ifelse(nzchar(label), "label", "variable"))
+  }
+  question <- ifelse(source == "wording", worded,
+                     ifelse(source == "name", given,
+                            ifelse(source == "label", label, variables)))
+  question <- .fg_distinct_keys(question, variables,
+                                if (kind == "item") "survey items" else "demographic fields")
+  data.frame(kind = rep(kind, length(variables)), variable = variables,
+             question = as.character(question), question_source = source,
+             stringsAsFactors = FALSE)
 }
 
 # Shared core: given a decoded demographics frame and survey-responses frame
@@ -1579,14 +1575,18 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' Create agents from a labeled survey file
 #'
 #' Reads a labeled survey file (Stata `.dta`, SPSS `.sav`, or SAS
-#' `.sas7bdat`), decodes the chosen variables from their value labels, and turns
-#' each selected respondent into an `FGAgent` whose persona states that
-#' respondent's demographics and survey answers. Numeric codes are decoded from
-#' the file's own value labels, so the same call works on ANES, GSS, WVS, or any
-#' other labeled file; nothing about a particular dataset is hard-coded.
+#' `.sas7bdat`) and turns each selected respondent into an `FGAgent` whose
+#' persona states that respondent's demographics and survey answers. Answers
+#' are rendered from the file's own value labels, so the same call works on
+#' ANES, GSS, WVS, or any other labeled file; nothing about a particular
+#' dataset is hard-coded.
 #'
-#' The survey answers are keyed by each variable's question wording (its label in
-#' the file) so the model sees the item, not a code name. The persona draws no
+#' Each survey answer is shown under its question: the wording supplied in
+#' `question_wording`, else the variable's label in the file, else the name
+#' given to the variable in `survey_vars`. A label is codebook shorthand
+#' rather than the question asked, so items shown without a wording draw a
+#' warning. Demographic fields are shown under the names given in
+#' `demographic_vars` ("age: 25"), else their labels. The persona draws no
 #' inferences from the answers; it states them and lets the model interpret.
 #'
 #' @param n_participants Integer number of participants (excludes the moderator).
@@ -1597,12 +1597,14 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'   labels. If `NULL`, common demographic variables are auto-detected by their
 #'   labels.
 #' @param survey_vars Variable names (codes) to render as survey responses. May
-#'   be named (names become the question wording shown). If `NULL`, labeled
+#'   be named; a name is used as the question only for an item with neither a
+#'   `question_wording` entry nor a label in the file. If `NULL`, labeled
 #'   variables that are not demographics are used.
 #' @param rows Optional row selector restricting the eligible respondents before
 #'   sampling: integer positions of rows in the file, a logical vector with one
 #'   value per row in the file, or a predicate `function(df) -> logical` over the
-#'   decoded demographics frame. The selector refers to the file's own rows and
+#'   demographics frame, whose columns hold the text rendered for each field.
+#'   The selector refers to the file's own rows and
 #'   is applied before respondents without any demographic value are left out;
 #'   a message says how many selected respondents were left out for that
 #'   reason. Positions must be whole numbers within the file. In a logical
@@ -1616,9 +1618,27 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'   personas, even when `demographic_vars` or `survey_vars` name it. Weights
 #'   must be nonnegative and finite, with at least one positive; numeric
 #'   values carrying haven value labels are accepted.
-#' @param na_strings Character vector of value-label substrings treated as
-#'   missing (case-insensitive). Defaults to a small common set; pass your own to
-#'   match another file's missing-data vocabulary.
+#' @param na_strings Character vector of value-label substrings, matched as
+#'   regular expressions and ignoring case, that mark an answer as missing.
+#'   Defaults to a small common set; pass your own to match another file's
+#'   missing-data vocabulary.
+#' @param question_wording Optional named character vector giving the question
+#'   as asked for survey items, keyed by variable name, as in
+#'   `c(V241248 = "Where would you place yourself on abortion?")`. It takes
+#'   precedence over the variable labels and the names of `survey_vars`;
+#'   entries for variables not in `survey_vars` are ignored. An item without
+#'   a wording is shown under its variable label (or, lacking one, its name),
+#'   with a warning that lists such items: a variable label is often codebook
+#'   shorthand ("PRE: 7pt scale abortion: self-placement") rather than the
+#'   question.
+#' @param value_labels Optional labels that replace or extend the file's value
+#'   labels: a data frame with columns `variable`, `code`, and `label`, or a
+#'   named list of named vectors in the form of haven value labels, as in
+#'   `list(V241386 = c("Make all unauthorized immigrants felons and send them
+#'   back to their home country" = 1))`. A supplied label replaces the file's
+#'   label for its code, or labels a code the file leaves unlabeled; use it to
+#'   restore labels the file cut short or to label stray codes. Supplied labels
+#'   are matched against `na_strings` like the file's own.
 #' @param .runner Optional function used instead of live model calls and stored
 #'   on every agent.
 #'
@@ -1640,15 +1660,64 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' respondents with a positive weight than participants to fill. The error
 #' names the column or the offending rows.
 #'
+#' @section Rendering answers:
+#' Each answer is rendered by the first of the following rules that applies,
+#' and the rule used is recorded in the rendering report described under
+#' Value.
+#'
+#' * A code with a value label is shown as its label, without a leading code
+#'   such as "1. ". A label that matches `na_strings` marks a missing value,
+#'   and the answer is left out. Two kinds of label from the file are shown
+#'   but flagged, with a warning naming the variable and code: a label
+#'   exactly 80 characters long, since some releases, the ANES 2024 Stata
+#'   file among them, cut longer labels at that length; and the label of a
+#'   negative code, since the ANES and WVS releases use negative codes for
+#'   missing data ("-6. No post interview"). Extend `na_strings` to leave
+#'   the latter out.
+#' * A number without a label that lies between the two labeled endpoints of
+#'   a scale is shown on that scale: "On a scale of 1 to 7, where 1 is
+#'   Government should provide many fewer services and 7 is Government should
+#'   provide many more services, you place yourself at 5." The endpoints are
+#'   the nearest labeled codes on either side of the answer, and they must be
+#'   the only labels of the scale: no other label may lie below the lower
+#'   endpoint, and labels above the upper endpoint must lie at least the
+#'   scale's width beyond it. An off-scale code such as "99. Haven't thought
+#'   much about this" after a 1 to 7 scale is therefore not an endpoint, and
+#'   negative codes below a scale that starts at zero or above are taken for
+#'   missing-data codes. Labels matching `na_strings` are never endpoints, a
+#'   scale with a negative endpoint must be centered on zero, and top or
+#'   bottom codes such as "89 or older" do not make a scale.
+#' * A number without a label in a variable that holds numbers is shown as
+#'   the number, as in "age: 25". A variable holds numbers when the file
+#'   labels at most one of its substantive codes, such as the top code "80.
+#'   Eighty years old or older", or labels only top and bottom codes.
+#' * A negative number without a label that is not a point on a scale is
+#'   taken for a missing-data code, as negative codes are in the ANES and WVS
+#'   releases, and left out, with a warning. Label it in `value_labels` if it
+#'   is an answer.
+#' * Any other code without a label is shown as the code, with a warning
+#'   naming the variable and code. Supply its label in `value_labels`.
+#' * A variable without value labels is shown as stored; an empty value or
+#'   one matching `na_strings` is left out.
+#'
+#' Answers left out as missing values are announced in a message. Requested
+#' variables that are not in the file are left out of every persona, with a
+#' warning. When two variables would be shown under the same text, each is
+#' shown with its variable name appended, with a warning.
+#'
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID. Two attributes record which respondents were drawn. The
 #'   `source_rows` attribute is an integer vector of their row positions in the
 #'   file, named by participant ID. When the file has columns named `id`,
 #'   `respondent_id`, or `persona_id`, the `source_ids` attribute is a data
 #'   frame of those columns for the drawn respondents, with participant IDs as
-#'   row names. The moderator appears in neither. Subsetting the list drops the
-#'   attributes, so read them from the list as returned.
-#' @seealso [create_agents_from_data()] for an in-memory data frame, and
+#'   row names. The moderator appears in neither. A third attribute,
+#'   `rendering_report`, records for each participant and each requested field
+#'   and item the text shown or the reason it was left out; read it with
+#'   [persona_rendering_report()]. Subsetting the list drops the attributes,
+#'   so read them from the list as returned.
+#' @seealso [create_agents_from_data()] for an in-memory data frame,
+#'   [persona_rendering_report()] for the record of each persona, and
 #'   `LLMR::anes_2024_personas` for a ready-made example.
 #' @examples
 #' # A small labeled file stands in for a survey release; the call is the same
@@ -1681,8 +1750,12 @@ create_agents_from_survey <- function(n_participants,
                                       rows = NULL,
                                       weights = NULL,
                                       na_strings = .fg_default_na_strings,
+                                      question_wording = NULL,
+                                      value_labels = NULL,
                                       .runner = NULL) {
   .fg_validate_config(config)
+  question_wording <- .fg_check_wording(question_wording)
+  value_labels <- .fg_check_value_labels(value_labels)
   if (!file.exists(survey_path)) stop("Survey file not found at: ", survey_path)
 
   ext <- tolower(tools::file_ext(survey_path))
@@ -1725,23 +1798,43 @@ create_agents_from_survey <- function(n_participants,
   if (had_demographics && !length(demographic_vars)) {
     stop("No usable `demographic_vars` remain after excluding the sampling-weight column.", call. = FALSE)
   }
-  demo_codes <- demographic_vars[unname(demographic_vars) %in% names(raw_lab)]
-  svy_codes  <- survey_vars[unname(survey_vars) %in% names(raw_lab)]
-  if (!length(demo_codes)) stop("None of `demographic_vars` are in the file.")
+  demographic_vars <- demographic_vars[!duplicated(unname(demographic_vars))]
+  survey_vars <- survey_vars[!duplicated(unname(survey_vars))]
+  if (!any(unname(demographic_vars) %in% names(raw_lab))) {
+    stop("None of `demographic_vars` are in the file.")
+  }
+  absent <- setdiff(c(unname(demographic_vars), unname(survey_vars)), names(raw_lab))
+  if (length(absent)) {
+    warning("These variables are not in the file and are left out of every persona: ",
+            paste(absent, collapse = ", "), ".", call. = FALSE)
+  }
 
-  demo_keys <- vapply(seq_along(demo_codes), function(i)
-    .fg_col_key(raw_lab, unname(demo_codes)[i], names(demo_codes)[i]), "")
-  svy_keys <- if (length(svy_codes)) vapply(seq_along(svy_codes), function(i)
-    .fg_col_key(raw_lab, unname(svy_codes)[i], names(svy_codes)[i]), "") else character(0)
+  # Each requested field and item: the text shown for it and where that text
+  # comes from, then the rendering of every respondent's answer.
+  fields <- rbind(
+    .fg_field_keys(raw_lab, demographic_vars, "demographic"),
+    .fg_field_keys(raw_lab, survey_vars, "item", question_wording))
+  rendered <- lapply(seq_len(nrow(fields)), function(j) {
+    v <- fields$variable[j]
+    if (!v %in% names(raw_lab)) {
+      return(.fg_dropped_rows(nrow(raw_lab), "the variable is not in the file", NA_character_))
+    }
+    supplied <- if (!is.null(value_labels)) {
+      value_labels[value_labels$variable == v, , drop = FALSE]
+    }
+    .fg_render_column(raw_lab[[v]], v, na_strings, supplied)
+  })
+  .fg_question_conditions(fields[fields$variable %in% names(raw_lab), , drop = FALSE])
 
-  demo_df <- as.data.frame(lapply(unname(demo_codes), function(c)
-    .fg_decode_col(raw_lab[[c]], na_strings)), stringsAsFactors = FALSE)
-  names(demo_df) <- demo_keys
-  survey_df <- if (length(svy_codes)) {
-    s <- as.data.frame(lapply(unname(svy_codes), function(c)
-      .fg_decode_col(raw_lab[[c]], na_strings)), stringsAsFactors = FALSE)
-    names(s) <- svy_keys; s
-  } else NULL
+  frame_of <- function(kind) {
+    j <- which(fields$kind == kind & fields$variable %in% names(raw_lab))
+    if (!length(j)) return(NULL)
+    out <- as.data.frame(lapply(rendered[j], `[[`, "text"), stringsAsFactors = FALSE)
+    names(out) <- fields$question[j]
+    out
+  }
+  demo_df <- frame_of("demographic")
+  survey_df <- frame_of("item")
 
   # `rows` selects among the file's own rows, so it is resolved before
   # respondents without any demographic value are left out; demographics and
@@ -1774,7 +1867,12 @@ create_agents_from_survey <- function(n_participants,
     demo_df, survey_df, n_participants, config,
     rows = NULL, weights = weights_vec, .runner = .runner
   )
-  .fg_roster_provenance(agents, raw_lab, which(keep)[attr(agents, "source_rows")])
+  source_rows <- which(keep)[attr(agents, "source_rows")]
+  agents <- .fg_roster_provenance(agents, raw_lab, source_rows)
+  report <- .fg_rendering_report(names(attr(agents, "source_rows")), source_rows,
+                                 fields, rendered)
+  .fg_rendering_conditions(.fg_check_report(report, agents))
+  .fg_attach_report(agents, report)
 }
 
 # Resolve a `rows` selector to row positions in `df`, which has `n` rows. A
@@ -1901,7 +1999,10 @@ create_agents_from_survey <- function(n_participants,
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID, with the `source_rows` and `source_ids` attributes described
 #'   in [create_agents_from_survey()]; here the positions refer to the rows of
-#'   `data`.
+#'   `data`. Unless the frame is a pre-rendered persona panel, the list also
+#'   carries a `rendering_report` attribute recording, for each participant
+#'   and column, the value shown or that it was missing; see
+#'   [persona_rendering_report()].
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
 #'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
@@ -1968,13 +2069,23 @@ create_agents_from_data <- function(data, n_participants, config,
     ifelse(is.na(q), cols, q)
   }
 
+  field_keys <- function(cols, kind) {
+    question <- relabel(cols)
+    data.frame(kind = rep(kind, length(cols)), variable = cols,
+               question = .fg_distinct_keys(question, cols, if (kind == "item")
+                 "survey items" else "demographic fields"),
+               question_source = ifelse(question == cols, "variable", "dictionary"),
+               stringsAsFactors = FALSE)
+  }
+  fields <- rbind(field_keys(demographic_cols, "demographic"),
+                  field_keys(survey_cols, "item"))
+
   demo_df <- to_char(data[, demographic_cols, drop = FALSE])
-  names(demo_df) <- relabel(demographic_cols)
+  names(demo_df) <- fields$question[fields$kind == "demographic"]
   survey_df <- if (length(survey_cols)) {
     s <- to_char(data[, survey_cols, drop = FALSE])
-    names(s) <- relabel(survey_cols); s
+    names(s) <- fields$question[fields$kind == "item"]; s
   } else NULL
-
 
   agents <- .fg_agents_from_frames(
     demo_df, survey_df, n_participants, config,
@@ -1982,7 +2093,23 @@ create_agents_from_data <- function(data, n_participants, config,
     direct_persona_descriptions = direct_personas,
     .runner = .runner
   )
-  .fg_roster_provenance(agents, data, attr(agents, "source_rows"))
+  agents <- .fg_roster_provenance(agents, data, attr(agents, "source_rows"))
+  if (is_silicon_panel) return(agents)
+
+  # The values are rendered as given, so the report records each one as shown
+  # or, when it is missing or empty, as dropped.
+  rendered <- lapply(c(as.list(demo_df), as.list(survey_df)), function(v) {
+    none <- .fg_no_value(v)
+    data.frame(code = v, text = ifelse(none, NA_character_, v),
+               rendered_as = ifelse(none, NA_character_, "value"),
+               status = ifelse(none, "dropped", "rendered"),
+               reason = ifelse(none, "no value", NA_character_),
+               issue = ifelse(none, "missing", NA_character_), flag = v,
+               stringsAsFactors = FALSE)
+  })
+  source_rows <- attr(agents, "source_rows")
+  report <- .fg_rendering_report(names(source_rows), source_rows, fields, rendered)
+  .fg_attach_report(agents, .fg_check_report(report, agents))
 }
 
  
