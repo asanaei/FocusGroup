@@ -173,16 +173,18 @@ test_that("question wording is shown, and its absence is warned", {
   expect_identical(report$question_source[report$kind == "item"], c("wording", "wording"))
   expect_false(grepl("scale_services", agents$P1$persona_description))
 
-  # Without it, the variable label is shown, with one warning naming the items.
+  # Without it, the variable label is shown, even over a name given to the
+  # variable, with one warning naming the items.
   expect_warning(
     agents <- suppressMessages(.render_agents(
       path, rows = 4, survey_vars = c("SERV", Immigration = "IMMIG"),
       question_wording = NULL)),
-    "No question wording was supplied for 1 survey item.*SERV \\(\"PRE: 7pt scale spending")
+    "No question wording was supplied for 2 survey item.*SERV \\(\"PRE: 7pt scale spending")
   report <- persona_rendering_report(agents)
-  expect_identical(report$question[report$kind == "item"],
-                   c("PRE: 7pt scale spending & services: self-placement", "Immigration"))
-  expect_identical(report$question_source[report$kind == "item"], c("label", "name"))
+  expect_identical(report$question_source[report$kind == "item"], c("label", "label"))
+  expect_identical(report$question[report$kind == "item"][1],
+                   "PRE: 7pt scale spending & services: self-placement")
+  expect_false(grepl("Question: Immigration", agents$P1$persona_description, fixed = TRUE))
   expect_no_warning(suppressMessages(.render_agents(
     path, rows = 4, survey_vars = c("SERV", "IMMIG"), question_wording = .wording,
     value_labels = data.frame(variable = "IMMIG", code = 2, label = "Guest workers"))))

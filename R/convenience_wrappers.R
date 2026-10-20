@@ -1150,8 +1150,10 @@ generate_persona <- function(demographics, survey_responses = NULL,
 }
 
 # The text shown for each requested variable of one kind and where it comes
-# from: the supplied question wording (items only), the name given to the
-# variable, its label in the file, or the variable name itself.
+# from. A survey item is shown under its supplied question wording, else its
+# label in the file (codebook shorthand, so this warns), else the name given
+# to it, else the variable name. A demographic field is shown under the name
+# given to it ("age"), else its label, else the variable name.
 .fg_field_keys <- function(data, vars, kind, wording = NULL) {
   variables <- unname(as.character(vars))
   given <- names(vars) %||% rep("", length(vars))
@@ -1162,9 +1164,13 @@ generate_persona <- function(demographics, survey_responses = NULL,
   }, character(1), USE.NAMES = FALSE)
   worded <- if (is.null(wording)) rep(NA_character_, length(variables)) else
     unname(wording[variables])
-  source <- ifelse(!is.na(worded), "wording",
-                   ifelse(nzchar(given), "name",
-                          ifelse(nzchar(label), "label", "variable")))
+  source <- if (kind == "item") {
+    ifelse(!is.na(worded), "wording",
+           ifelse(nzchar(label), "label",
+                  ifelse(nzchar(given), "name", "variable")))
+  } else {
+    ifelse(nzchar(given), "name", ifelse(nzchar(label), "label", "variable"))
+  }
   question <- ifelse(source == "wording", worded,
                      ifelse(source == "name", given,
                             ifelse(source == "label", label, variables)))
@@ -1252,9 +1258,12 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' dataset is hard-coded.
 #'
 #' Each survey answer is shown under its question: the wording supplied in
-#' `question_wording`, else the name given to the variable in `survey_vars`,
-#' else the variable's label in the file. The persona draws no inferences from
-#' the answers; it states them and lets the model interpret.
+#' `question_wording`, else the variable's label in the file, else the name
+#' given to the variable in `survey_vars`. A label is codebook shorthand
+#' rather than the question asked, so items shown without a wording draw a
+#' warning. Demographic fields are shown under the names given in
+#' `demographic_vars` ("age: 25"), else their labels. The persona draws no
+#' inferences from the answers; it states them and lets the model interpret.
 #'
 #' @param n_participants Integer number of participants (excludes the moderator).
 #' @param survey_path Path to the survey file (`.dta`, `.sav`, or `.sas7bdat`).
@@ -1264,8 +1273,8 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'   labels. If `NULL`, common demographic variables are auto-detected by their
 #'   labels.
 #' @param survey_vars Variable names (codes) to render as survey responses. May
-#'   be named; a name is shown verbatim as the question unless
-#'   `question_wording` gives one for that variable. If `NULL`, labeled
+#'   be named; a name is used as the question only for an item with neither a
+#'   `question_wording` entry nor a label in the file. If `NULL`, labeled
 #'   variables that are not demographics are used.
 #' @param rows Optional row selector restricting the eligible respondents before
 #'   sampling: integer positions of rows in the file, a logical vector with one
@@ -1292,11 +1301,12 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #' @param question_wording Optional named character vector giving the question
 #'   as asked for survey items, keyed by variable name, as in
 #'   `c(V241248 = "Where would you place yourself on abortion?")`. It takes
-#'   precedence over the names of `survey_vars` and the variable labels;
-#'   entries for variables not in `survey_vars` are ignored. When an item has
-#'   neither a wording nor a name, its variable label is shown, with a warning
-#'   that lists such items: a variable label is often codebook shorthand
-#'   ("PRE: 7pt scale abortion: self-placement") rather than the question.
+#'   precedence over the variable labels and the names of `survey_vars`;
+#'   entries for variables not in `survey_vars` are ignored. An item without
+#'   a wording is shown under its variable label (or, lacking one, its name),
+#'   with a warning that lists such items: a variable label is often codebook
+#'   shorthand ("PRE: 7pt scale abortion: self-placement") rather than the
+#'   question.
 #' @param value_labels Optional labels that replace or extend the file's value
 #'   labels: a data frame with columns `variable`, `code`, and `label`, or a
 #'   named list of named vectors in the form of haven value labels, as in

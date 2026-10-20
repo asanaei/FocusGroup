@@ -538,15 +538,13 @@
 
 .fg_question_conditions <- function(fields) {
   unworded <- fields[fields$kind == "item" &
-                       fields$question_source %in% c("label", "variable"), , drop = FALSE]
+                       fields$question_source %in% c("label", "name", "variable"), , drop = FALSE]
   if (!nrow(unworded)) return(invisible(NULL))
-  shown <- ifelse(unworded$question_source == "label",
-                  sprintf("%s (\"%s\")", unworded$variable, unworded$question),
-                  sprintf("%s (no label)", unworded$variable))
+  shown <- sprintf("%s (\"%s\")", unworded$variable, unworded$question)
   warning(sprintf(paste(
     "No question wording was supplied for %d survey item(s); each is shown",
-    "under its variable label, or its name when it has no label: %s. Supply",
-    "`question_wording` to show the questions as asked."),
+    "under its variable label, or, when it has none, the name given to it: %s.",
+    "Supply `question_wording` to show the questions as asked."),
     nrow(unworded), .fg_list_items(shown)), call. = FALSE)
   invisible(NULL)
 }

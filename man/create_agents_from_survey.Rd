@@ -31,8 +31,8 @@ labels. If \code{NULL}, common demographic variables are auto-detected by their
 labels.}
 
 \item{survey_vars}{Variable names (codes) to render as survey responses. May
-be named; a name is shown verbatim as the question unless
-\code{question_wording} gives one for that variable. If \code{NULL}, labeled
+be named; a name is used as the question only for an item with neither a
+\code{question_wording} entry nor a label in the file. If \code{NULL}, labeled
 variables that are not demographics are used.}
 
 \item{rows}{Optional row selector restricting the eligible respondents before
@@ -63,11 +63,12 @@ missing-data vocabulary.}
 \item{question_wording}{Optional named character vector giving the question
 as asked for survey items, keyed by variable name, as in
 \code{c(V241248 = "Where would you place yourself on abortion?")}. It takes
-precedence over the names of \code{survey_vars} and the variable labels;
-entries for variables not in \code{survey_vars} are ignored. When an item has
-neither a wording nor a name, its variable label is shown, with a warning
-that lists such items: a variable label is often codebook shorthand
-("PRE: 7pt scale abortion: self-placement") rather than the question.}
+precedence over the variable labels and the names of \code{survey_vars};
+entries for variables not in \code{survey_vars} are ignored. An item without
+a wording is shown under its variable label (or, lacking one, its name),
+with a warning that lists such items: a variable label is often codebook
+shorthand ("PRE: 7pt scale abortion: self-placement") rather than the
+question.}
 
 \item{value_labels}{Optional labels that replace or extend the file's value
 labels: a data frame with columns \code{variable}, \code{code}, and \code{label}, or a
@@ -103,9 +104,12 @@ dataset is hard-coded.
 }
 \details{
 Each survey answer is shown under its question: the wording supplied in
-\code{question_wording}, else the name given to the variable in \code{survey_vars},
-else the variable's label in the file. The persona draws no inferences from
-the answers; it states them and lets the model interpret.
+\code{question_wording}, else the variable's label in the file, else the name
+given to the variable in \code{survey_vars}. A label is codebook shorthand
+rather than the question asked, so items shown without a wording draw a
+warning. Demographic fields are shown under the names given in
+\code{demographic_vars} ("age: 25"), else their labels. The persona draws no
+inferences from the answers; it states them and lets the model interpret.
 
 Respondents are drawn without replacement, so a participant is never a
 second copy of another. When the selection leaves more eligible respondents

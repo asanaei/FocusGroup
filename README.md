@@ -190,8 +190,7 @@ It renders each answer from the file's value labels. A number the file leaves
 unlabeled is shown on its scale when the item labels only the endpoints ("On a
 scale of 1 to 7, where 1 is ... and 7 is ..., you place yourself at 5"), and
 as a number in a numeric field such as age. Questions are shown in the wording
-given in `question_wording`, else under the names given to `survey_vars`, else
-under the variable labels, with a warning. `value_labels` replaces labels the
+given in `question_wording`, else under the variable labels, with a warning. `value_labels` replaces labels the
 file cut short and labels stray codes.
 
 ```r
