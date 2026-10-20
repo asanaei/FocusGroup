@@ -969,8 +969,8 @@ fg_turns <- function(x) {
             probes$question[i], probes$answer[i])
   }, character(1))
   paste0("\nPrivate probe answers. Each participant answered these questions alone: ",
-         "no other participant and not the moderator saw the answers, and they did ",
-         "not enter the discussion. Cite them only in \"probe_evidence\", by their ",
+         "neither the other participants nor the moderator saw the answers, and they ",
+         "did not enter the discussion. Cite them only in \"probe_evidence\", by their ",
          "ids, and say in the claim that the answer was private.\n",
          paste(lines, collapse = "\n"), "\n")
 }
