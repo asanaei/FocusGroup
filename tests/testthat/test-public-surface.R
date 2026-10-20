@@ -12,6 +12,7 @@ test_that("the package exports exactly the first-release surface", {
     "fg_before_turn",
     "fg_default_na_strings",
     "fg_injection",
+    "fg_player",
     "fg_probe",
     "focus_group_from_transcript",
     "get_default_prompt_templates",
