@@ -44,6 +44,22 @@ flat template and routed through the flat path.
 (\code{\link[=fg_probe]{fg_probe()}}); \verb{\\\{\\\{probe_question\\\}\\\}} is replaced by the question.
 }
 
+\section{Summary templates}{
+
+\code{summary_participant}, \code{summary_item}, \code{summary_disagreements},
+\code{summary_trajectory}, \code{summary_turn}, and \code{summary_session} are the prompts
+of \code{\link[=summarize_focus_group]{summarize_focus_group()}}, one per unit, and \code{summary_reask} is the
+message that returns a failing reply with its failures. Their placeholders
+are \verb{\\\{\\\{topic\\\}\\\}}, \verb{\\\{\\\{unit\\\}\\\}}, \verb{\\\{\\\{roster\\\}\\\}} (speakers and
+message counts, computed in code), \verb{\\\{\\\{transcript\\\}\\\}},
+\verb{\\\{\\\{probes\\\}\\\}} (empty unless probe answers are included),
+\verb{\\\{\\\{stages\\\}\\\}} (trajectory only), \verb{\\\{\\\{format\\\}\\\}} (the JSON shape the
+reply must take), and, in \code{summary_reask}, \verb{\\\{\\\{failures\\\}\\\}}. They are
+read by \code{\link[=summarize_focus_group]{summarize_focus_group()}} alone; changing them in a session's
+\code{prompt_templates} has no effect, and the \code{templates} argument of
+\code{\link[=summarize_focus_group]{summarize_focus_group()}} replaces them.
+}
+
 \examples{
 default_prompts <- get_default_prompt_templates()
 names(default_prompts)
