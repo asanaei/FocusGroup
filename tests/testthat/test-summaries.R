@@ -15,7 +15,7 @@
     is_moderator = c(FALSE, TRUE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE),
     text = c("Participants: P1, P2, P3, P4; Moderator: MOD",
              "Welcome. What should change about the library hours?",
-             "I don’t think the evening hours should be cut. Working parents rely on them.",
+             "I don\u2019t think the evening hours should be cut. Working parents rely on them.",
              "I disagree.  The mornings matter more\nfor retirees who cannot drive at night.",
              "We should not raise fees... but weekends need more staff.",
              "P2, what would you cut first?",
@@ -78,14 +78,14 @@ test_that("the verifier admits every positive and rejects every hard negative", 
     exact_span = p1(quotes = list(.q(3, "P1", "Working parents rely on them"))),
     curly_apostrophe_in_message = p1(quotes = list(.q(3, "P1", "I don't think the evening hours"))),
     curly_apostrophe_in_quote = .sum_reply(speakers = list("P1"), evidence = list(8),
-      quotes = list(.q(8, "P1", "so I’m against that"))),
+      quotes = list(.q(8, "P1", "so I\u2019m against that"))),
     curly_marks_around_quote = .sum_reply(speakers = list("P2"), evidence = list(7),
-      quotes = list(.q(7, "P2", "“Honestly, I would cut the Sunday hours”"))),
+      quotes = list(.q(7, "P2", "\u201cHonestly, I would cut the Sunday hours\u201d"))),
     whitespace_and_line_break = p2(quotes = list(.q(4, "P2", "The mornings matter more for retirees"))),
     case = p2(quotes = list(.q(4, "P2", "the MORNINGS matter more"))),
     ordered_ellipsis = .sum_reply(speakers = list("P3"), evidence = list(5),
       quotes = list(.q(5, "P3", "We should not raise fees ... weekends need more staff"))),
-    unicode_ellipsis = p2(quotes = list(.q(4, "P2", "I disagree… for retirees who cannot drive"))),
+    unicode_ellipsis = p2(quotes = list(.q(4, "P2", "I disagree\u2026 for retirees who cannot drive"))),
     ellipsis_spoken = .sum_reply(speakers = list("P3"), evidence = list(5),
       quotes = list(.q(5, "P3", "We should not raise fees... but weekends"))),
     change_in_order = .sum_reply(kind = "change", speakers = list("P2"), evidence = list(4, 7),
@@ -180,9 +180,9 @@ test_that("quotes are cut from the source with their offsets", {
   expect_identical(joined$verbatim, "I disagree ... cannot drive")
   expect_identical(nrow(joined$spans), 2L)
   expect_identical(substr(source, joined$spans$start[2], joined$spans$end[2]), "cannot drive")
-  curly <- "I don’t think so, honestly."
+  curly <- "I don\u2019t think so, honestly."
   m <- FocusGroup:::.fg_match_quote("don't think so", curly)
-  expect_identical(m$verbatim, "don’t think so")
+  expect_identical(m$verbatim, "don\u2019t think so")
 })
 
 test_that("a reply that does not parse, or was cut off, fails as a whole", {

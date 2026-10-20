@@ -1099,17 +1099,20 @@ fg_turns <- function(x) {
     disagreements = "D1", session = "session")
   kind <- switch(by, trajectory = "stage", turn = "gist", disagreements = "disagreement",
                  "position")
-  quote <- if (probes) {
-    "{\"message_id\": 14, \"probe\": null, \"speaker\": \"P2\", \"text\": \"words copied from message 14\"}"
+  # The example speaker is the unit's own participant in participant mode.
+  who <- if (identical(by, "participant")) unit$key else "P2"
+  quote <- sprintf(if (probes) {
+    "{\"message_id\": 14, \"probe\": null, \"speaker\": \"%s\", \"text\": \"words copied from message 14\"}"
   } else {
-    "{\"message_id\": 14, \"speaker\": \"P2\", \"text\": \"words copied from message 14\"}"
-  }
+    "{\"message_id\": 14, \"speaker\": \"%s\", \"text\": \"words copied from message 14\"}"
+  }, who)
   extra <- c(
     if (probes) "\"probe_evidence\": []",
     if (identical(by, "turn")) paste0("\"act\": ", if ("detailed" %in% levels) "\"answer\"" else "null"),
     if (identical(by, "disagreements")) "\"ending\": {\"how\": \"unresolved\", \"message_id\": null}")
   level_example <- paste0("{", paste(sprintf("\"%s\": [1]", levels), collapse = ", "), "}")
-  speakers <- if (identical(by, "disagreements")) "[\"P2\", \"P3\"]" else "[\"P2\"]"
+  speakers <- if (identical(by, "disagreements")) "[\"P2\", \"P3\"]" else
+    sprintf("[\"%s\"]", who)
   shape <- paste0(
     "{\n  \"claims\": [\n    {\"id\": 1, \"unit\": \"", example_unit, "\", \"kind\": \"", kind,
     "\", \"text\": \"One sentence.\", \"status\": \"stated\", \"speakers\": ", speakers,
@@ -1873,11 +1876,11 @@ fg_turns <- function(x) {
 
 # ---- Quotes and words -----------------------------------------------------------
 
-.fg_quote_singles <- c("‘", "’", "‚", "‛", "′", "ʼ")
-.fg_quote_doubles <- c("“", "”", "„", "‟", "″", "«", "»")
-.fg_space_marks <- c(" ", " ", " ", " ", " ", " ", " ",
-                     " ", " ", " ", " ", " ", " ", " ",
-                     " ", " ", " ", "　")
+.fg_quote_singles <- c("\u2018", "\u2019", "\u201a", "\u201b", "\u2032", "\u02bc")
+.fg_quote_doubles <- c("\u201c", "\u201d", "\u201e", "\u201f", "\u2033", "\u00ab", "\u00bb")
+.fg_space_marks <- c("\u00a0", "\u1680", "\u2000", "\u2001", "\u2002", "\u2003", "\u2004",
+                     "\u2005", "\u2006", "\u2007", "\u2008", "\u2009", "\u200a", "\u2028",
+                     "\u2029", "\u202f", "\u205f", "\u3000")
 
 # Text with case, whitespace, and quotation marks normalized, and nothing
 # else; `pos` gives the position in the original text of each character.
@@ -1957,7 +1960,7 @@ fg_turns <- function(x) {
 .fg_match_quote <- function(quote, source) {
   q <- .fg_normalize_span(quote)$text
   q <- gsub("^[\"']+|[\"']+$", "", q)
-  parts <- strsplit(q, "\\s*[\\[(]?\\s*(\\.\\s?\\.\\s?\\.|…)\\s*[\\])]?\\s*", perl = TRUE)[[1]]
+  parts <- strsplit(q, "\\s*[\\[(]?\\s*(\\.\\s?\\.\\s?\\.|\u2026)\\s*[\\])]?\\s*", perl = TRUE)[[1]]
   parts <- trimws(parts)
   parts <- parts[nzchar(parts)]
   words <- sum(vapply(parts, function(p) {
