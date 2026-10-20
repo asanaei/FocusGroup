@@ -459,7 +459,9 @@ Analyze participation balance and dominance patterns.
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-A list with participation statistics and balance metrics.
+A list with participation statistics and balance metrics. Every
+agent in the roster has a row, an agent who did not speak in the
+analyzed messages with zero messages and words and an \code{NA} average.
 }
 }
 \if{html}{\out{<hr>}}

@@ -252,16 +252,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
           needs_summary <- recent_tokens >= summarize_trigger_tokens ||
             length(self$conversation_log) > summarize_trigger_count
         }
-        if (needs_summary) {
+        # The summary stands in for the messages the prompt window no longer
+        # shows, so it covers exactly those; while the window still holds the
+        # whole discussion there is nothing to summarize.
+        dropped_transcript <- if (needs_summary) {
+          private$get_dropped_transcript_for_summary(summarize_probe_tokens)
+        } else ""
+        if (nzchar(dropped_transcript)) {
           if (verbose) cat("\n--- Generating interim summary for context management ---\n")
-          current_transcript_for_summary <- private$get_recent_transcript_for_summary(30)
           attr(self, "execution_phase") <- "interim_summary"
           interim_summary_text <- self$summarize(
             config = self$admin_config,
             summary_level = 3,
             max_tokens = interim_summary_tokens,
             internal_call = TRUE,
-            transcript_override = current_transcript_for_summary
+            transcript_override = dropped_transcript
           )
           self$current_conversation_summary <- interim_summary_text
           private$last_summary_round <- round_counter
@@ -821,7 +826,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @description Analyze participation balance and dominance patterns.
     #' @param message_ids Integer vector. Optional `message_id` values to analyze.
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
-    #' @return A list with participation statistics and balance metrics.
+    #' @return A list with participation statistics and balance metrics. Every
+    #'   agent in the roster has a row, an agent who did not speak in the
+    #'   analyzed messages with zero messages and words and an `NA` average.
     analyze_participation_balance = function(message_ids = NULL, speaker_ids = NULL) {
       filtered_log <- private$get_filtered_log(message_ids, speaker_ids)
       if (length(filtered_log) == 0) {
@@ -847,6 +854,19 @@ FocusGroup <- R6::R6Class("FocusGroup",
             avg_words = .data$words / .data$messages,
             .groups = "drop"
           )
+
+        # An agent who never spoke is part of the balance: it appears with
+        # zero messages, so it can be the least active speaker. A
+        # `speaker_ids` filter limits the roster as it limits the log.
+        roster <- names(self$agents)
+        if (!is.null(speaker_ids)) roster <- intersect(roster, speaker_ids)
+        silent <- setdiff(roster, participation$speaker_id)
+        if (length(silent)) {
+          participation <- dplyr::bind_rows(participation, dplyr::tibble(
+            speaker_id = silent, messages = 0L, words = 0L,
+            avg_words = NA_real_)) %>%
+            dplyr::arrange(.data$speaker_id)
+        }
 
         # Calculate participation percentages
         total_messages <- sum(participation$messages)
@@ -1557,14 +1577,19 @@ FocusGroup <- R6::R6Class("FocusGroup",
     current_phase_index = 0L,
     last_summary_round = NULL,
 
-    # Helper to get recent transcript for interim summary
-    get_recent_transcript_for_summary = function(n_recent_utterances = 10) {
-        if (length(self$conversation_log) == 0) return("")
-        start_idx <- max(1, length(self$conversation_log) - n_recent_utterances + 1)
-        recent_log <- self$conversation_log[start_idx:length(self$conversation_log)]
-        paste(sapply(recent_log, function(msg) {
+    # The transcript of the messages that fall before the prompt window, for
+    # the interim summary; "" when the window still holds every message. The
+    # System roster row is not discussion and is left out.
+    get_dropped_transcript_for_summary = function(max_tokens_history) {
+        log <- self$conversation_log
+        if (length(log) == 0) return("")
+        start <- .fg_window_start(log, max_tokens_history)
+        dropped <- Filter(function(msg) !identical(msg$speaker_id, "System"),
+                          log[seq_len(start - 1L)])
+        if (!length(dropped)) return("")
+        paste(vapply(dropped, function(msg) {
             paste0(msg$speaker_id, ": ", msg$text)
-        }), collapse = "\n\n")
+        }, character(1)), collapse = "\n\n")
     }
   )
 )

@@ -261,21 +261,9 @@ format_conversation_history <- function(conversation_log,
       formatted_messages <- vapply(recent_messages_list, format_message, character(1))
     }
   } else {
-    if (!is.numeric(max_tokens_history) || length(max_tokens_history) != 1 || max_tokens_history <= 0) {
-      stop("max_tokens_history must be a positive number.")
-    }
-    formatted_messages <- character(0)
-    current_tokens <- 0L
-
-    for (i in rev(seq_along(conversation_log))) {
-      msg_text <- format_message(conversation_log[[i]])
-      msg_tokens <- estimate_tokens(msg_text)
-      if (length(formatted_messages) > 0 && current_tokens + msg_tokens > max_tokens_history) {
-        break
-      }
-      formatted_messages <- c(msg_text, formatted_messages)
-      current_tokens <- current_tokens + msg_tokens
-    }
+    start <- .fg_window_start(conversation_log, max_tokens_history)
+    formatted_messages <- vapply(conversation_log[seq.int(start, length(conversation_log))],
+                                 format_message, character(1))
   }
 
   if (length(formatted_messages) > 0) {
@@ -289,6 +277,28 @@ format_conversation_history <- function(conversation_log,
   }
 
   paste(history_parts, collapse = "\n")
+}
+
+# The position of the oldest message the prompt window keeps. Messages are
+# taken from the newest back while their estimated tokens fit within
+# `max_tokens_history`; the newest message is always kept. Messages before
+# this position are the part of the history that prompts no longer show.
+.fg_window_start <- function(conversation_log, max_tokens_history) {
+  if (!is.numeric(max_tokens_history) || length(max_tokens_history) != 1 || max_tokens_history <= 0) {
+    stop("max_tokens_history must be a positive number.")
+  }
+  n <- length(conversation_log)
+  start <- n + 1L
+  current_tokens <- 0L
+  for (i in rev(seq_len(n))) {
+    msg <- conversation_log[[i]]
+    msg_tokens <- estimate_tokens(paste0(msg$speaker_id %||% "UnknownSpeaker", ": ",
+                                         msg$text %||% ""))
+    if (start <= n && current_tokens + msg_tokens > max_tokens_history) break
+    start <- i
+    current_tokens <- current_tokens + msg_tokens
+  }
+  start
 }
 
 
@@ -535,6 +545,36 @@ parse_score_0_10 <- function(text) {
   val <- as.integer(hits[length(hits)])
   if (is.na(val)) return(NA_integer_)
   clamp(val)
+}
+
+# Remove a leading persona self-introduction ("As a retired teacher, ...")
+# from a participant's reply. The same grammatical form also opens ordinary
+# discourse ("As a result, ...", "As the saying goes, ..."), and those openings
+# are content, so a clause whose head is a discourse word, or one that
+# reports what someone said, is kept.
+.fg_discourse_as <- paste0(
+  "^As\\s+(",
+  "(a|an)\\s+(result|consequence|rule|whole|aside|example|reminder|",
+  "matter\\s+of|side\\s+note|general\\s+rule|first\\s+step|last\\s+resort|",
+  "starting\\s+point|follow-up|final\\s+(thought|point|note)|",
+  "quick\\s+(note|aside|reminder)|bonus|counterpoint|practical\\s+matter|",
+  "point\\s+of|society|group|community|country|nation|team|precaution|",
+  "compromise|baseline|case\\s+in\\s+point)\\b",
+  "|the\\s+(saying|old\\s+saying|proverb|expression|phrase|name|title|",
+  "moderator|question|discussion|conversation|group|others?|previous|last|",
+  "earlier|data|evidence|research|record|numbers|article)\\b",
+  "|the\\b[^,]*\\b(said|says|noted|notes|mentioned|mentions|pointed\\s+out|",
+  "points\\s+out|put\\s+it|puts\\s+it|suggested|suggests|goes|asked|asks|",
+  "argued|argues|shows|showed)\\b",
+  ")")
+
+.fg_strip_role_preamble <- function(text) {
+  text <- as.character(text)
+  intro <- grepl("^As\\s+(an?|the)\\b[^,]*,", text, ignore.case = TRUE, perl = TRUE) &
+    !grepl(.fg_discourse_as, text, ignore.case = TRUE, perl = TRUE)
+  text[intro] <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", text[intro],
+                     ignore.case = TRUE, perl = TRUE)
+  text
 }
 
 # Word count that a blank string cannot inflate: an empty or whitespace-only

@@ -254,7 +254,7 @@ FGAgent <- R6::R6Class("FGAgent",
       # Keep one thin guard against a leading role preamble; drop the rest.
       original_text <- utterance_text
       cleaned <- trimws(original_text)
-      cleaned <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cleaned, ignore.case = TRUE)
+      cleaned <- .fg_strip_role_preamble(cleaned)
       if (!nzchar(cleaned)) cleaned <- original_text
       # Keep the longer/non-empty between cleaned and original
       if (nchar(cleaned) >= 20 || nchar(original_text) == 0) {
@@ -304,7 +304,7 @@ FGAgent <- R6::R6Class("FGAgent",
           backoff_factor = 2
         )
         cand <- trimws(.fg_response_text(response_obj2))
-        cand <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", cand, ignore.case = TRUE)
+        cand <- .fg_strip_role_preamble(cand)
         retry_incomplete <- !nzchar(cand) ||
           identical(.fg_response_finish(response_obj2), "length") ||
           grepl("\\.\\.\\.\\s*$", cand)

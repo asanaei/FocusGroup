@@ -49,27 +49,31 @@ test_that("complete results include final summary failures without losing usage"
 })
 
 test_that("interim summaries have a separate failure phase and recorded usage", {
+  # Two moderator turns of about 55,000 estimated tokens each: after the
+  # second, the 64,000-token prompt window drops the first, and the interim
+  # summary that covers it is the third call.
   n <- 0L
   runner <- function(experiments, ...) {
     n <<- n + 1L
-    experiments$response_text <- if (n == 1) paste0(strrep("Long discussion. ", 13000), ".") else "Summary."
+    experiments$response_text <- if (n <= 2) paste0(strrep("Long discussion. ", 13000), ".") else "Summary."
     experiments$total <- 7L
-    if (n == 2) { experiments$success <- FALSE; experiments$error_message <- "interim failed" }
+    if (n == 3) { experiments$success <- FALSE; experiments$error_message <- "interim failed" }
     experiments
   }
+  guide <- list(Opening = c("Welcome.", "Explain the ground rules."))
   e <- tryCatch(run_focus_group("Hours", LLMR::llm_config("openai", "example-model"),
-    1, guide = list(Opening = "Welcome."), demographics = data.frame(age = 40),
+    1, guide = guide, demographics = data.frame(age = 40),
     flow = "round_robin", .runner = runner, verbose = FALSE), focusgroup_incomplete_session = identity)
   expect_identical(e$phase, "interim_summary")
-  expect_equal(e$partial$usage$total, 14); expect_equal(e$partial$usage$unknown, 2)
+  expect_equal(e$partial$usage$total, 21); expect_equal(e$partial$usage$unknown, 3)
   n <- 0L
   success <- function(experiments, ...) {
     out <- runner(experiments, ...); out$success <- TRUE; out
   }
   r <- run_focus_group("Hours", LLMR::llm_config("openai", "example-model"),
-    1, guide = list(Opening = "Welcome."), demographics = data.frame(age = 40),
+    1, guide = guide, demographics = data.frame(age = 40),
     flow = "round_robin", .runner = success, verbose = FALSE)
-  expect_equal(n, 3); expect_equal(r$usage$total, 21)
+  expect_equal(n, 4); expect_equal(r$usage$total, 28)
 })
 
 test_that("session sanitization preserves provenance and status through the flow", {
