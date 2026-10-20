@@ -197,12 +197,12 @@ NULL
 #'   many moderator instructions from the phase banks. Character vectors supply
 #'   the ordered instructions directly. The default is a compact session (one
 #'   opening, one icebreaker, two engagement and three exploration questions,
-#'   one closing); with the default flow, participants, and response limit it
-#'   plans 93 model outputs, inside the default `max_calls` of 100. Larger
-#'   guides multiply quickly: each question round costs one output per
-#'   response plus, under `"desire_based"`, one scoring output per
-#'   participant. `NULL` runs a minimal script: an opening, one open discussion
-#'   of `topic`, and a closing.
+#'   one closing); with the default flow, participants, response limit, and
+#'   call-ons it plans at most 111 model outputs, inside the default
+#'   `max_calls` of 120. Larger guides multiply quickly: each question round
+#'   costs one output per response plus, under `"desire_based"`, one scoring
+#'   output per participant. `NULL` runs a minimal script: an opening, one
+#'   open discussion of `topic`, and a closing.
 #' @param demographics Optional participant demographics, one row per
 #'   participant. With this, `survey_responses`, and personas all absent, the
 #'   participants are drawn from the bundled ANES 2024 records.
@@ -256,6 +256,21 @@ NULL
 #'   `metadata$verbatim = TRUE`. The opening and closing instructions of the
 #'   numeric phase banks are instructions to the moderator, so verbatim
 #'   delivery suits a guide written as the lines to be said.
+#' @param call_on_silent Where the moderator calls on the participants who
+#'   have not spoken since the previous such point, as described in Details:
+#'   any of `"opening"`, `"midpoint"`, and `"end"` (the default is all
+#'   three), guide item numbers, or `"none"` (or `FALSE`) for no call-ons.
+#' @param call_on_text The call-on line. It must contain `{participant}`,
+#'   which is replaced by the participant's handle; `NULL` uses
+#'   "\{participant\}, I'd like to hear from you as well. What are your
+#'   thoughts?".
+#' @param handles The labels under which the agents see each other: `NULL`
+#'   (the default) for `"P1"`, `"P2"`, ... and `"Moderator"`, `"ids"` for the
+#'   agent IDs, or a character vector of handles named by agent ID, as for
+#'   `FocusGroup$new()`.
+#' @param final_summary Logical. `TRUE` (the default) ends the session with a
+#'   model-written summary; `FALSE` makes no summary call and leaves
+#'   `summary` empty.
 #' @param .runner Optional function used instead of live model calls. It
 #'   receives a data frame with `config` and `messages` list-columns and returns
 #'   those rows with at least `response_text`. Token columns such as
@@ -263,16 +278,44 @@ NULL
 #'   absent, usage is unknown.
 #'
 #' @details
-#' The estimate counts one output for each moderator turn, one for each
-#' participant response a question round allows, and one for the final
-#' summary. Under `"desire_based"` it adds one desire score per participant
-#' before each response. With the default guide, six participants, and the
-#' default flow, two responses per question give an estimate of 93 outputs and
-#' three give 135. A session can make fewer calls, since the desire-based flow
-#' does not score the previous speaker, or more, since incomplete replies are
-#' retried and a long discussion triggers interim summaries. `max_calls`
-#' applies to the estimate, and only to live runs: with `.runner` the session
-#' runs whatever the estimate.
+#' At the end of each call-on item's discussion the moderator calls on every
+#' participant who has not spoken since the previous call-on point, or since
+#' the start for the first, in roster order. `"opening"` is the first guide
+#' item participants answer, `"midpoint"` the middle one, and `"end"` the
+#' last; points that fall on the same item count once, and item numbers count
+#' every guide item, as [fg_after_item()] does. Each call-on line is
+#' delivered as written, with no model call, and carries
+#' `metadata$call_on`; the participant then answers, with a cue in the turn
+#' instruction and no desire score, and the reply carries
+#' `metadata$called_on = TRUE`. With the default guide the points are items
+#' 2, 4, and 7, so every participant speaks during the icebreaker. Krueger
+#' (2002) describes the opening question of a focus group as a round robin.
+#'
+#' The participants and the moderator see each other under handles, never
+#' under the IDs of the records: the IDs of [create_agents()] are already
+#' `"P1"`, `"P2"`, ..., and the moderator appears as `"Moderator"`. When
+#' the moderator's last question opens or closes with one participant's
+#' handle ("P3, do you agree?", "Could you say more, P3?") and does not also
+#' put it to the group, that participant takes the next turn, without a
+#' desire score, and the reply carries `metadata$addressed = TRUE`. A label
+#' a speaker writes for itself at the start of its reply (`**MOD:**`,
+#' `P3:`) is removed, and the message carries
+#' `metadata$self_label_removed = TRUE`; the reply as returned stays in
+#' `calls`.
+#'
+#' The estimate counts one output for each moderator turn the model writes,
+#' one for each participant response a question round allows, one for each
+#' participant at each call-on point, and one for the final summary. Under
+#' `"desire_based"` it adds one desire score per participant before each
+#' response the flow chooses. With the default guide, six participants, and
+#' the default flow, two responses per question give an estimate of 111
+#' outputs (93 without call-ons) and three give 153. A session can make
+#' fewer calls, since the desire-based flow does not score the previous
+#' speaker, an addressed turn needs no scores, and a call-on point calls on
+#' only the participants who have been silent, or more, since incomplete
+#' replies are retried and a long discussion triggers interim summaries.
+#' `max_calls` applies to the estimate, and only to live runs: with
+#' `.runner` the session runs whatever the estimate.
 #'
 #' When a model call fails partway through the session (a provider error that
 #' persists after retries, an error from `.runner`, a reply still incomplete
@@ -309,13 +352,21 @@ NULL
 #'     the model configuration, so model analyses can be run on it later.}
 #'   \item{transcript}{A data frame with one row per logged message, starting
 #'     with the `"System"` message that lists the roster. Its columns are
-#'     `message_id`, `round`, `speaker_id`, `is_moderator`, `text`, `phase`,
+#'     `message_id`, `round`, `item` (the guide item the message belongs
+#'     to, 0 for the roster row), `speaker_id` (the agent ID), `handle` (the
+#'     label the agents saw), `is_moderator`, `text`, `phase`,
 #'     `response_id`, `finish_reason`, `sent_tokens`, `rec_tokens`,
 #'     `total_tokens`, `duration_s`, `provider`, `model`, `timestamp` (in UTC),
-#'     and the list-column `metadata`.}
+#'     and the list-column `metadata`, which marks, among others, delivered
+#'     lines (`verbatim`), injected messages (`injected`, `injection`),
+#'     call-on lines (`call_on`, a list of `point`, `participant`, and
+#'     `handle`), the replies to them (`called_on`), replies to a moderator
+#'     line that addressed the speaker (`addressed`), and replies whose
+#'     self-label was removed (`self_label_removed`).}
 #'   \item{summary}{The final summary. It is `NA` when the final summary call
-#'     failed, and `character(0)` in a partial result that stopped before it.}
-#'   \item{participants}{A data frame with one row per agent: `id`, `role`,
+#'     failed, and `character(0)` in a partial result that stopped before it
+#'     or in a session run with `final_summary = FALSE`.}
+#'   \item{participants}{A data frame with one row per agent: `id`, `handle`, `role`,
 #'     `is_moderator`, `persona`, `demographics`, `survey_responses`,
 #'     `provider`, and `model`. When the participants were drawn from the
 #'     bundled ANES records, the rows drawn are recorded in
@@ -337,7 +388,11 @@ NULL
 #'     system-message rules for participants and the moderator),
 #'     `disclosure`, `versions` (of FocusGroup, LLMR, and R), `started`, and
 #'     `branch` (`NULL`, or for a session run by [run_focus_group_arms()] its
-#'     arm and branch point). It holds no configuration object.}
+#'     arm and branch point), `handles` (a data frame of `agent_id` and
+#'     `handle`), `call_on_silent` (a list of the `points` and the guide
+#'     `items` they fall on, both empty when call-ons are off),
+#'     `call_on_text`, and `final_summary`. It holds no configuration
+#'     object.}
 #'   \item{calls}{A data frame with one row per model call the session
 #'     made, in order, including retries and failed calls: `call_id`,
 #'     `call_type` (`"moderator"`, `"participant"`, `"desire"`, `"summary"`,
@@ -357,7 +412,10 @@ NULL
 #'     `round`, `phase`, `turn` (the participant turn it chose for),
 #'     `flow`, `rule` (such as `"rotation"`, `"propensity_draw"`,
 #'     `"highest_score"`, `"threshold_lowered"`, `"highest_below_threshold"`,
-#'     or `"uniform_after_failure"`), `selected_id`, `message_id`,
+#'     `"uniform_after_failure"`, or, for turns the flow did not choose,
+#'     `"called_on"` and `"addressed"`), `selected_id`, `message_id`,
+#'     `trigger_message_id` (for `"called_on"` and `"addressed"`, the
+#'     moderator line that gave the turn; otherwise `NA`),
 #'     `threshold`, `tie_break` (`"none"`, `"random"`, or `"draw"`),
 #'     `scoring_mode`, and the list-columns `candidates`, `excluded` (named
 #'     by participant, giving the reason, such as `"previous_speaker"` or
@@ -377,7 +435,12 @@ NULL
 #' Results saved by FocusGroup 0.5.2 and earlier lack `usage$unknown`,
 #' `metadata$complete`, and `metadata$failure`; results saved by 0.5.3 and
 #' earlier lack `calls`, `routing`, `probes`, `injections`, and the metadata
-#' that follows `failure`.
+#' that follows `failure`; results saved by 0.5.4 and earlier lack the
+#' `item` and `handle` columns, `trigger_message_id`, and the metadata that
+#' follows `branch`.
+#'
+#' @references Krueger, R. A. (2002). *Designing and Conducting Focus Group
+#'   Interviews*. University of Minnesota.
 #'
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -475,9 +538,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
                               message_mode, verbose, max_participant_responses,
                               max_calls, confirm, max_tokens_config,
                               reasoning_effort, on_desire_failure, probes,
-                              moderator_verbatim, call_on_silent = "none",
-                              call_on_text = NULL, handles = NULL,
-                              final_summary = TRUE, n_arms, .runner, seed_env) {
+                              moderator_verbatim, call_on_silent,
+                              call_on_text, handles, final_summary, n_arms,
+                              .runner, seed_env) {
   .fg_validate_config(config)
   reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
   probes <- .fg_probe_list(probes)

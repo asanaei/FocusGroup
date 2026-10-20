@@ -21,6 +21,11 @@ for selecting the next speaker.
 Should return the agent object or \code{NULL}.}
 \item{\code{update_state_post_selection(speaker_id, focus_group)}}{Optional. Updates internal state
 after a speaker has spoken. Base implementation updates \code{self$last_speaker_id}.}
+\item{\code{note_moderator_turn()}}{Optional. Called after every moderator
+line: a guide item, a call-on line, or an injected moderator message.
+Base implementation clears \code{self$last_speaker_id}, so that a flow that
+passes over the previous speaker bars only back-to-back participant
+turns.}
 }
 }
 
@@ -62,6 +67,7 @@ subclass that does not set it is recorded with rule \code{"custom"}.}
 \item \href{#method-ConversationFlow-new}{\code{ConversationFlow$new()}}
 \item \href{#method-ConversationFlow-select_next_speaker}{\code{ConversationFlow$select_next_speaker()}}
 \item \href{#method-ConversationFlow-update_state_post_selection}{\code{ConversationFlow$update_state_post_selection()}}
+\item \href{#method-ConversationFlow-note_moderator_turn}{\code{ConversationFlow$note_moderator_turn()}}
 \item \href{#method-ConversationFlow-clone}{\code{ConversationFlow$clone()}}
 }
 }
@@ -121,6 +127,21 @@ Updates internal state after a speaker is selected.
 \item{\code{focus_group}}{The \code{FocusGroup} object.}
 }
 \if{html}{\out{</div>}}
+}
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-ConversationFlow-note_moderator_turn"></a>}}
+\if{latex}{\out{\hypertarget{method-ConversationFlow-note_moderator_turn}{}}}
+\subsection{Method \code{note_moderator_turn()}}{
+Notes that the moderator has just spoken. The participant
+who spoke before the moderator's line is then no longer the previous
+speaker: whoever closed one question may open the next.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{ConversationFlow$note_moderator_turn()}\if{html}{\out{</div>}}
+}
+
+\subsection{Returns}{
+The flow, invisibly.
 }
 }
 \if{html}{\out{<hr>}}

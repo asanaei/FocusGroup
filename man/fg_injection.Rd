@@ -15,8 +15,9 @@ fg_injection(
 \arguments{
 \item{text}{One non-empty string, the message.}
 
-\item{at}{Where the message goes: \code{\link[=fg_after_item]{fg_after_item()}} or \code{\link[=fg_before_turn]{fg_before_turn()}}.
-When an injection and a probe share a point, the probe is asked first.}
+\item{at}{Where the message goes: \code{\link[=fg_after_item]{fg_after_item()}}, \code{\link[=fg_before_turn]{fg_before_turn()}},
+or \code{"before_closing"}. When an injection and a probe share a point, the
+probe is asked first.}
 
 \item{from}{\code{"moderator"} or the name of an outside speaker.}
 
@@ -38,9 +39,13 @@ point, sender, visibility, and the \code{message_id} it follows.
 }
 \details{
 A message \code{from = "moderator"} is logged under the moderator's id, so the
-moderator reads it as its own line. Any other \code{from} names an outside
-voice, such as \code{"Guest expert"}, logged under that name; it may not be a
-participant id or \code{"System"}.
+moderator reads it as its own line; so is a message from the moderator's
+id or handle. Any other \code{from} names an outside voice, such as
+\code{"Guest expert"}, logged under that name and shown to the agents as
+written; it may not be a participant id, a participant's handle, or
+\code{"System"}. A moderator message that puts its last question to one
+participant by handle ("P2, what do you make of that?") gives that
+participant the next turn.
 
 With \code{visibility = "shared"} the message enters the shared log and every
 agent sees it from then on. With \code{visibility = "participants"} it is kept

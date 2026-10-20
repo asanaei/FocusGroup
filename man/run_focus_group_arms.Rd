@@ -17,13 +17,17 @@ run_focus_group_arms(
   message_mode = c("roleflip", "flat"),
   verbose = TRUE,
   max_participant_responses = NULL,
-  max_calls = 100L,
+  max_calls = 120L,
   confirm = FALSE,
   max_tokens_config = NULL,
   reasoning_effort = NULL,
   on_desire_failure = c("error", "random"),
   probes = NULL,
   moderator_verbatim = FALSE,
+  call_on_silent = c("opening", "midpoint", "end"),
+  call_on_text = NULL,
+  handles = NULL,
+  final_summary = TRUE,
   .runner = NULL
 )
 }
@@ -43,12 +47,12 @@ among \code{"Opening"}, \code{"Icebreaker"}, \code{"Engagement"}, \code{"Explora
 many moderator instructions from the phase banks. Character vectors supply
 the ordered instructions directly. The default is a compact session (one
 opening, one icebreaker, two engagement and three exploration questions,
-one closing); with the default flow, participants, and response limit it
-plans 93 model outputs, inside the default \code{max_calls} of 100. Larger
-guides multiply quickly: each question round costs one output per
-response plus, under \code{"desire_based"}, one scoring output per
-participant. \code{NULL} runs a minimal script: an opening, one open discussion
-of \code{topic}, and a closing.}
+one closing); with the default flow, participants, response limit, and
+call-ons it plans at most 111 model outputs, inside the default
+\code{max_calls} of 120. Larger guides multiply quickly: each question round
+costs one output per response plus, under \code{"desire_based"}, one scoring
+output per participant. \code{NULL} runs a minimal script: an opening, one
+open discussion of \code{topic}, and a closing.}
 
 \item{demographics}{Optional participant demographics, one row per
 participant. With this, \code{survey_responses}, and personas all absent, the
@@ -113,6 +117,25 @@ numbers delivers those items so. A verbatim message carries
 \code{metadata$verbatim = TRUE}. The opening and closing instructions of the
 numeric phase banks are instructions to the moderator, so verbatim
 delivery suits a guide written as the lines to be said.}
+
+\item{call_on_silent}{Where the moderator calls on the participants who
+have not spoken since the previous such point, as described in Details:
+any of \code{"opening"}, \code{"midpoint"}, and \code{"end"} (the default is all
+three), guide item numbers, or \code{"none"} (or \code{FALSE}) for no call-ons.}
+
+\item{call_on_text}{The call-on line. It must contain \code{{participant}},
+which is replaced by the participant's handle; \code{NULL} uses
+"\{participant\}, I'd like to hear from you as well. What are your
+thoughts?".}
+
+\item{handles}{The labels under which the agents see each other: \code{NULL}
+(the default) for \code{"P1"}, \code{"P2"}, ... and \code{"Moderator"}, \code{"ids"} for the
+agent IDs, or a character vector of handles named by agent ID, as for
+\code{FocusGroup$new()}.}
+
+\item{final_summary}{Logical. \code{TRUE} (the default) ends the session with a
+model-written summary; \code{FALSE} makes no summary call and leaves
+\code{summary} empty.}
 
 \item{.runner}{Optional function used instead of live model calls. It
 receives a data frame with \code{config} and \code{messages} list-columns and returns

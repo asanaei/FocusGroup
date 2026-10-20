@@ -10,7 +10,9 @@ fg_probe(question, at, label = NULL, participants = NULL)
 \item{question}{One non-empty string, the question.}
 
 \item{at}{One point, or a list of points, at which to ask it:
-\code{\link[=fg_after_item]{fg_after_item()}}, \code{\link[=fg_before_turn]{fg_before_turn()}}, \code{"start"}, or \code{"end"}.}
+\code{\link[=fg_after_item]{fg_after_item()}}, \code{\link[=fg_before_turn]{fg_before_turn()}}, \code{"start"}, \code{"before_closing"},
+or \code{"end"}. \code{"end"} comes after the closing line; \code{"before_closing"}
+comes before it.}
 
 \item{label}{Optional name for the probe in the records; by default
 \code{"probe_1"}, \code{"probe_2"}, ... in the order the probes are given.}

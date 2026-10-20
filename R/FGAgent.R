@@ -170,7 +170,7 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   one of those calls reported it, and `usage_unknown` counts the calls
     #'   whose usage was incomplete. The other fields describe the final reply.
     #'   A label the agent wrote for itself at the start of the reply, such as
-    #'   "P3:" or "**MOD:**", is removed from `text`, and `metadata` then
+    #'   `P3:` or `**MOD:**`, is removed from `text`, and `metadata` then
     #'   holds `self_label_removed = TRUE`; another speaker's label is kept.
     #'   The agent's token fields are updated even when the retry fails.
     generate_utterance = function(topic,
@@ -368,11 +368,14 @@ FGAgent <- R6::R6Class("FGAgent",
     #' @param desire_prompt_template Character. The prompt template to use for this query.
     #' @param max_tokens_desire Integer. Maximum tokens for the LLM's response to the desire query.
     #' @param current_moderator_question Character. The current question posed by the moderator.
-    #' @param last_speaker_id Character. The ID of the agent who spoke last.
+    #' @param last_speaker_id Character. The label of the agent who spoke last,
+    #'   as the agents see it.
     #' @param last_utterance_text Character. The text of the last utterance.
-    #' @param conversation_log List or NULL. The structured conversation log. When
+    #' @param conversation_log List or NULL. The structured conversation log,
+    #'   with speakers under the labels this agent is to see. When
     #'   supplied (and the template is not a legacy flat template), desire scoring
-    #'   is role-flipped so the agent reads its own prior turns as its own voice;
+    #'   is role-flipped so the agent reads its own prior turns, those under its
+    #'   handle, as its own voice;
     #'   `NULL` keeps the legacy flat construction.
     #' @param max_tokens_retry Integer or NULL. The budget of the one retry made
     #'   when the first reply is empty or cut off; `NULL` uses 256. No retry is
@@ -491,7 +494,8 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   far, as for a turn, and the question as the closing instruction. The
     #'   answer is returned, not logged, and is not added to `history`.
     #' @param question Character. The question.
-    #' @param conversation_log List. The discussion so far.
+    #' @param conversation_log List. The discussion so far, with speakers under
+    #'   the labels this agent is to see.
     #' @param topic Character or NULL. The session topic, available to the
     #'   template as `{{topic}}`.
     #' @param template Character. The instruction template; `{{probe_question}}`

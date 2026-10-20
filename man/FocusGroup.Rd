@@ -26,6 +26,29 @@ no calls. Objects saved by FocusGroup 0.5.2 and earlier lack
 
 A session run by \code{\link[=run_focus_group]{run_focus_group()}} carries a \code{session_status} attribute,
 a list with \code{complete} and \code{failure} as in that function's \code{metadata}.
+
+Every prompt shows the agents under their handles, never under their IDs:
+the participants' turns, the moderator's lines, desire scores, probes, and
+the interim summary that stands in for messages the prompt window no
+longer holds. The researcher's records, the log and the routing record
+among them, keep the IDs. Each participant's system message names its
+handle ("In this discussion you are P3.").
+
+The moderator calls on silent participants at the guide items given by
+\code{call_on_silent}. When the discussion of such an item ends, each
+participant who has not spoken since the previous call-on point (or the
+start of the session) is asked, in roster order, by the line in
+\code{call_on_text}, delivered as written with no model call; the participant
+then answers, without a desire score, and the routing record gives the
+turn the rule \code{"called_on"}. With the default guide of
+\code{\link[=run_focus_group]{run_focus_group()}} the points are items 2, 4, and 7. Krueger (2002)
+describes the opening question of a focus group as a round robin; the
+first point gives every participant a turn early in the session.
+
+A moderator line whose last question opens or closes with one
+participant's handle ("P3, do you agree?", "Could you say more, P3?"),
+and does not also ask the group, gives that participant the next turn,
+with the rule \code{"addressed"}.
 }
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -42,6 +65,10 @@ fg <- FocusGroup$new(topic = "Neighborhood safety",
                      turn_taking_flow = flow)
 fg$topic
 }
+\references{
+Krueger, R. A. (2002). \emph{Designing and Conducting Focus Group
+Interviews}. University of Minnesota.
+}
 \section{Public fields}{
 \if{html}{\out{<div class="r6-fields">}}
 \describe{
@@ -54,11 +81,26 @@ fg$topic
 \item{\code{moderator_id}}{Character. The ID of the agent designated as the moderator.}
 
 \item{\code{conversation_log}}{List. A chronological log of all messages. Each message is a list
-that includes at least \code{message_id}, \code{round}, \code{speaker_id}, \code{is_moderator},
-\code{text}, \code{timestamp}, \code{phase}, and \code{metadata}, along with call metadata:
-\code{response_id}, \code{finish_reason}, \code{sent_tokens}, \code{rec_tokens}, \code{total_tokens},
-\code{duration_s}, \code{provider}, and \code{model}. \code{message_id} is unique message order;
-moderator and participant messages from one moderator cycle share \code{round}.}
+that includes at least \code{message_id}, \code{round}, \code{item}, \code{speaker_id},
+\code{handle}, \code{is_moderator}, \code{text}, \code{timestamp}, \code{phase}, and \code{metadata},
+along with call metadata: \code{response_id}, \code{finish_reason}, \code{sent_tokens},
+\code{rec_tokens}, \code{total_tokens}, \code{duration_s}, \code{provider}, and \code{model}.
+\code{message_id} is unique message order; moderator and participant messages
+from one moderator cycle share \code{round}, and \code{item} is the guide item the
+message belongs to (0 for the roster row). \code{speaker_id} is the agent ID
+and \code{handle} the label the agents saw.}
+
+\item{\code{handles}}{Named character vector. The label under which each agent
+appears to the other agents, named by agent ID; see the \code{handles}
+argument of \code{new()}.}
+
+\item{\code{call_on_silent}}{List. The guide items at which the moderator calls on
+the participants who have not spoken, as \code{points} (the name of each
+point: \code{"opening"}, \code{"midpoint"}, \code{"end"}, or \code{"item:<k>"}) and \code{items}
+(the item numbers). Both are empty when call-ons are off.}
+
+\item{\code{call_on_text}}{Character. The moderator's call-on line;
+\code{{participant}} is replaced by the participant's handle.}
 
 \item{\code{turn_taking_flow}}{A \code{ConversationFlow} object dictating participant turn-taking.}
 
@@ -168,7 +210,10 @@ Initialize a new FocusGroup simulation.
   admin_config = NULL,
   max_tokens_config = list(),
   max_participant_responses = NULL,
-  reasoning_effort = NULL
+  reasoning_effort = NULL,
+  handles = NULL,
+  call_on_silent = c("opening", "midpoint", "end"),
+  call_on_text = NULL
 )}\if{html}{\out{</div>}}
 }
 
@@ -179,7 +224,8 @@ Initialize a new FocusGroup simulation.
 
 \item{\code{purpose}}{Character. The primary purpose of the focus group.}
 
-\item{\code{agents}}{Named list of initialized \code{FGAgent} objects.}
+\item{\code{agents}}{Named list of initialized \code{FGAgent} objects, each named
+by its \code{id}.}
 
 \item{\code{moderator_id}}{Character. The ID of the agent acting as moderator.}
 
@@ -208,6 +254,31 @@ Defaults to \code{getOption("focusgroup.max_participant_responses", 2L)}.}
 
 \item{\code{reasoning_effort}}{Optional reasoning-effort setting, as described
 for the \code{reasoning_effort} field.}
+
+\item{\code{handles}}{The labels under which the agents see each other.
+\code{NULL} (the default) shows the participants as \code{"P1"}, \code{"P2"}, ...
+in roster order and the moderator as \code{"Moderator"}, so the IDs given
+to the agents never reach a prompt. \code{"ids"} shows the agent IDs, with
+a message listing them. A character vector named by agent ID sets
+handles of your own, such as invented first names, and the agents it
+does not name keep their neutral handles. A handle must be non-empty
+and distinct, cannot be \code{"System"} or the name of an injected voice,
+and cannot contain a standalone number from 0 to 10, which a desire
+score could be mistaken for.}
+
+\item{\code{call_on_silent}}{Where the moderator calls on the participants
+who have not spoken since the previous such point: any of
+\code{"opening"} (the first discussion item), \code{"midpoint"} (discussion
+item \code{ceiling(D / 2)} of \code{D}), and \code{"end"} (the last discussion
+item), or guide item numbers, which count every item, as
+\code{\link[=fg_after_item]{fg_after_item()}} does, and must be items participants answer.
+\code{"none"} or \code{FALSE} turns call-ons off. Points falling on the same
+item count once.}
+
+\item{\code{call_on_text}}{The call-on line, delivered as written with no
+model call. It must contain \code{{participant}}, which is replaced by the
+participant's handle. \code{NULL} uses "\{participant\}, I'd like to hear
+from you as well. What are your thoughts?".}
 }
 \if{html}{\out{</div>}}
 }
@@ -223,7 +294,8 @@ Iterates through the \code{question_script} phases or a specified number of roun
   num_rounds = NULL,
   verbose = FALSE,
   injections = NULL,
-  probes = NULL
+  probes = NULL,
+  final_summary = TRUE
 )}\if{html}{\out{</div>}}
 }
 
@@ -242,6 +314,10 @@ place into the session at their points.}
 
 \item{\code{probes}}{Optional \code{\link[=fg_probe]{fg_probe()}} or list of probes to ask at their
 points; the answers go to \code{records$probes}, never to the log.}
+
+\item{\code{final_summary}}{Logical. \code{TRUE} (the default) ends the session
+with a model-written summary in \code{final_summary}; \code{FALSE} makes no
+summary call and leaves \code{final_summary} \code{NULL}.}
 }
 \if{html}{\out{</div>}}
 }
@@ -263,7 +339,13 @@ Run the session up to a branch point once, then continue
 a copy of it once per arm. \code{\link[=run_focus_group_arms]{run_focus_group_arms()}} describes the
 design and builds results from the objects returned here.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$run_arms(arms, probes = NULL, num_rounds = NULL, verbose = FALSE)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$run_arms(
+  arms,
+  probes = NULL,
+  num_rounds = NULL,
+  verbose = FALSE,
+  final_summary = TRUE
+)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
@@ -278,6 +360,9 @@ must name the same point.}
 \item{\code{num_rounds}}{Integer. Optional maximum number of moderator cycles.}
 
 \item{\code{verbose}}{Logical. Print progress.}
+
+\item{\code{final_summary}}{Logical. Whether each arm ends with a final
+summary, as in \code{run_simulation()}.}
 }
 \if{html}{\out{</div>}}
 }
@@ -327,13 +412,16 @@ no agent's. A session's call record lists such a summary as
 
 \item{\code{.runner}}{Optional function used instead of live model calls. It
 receives a data frame with \code{config} and \code{messages} list-columns and
-returns the rows with at least \code{response_text}.}
+returns the rows with at least \code{response_text}. \code{NULL} makes a live
+call through \code{config}, also on a session that ran with a runner.}
 }
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-Character string containing the generated summary. An empty
-reply is an error; its usage is recorded first.
+Character string containing the generated summary. The
+transcript shows the speakers under their handles, without the
+roster row. A log or transcript with nothing to summarize is an
+error, as is an empty reply; its usage is recorded first.
 }
 }
 \if{html}{\out{<hr>}}
@@ -549,6 +637,8 @@ Analyze participation balance and dominance patterns.
 A list with participation statistics and balance metrics. Every
 agent in the roster has a row, an agent who did not speak in the
 analyzed messages with zero messages and words and an \code{NA} average.
+The \code{called_on} column counts the turns that answered the
+moderator's call-on line.
 }
 }
 \if{html}{\out{<hr>}}

@@ -82,6 +82,11 @@ positive; \code{NA} when that number cannot be determined.}
 \item{\code{demographics}}{Named list. Raw demographics used to build persona.}
 
 \item{\code{survey_responses}}{Named list. Raw survey responses used to build persona.}
+
+\item{\code{handle}}{Character or \code{NULL}. The label under which this agent
+appears in the discussion and by which it recognizes its own turns,
+set by \link{FocusGroup} from its \code{handles}; \code{NULL} outside a session,
+when \code{id} is used.}
 }
 \if{html}{\out{</div>}}
 }
@@ -168,9 +173,11 @@ Generate an utterance for the agent.
 
 \item{\code{current_phase}}{Character. The current phase of the focus group (e.g., "icebreaker", "exploration").}
 
-\item{\code{conversation_log}}{List or NULL. The structured conversation log. When
+\item{\code{conversation_log}}{List or NULL. The structured conversation log,
+with speakers under the labels this agent is to see. When
 supplied (and the template is not a legacy flat template), the message is
-built role-flipped: this agent's own prior turns become \code{assistant}
+built role-flipped: this agent's own prior turns, those under its
+\code{handle} (or, without one, its \code{id}), become \code{assistant}
 messages and others' become labeled \code{user} messages. \code{NULL} keeps the
 legacy flat single-user-message construction.}
 
@@ -192,10 +199,13 @@ the agent's configuration for this utterance and its retry, such as
 A list with \code{text} (the generated utterance) and \code{meta} (a list
 of call metadata: \code{response_id}, \code{finish_reason}, \code{sent_tokens},
 \code{rec_tokens}, \code{total_tokens}, \code{usage_unknown}, \code{duration_s},
-\code{provider}, and \code{model}). The token counts cover the first call and,
+\code{provider}, \code{model}, and \code{metadata}). The token counts cover the first call and,
 when the reply was incomplete, its retry; each is \code{NA} unless every
 one of those calls reported it, and \code{usage_unknown} counts the calls
 whose usage was incomplete. The other fields describe the final reply.
+A label the agent wrote for itself at the start of the reply, such as
+\verb{P3:} or \verb{**MOD:**}, is removed from \code{text}, and \code{metadata} then
+holds \code{self_label_removed = TRUE}; another speaker's label is kept.
 The agent's token fields are updated even when the retry fails.
 }
 }
@@ -234,13 +244,16 @@ contribute to the discussion at the current moment.
 
 \item{\code{current_moderator_question}}{Character. The current question posed by the moderator.}
 
-\item{\code{last_speaker_id}}{Character. The ID of the agent who spoke last.}
+\item{\code{last_speaker_id}}{Character. The label of the agent who spoke last,
+as the agents see it.}
 
 \item{\code{last_utterance_text}}{Character. The text of the last utterance.}
 
-\item{\code{conversation_log}}{List or NULL. The structured conversation log. When
+\item{\code{conversation_log}}{List or NULL. The structured conversation log,
+with speakers under the labels this agent is to see. When
 supplied (and the template is not a legacy flat template), desire scoring
-is role-flipped so the agent reads its own prior turns as its own voice;
+is role-flipped so the agent reads its own prior turns, those under its
+handle, as its own voice;
 \code{NULL} keeps the legacy flat construction.}
 
 \item{\code{max_tokens_retry}}{Integer or NULL. The budget of the one retry made
@@ -289,7 +302,8 @@ answer is returned, not logged, and is not added to \code{history}.
 \describe{
 \item{\code{question}}{Character. The question.}
 
-\item{\code{conversation_log}}{List. The discussion so far.}
+\item{\code{conversation_log}}{List. The discussion so far, with speakers under
+the labels this agent is to see.}
 
 \item{\code{topic}}{Character or NULL. The session topic, available to the
 template as \code{{{topic}}}.}

@@ -125,11 +125,30 @@ calls.
 |---|---|---|
 | `"round_robin"` | It cycles through participant IDs in a fixed order. | Use it when equal speaking opportunity and predictable exposure are design requirements. It adds no speaker-selection model calls. |
 | `"probabilistic"` | It samples from speaking propensities. The selected participant's propensity falls to zero, while the other propensities recover toward their baselines by `recovery_increment`, which defaults to `0.1`. | Use it when unequal, stochastic participation is part of the design but speaker choice should not depend on model-rated content. |
-| `"desire_based"` | It asks eligible personas to rate their desire to speak from the current question and transcript. It excludes the previous speaker when possible, uses `min_desire_threshold = 3`, may relax the threshold after discussion begins, selects the highest score, and breaks ties at random. A score that cannot be obtained stops the session, unless `on_desire_failure = "random"`, which chooses among the valid scores. | Use it when content-responsive speaker emergence is the object of study. It adds model calls and makes speaker assignment model-dependent. |
+| `"desire_based"` | It asks eligible personas to rate their desire to speak from the current question and transcript. It passes over the participant who spoke just before, unless the moderator has spoken since, uses `min_desire_threshold = 3`, may relax the threshold after discussion begins, selects the highest score, and breaks ties at random. A score that cannot be obtained stops the session, unless `on_desire_failure = "random"`, which chooses among the valid scores. | Use it when content-responsive speaker emergence is the object of study. It adds model calls and makes speaker assignment model-dependent. |
 
 `"desire_based"` is the default. Nondefault propensity, recovery, or desire
 settings require `create_conversation_flow()` and direct construction, described
 in the advanced section below.
+
+Two kinds of turn bypass the flow. First, the moderator calls on participants
+who have not spoken. At the first, middle, and last questions participants
+answer (`call_on_silent = c("opening", "midpoint", "end")`, items 2, 4, and 7
+of the default guide), once the discussion of the question ends, the moderator
+turns to each participant who has said nothing since the previous such point
+and asks, in a fixed line, "P4, I'd like to hear from you as well. What are
+your thoughts?" The line is delivered as written, with no model call, and the
+participant answers without a desire score. The first point gives every
+participant a turn during the first question, as the round-robin opening
+question of Krueger (2002) does. Item numbers place the points elsewhere,
+`call_on_text` supplies other wording, and `call_on_silent = "none"` turns
+call-ons off. Second, when the moderator's line puts its last question to one
+participant by name, as in "Could you say more, P3?", that participant answers
+next. The routing record marks these turns `"called_on"` and `"addressed"` and
+names the moderator line that gave the floor.
+
+Krueger, R. A. (2002). *Designing and Conducting Focus Group Interviews*.
+University of Minnesota.
 
 ## Build participants from personas and respondent data
 
@@ -290,11 +309,20 @@ packages before starting the interface.
 
 ## Study records, cost, and interpretation
 
-The transcript records each message with its phase and round. A generated
-row also carries what the provider returned about the call, such as its
-response identifier, finish reason, and token counts, together with the
+The transcript records each message with its phase, round, and guide item. A
+generated row also carries what the provider returned about the call, such as
+its response identifier, finish reason, and token counts, together with the
 provider and model that produced it. Moderator questions and their participant
 responses share a round.
+
+The agents see each other as `P1`, `P2`, ... in roster order and the moderator
+as `Moderator`, whatever IDs the roster uses. The transcript keeps the IDs in
+`speaker_id` and the labels the agents saw in `handle`, so agents built
+directly with IDs such as `"teacher_conservative"` or `"V240001"` never see
+those IDs in a prompt. `handles = "ids"` shows the IDs instead, and a vector
+such as `c(teacher_conservative = "Ana")` sets labels of your own. Identifier
+columns (`id`, `respondent_id`, `persona_id`) are kept in the roster's
+`source_ids` and are not rendered into personas.
 
 The `participants` component is a data frame. `usage` uses LLMR's `sent`, `rec`,
 and `total` token vocabulary, and `unknown` counts the calls whose usage was
@@ -321,9 +349,15 @@ result$metadata$failure
 
 Before a live run, `run_focus_group()` estimates the number of model outputs
 the session will generate. A run whose estimate exceeds `max_calls` stops
-unless `confirm = TRUE`. The realized number of calls can be lower, since the
-desire-based flow does not score the previous speaker, or higher, since
-incomplete replies are retried and long discussions are summarized.
+unless `confirm = TRUE`. The default session of six participants plans at most
+111 outputs, inside the default `max_calls` of 120: 93 for the moderator's
+lines, the replies to them, their desire scores, and the final summary, and 18
+for replies to call-ons, one per participant at each of the three points. The
+realized number of calls can be lower, since the desire-based flow does not
+score the previous speaker, addressed and called-on turns need no scores, and
+only silent participants are called on, or higher, since incomplete replies are
+retried and long discussions are summarized. `final_summary = FALSE` saves the
+summary call.
 
 A generated transcript is evidence about the specified simulation, not a
 population. Interpretation should retain the moderator guide, participant

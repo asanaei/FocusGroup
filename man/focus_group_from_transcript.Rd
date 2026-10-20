@@ -61,19 +61,25 @@ analyses, matching how the simulator treats its own roster message.
 
 Columns that a transcript exported by this package carries are kept when
 \code{data} has them, so a saved transcript can be read back without losing its
-record: \code{message_id}, \code{round}, \code{is_moderator}, \code{phase}, \code{response_id},
-\code{finish_reason}, \code{sent_tokens}, \code{rec_tokens}, \code{total_tokens},
-\code{duration_s}, \code{provider}, \code{model}, \code{timestamp}, and the list-column
-\code{metadata}. A field that is absent takes these values: messages are
+record: \code{message_id}, \code{round}, \code{item}, \code{is_moderator}, \code{phase},
+\code{response_id}, \code{finish_reason}, \code{sent_tokens}, \code{rec_tokens},
+\code{total_tokens}, \code{duration_s}, \code{provider}, \code{model}, \code{timestamp}, and the
+list-column \code{metadata}. A field that is absent takes these values: messages are
 numbered in order, \code{is_moderator} follows the moderator found as described
 above, \code{round} counts the moderator's turns (0 throughout when there is no
-moderator), \code{phase} is \code{"imported"}, \code{metadata} is an empty list, and the
+moderator), \code{item} starts a new guide item at each moderator turn (0
+before the first and for "System" rows), \code{phase} is \code{"imported"},
+\code{metadata} is an empty list, and the
 other fields are \code{NA}. In particular, token counts that the transcript does
 not supply are unknown (\code{NA}), not zero, and importing adds no model calls
 to the object's usage counters.
 
+The speakers keep their labels: the object's \code{handles} are the speaker
+ids, as with \code{handles = "ids"} in \link{FocusGroup}, and every message's
+\code{handle} is its speaker id. A \code{handle} column in \code{data} is not read.
+
 Supplied fields are checked rather than coerced. \code{message_id} must hold
-distinct positive whole numbers increasing down the rows; \code{round} and the
+distinct positive whole numbers increasing down the rows; \code{round}, \code{item}, and the
 token counts nonnegative whole numbers; \code{duration_s} nonnegative numbers;
 and \code{metadata} lists or \code{NULL}. Numbers stored as text are accepted, and
 \code{NA} is allowed except in \code{message_id}. A value that fails these checks is

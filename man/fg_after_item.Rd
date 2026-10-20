@@ -24,12 +24,20 @@ line for item \code{k} of the guide, before any participant answers it.
 \code{fg_before_turn(t)} is the moment just before the \code{t}-th participant turn
 of the session, counting from 1 across all questions, before the speaker
 of that turn is chosen. A probe may also be asked at \code{"start"}, before the
-moderator's first line, or at \code{"end"}, after the last message and before
-the final summary.
+moderator's first line, or at \code{"end"}, after the last message, the
+closing line included, and before the final summary. A probe or an
+injection may be placed at \code{"before_closing"}, after the last discussion
+item and the call-ons that follow it and before the closing line; in a
+guide without a closing item it comes just before \code{"end"}.
 }
 \details{
 Guide items are numbered in the order the session runs them: with
 \code{guide = c(Opening = 1, Icebreaker = 1, Engagement = 2, Exploration = 3, Closing = 1)}, item 4 is the second engagement question.
+
+Participant turns count every reply, those that answer the moderator's
+call-on lines among them (see \code{call_on_silent} in \code{\link[=run_focus_group]{run_focus_group()}}).
+When \code{fg_before_turn(t)} falls on the reply to a call-on line, it comes
+after that line.
 }
 \examples{
 fg_after_item(4)

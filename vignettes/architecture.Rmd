@@ -84,12 +84,15 @@ recorded with the experiment so readers can see how it was run.
 `System` message. It then reads `question_script` in order. For each entry, the
 moderator generates one message. Question phases call
 `select_next_speaker()` and collect no more than
-`max_participant_responses` participant messages. Opening and closing phases
-do not collect participant responses.
+`max_participant_responses` participant messages, followed at a call-on point
+by the replies of the participants the moderator calls on. Opening and closing
+phases do not collect participant responses.
 
 The round-robin mode cycles through participants. The probabilistic mode
 samples from speaking propensities. The desire-based mode asks eligible
-participants for model-produced scores and selects among eligible candidates.
+participants for model-produced scores and selects among eligible candidates;
+it passes over the participant who spoke just before, and a moderator line in
+between ends that exclusion, so whoever closed one question may open the next.
 A score is read from the reply's final answer, never from reasoning the
 model returns with it. A desire score that cannot be obtained, after one retry
 with a larger budget, stops the session with an error of class
@@ -99,9 +102,33 @@ scores by the same rule, or by a uniform draw when none has one, and the
 failure is recorded in the message metadata. A failure is never recorded as a
 score of zero.
 
+Two kinds of turn are given without the flow. When a moderator line puts its
+last question to one participant by handle ("P3, do you agree?", "Could you
+say more, P3?"), that participant takes the next turn. When the discussion of
+a call-on item ends (`call_on_silent`, by default the first, middle, and last
+question), the moderator calls on each participant who has not spoken since
+the previous such point, in roster order: a fixed line, delivered with no model
+call, then the participant's reply, with no desire score. Krueger (2002)
+describes the opening question of a focus group as a round robin; the first
+point gives every participant a turn during the first question. Both kinds of
+turn count as participant turns, for `max_participant_responses` (an
+addressed turn) and for `fg_before_turn()`, and the flow's state is updated
+after them as after its own picks; round robin keeps its place in the
+rotation.
+
 The loop stops when the script is exhausted, `num_rounds` is reached, or the
-last closing entry is processed. It stores a final summary in `final_summary`.
+last closing entry is processed. It stores a final summary in `final_summary`,
+unless the session runs with `final_summary = FALSE`.
 The summary is not appended to `conversation_log`.
+
+The agents see each other under handles: participants as `P1`, `P2`, ... in
+roster order and the moderator as `Moderator` by default. Every prompt, the
+desire scores, probes, and the interim summary among them, is built from one
+view of the log in which each speaker appears under its handle, and each
+participant's system message names its own. The log keeps the agent IDs.
+
+Krueger, R. A. (2002). *Designing and Conducting Focus Group Interviews*.
+University of Minnesota.
 
 A `FocusGroup` object runs once. Calling `run_simulation()` on an object that
 has already run raises an error. Construct a new object for another full
@@ -110,8 +137,8 @@ next message under original and edited histories.
 
 A message can also be placed into a running session: `fg_injection()`
 describes it and the point where it goes, after the moderator's line for a
-guide item (`fg_after_item()`) or before a participant turn
-(`fg_before_turn()`). `run_focus_group_arms()` runs the session to that point
+guide item (`fg_after_item()`), before a participant turn
+(`fg_before_turn()`), or before the closing line (`"before_closing"`). `run_focus_group_arms()` runs the session to that point
 once, copies the whole session there, and continues each copy to the end
 under its own arm, so the arms share every message before the injection.
 `fg_probe()` asks each participant a private question at stated points; the
@@ -133,9 +160,10 @@ path.
 ## Stored data
 
 `conversation_log` is an ordered list of message records. Each record has a
-unique integer `message_id`, the moderator cycle in `round`, and `phase`.
-Moderator and participant messages responding to the same question share a
-round. A generated message also records what the provider returned about the
+unique integer `message_id`, the moderator cycle in `round`, the guide item
+in `item`, `phase`, the agent ID in `speaker_id`, and the label the agents saw
+in `handle`. Moderator and participant messages responding to the same
+question share a round. A generated message also records what the provider returned about the
 call, such as its response identifier, finish reason, and token counts, with
 the provider and model that produced it.
 
@@ -184,7 +212,8 @@ analysis that encounters a provider failure raises the provider condition.
 
 To add a turn-taking rule, subclass `ConversationFlow` and implement
 `select_next_speaker()`. Override `update_state_post_selection()` when the rule
-keeps state. An extension can construct its class directly; built-in modes
+keeps state, and `note_moderator_turn()` when a moderator line should change
+it. An extension can construct its class directly; built-in modes
 remain available through `create_conversation_flow()`.
 
 See the function and class help pages for argument defaults and return values.
