@@ -224,6 +224,25 @@ NULL
 #' @param max_calls Integer. Maximum estimated live model outputs allowed without
 #'   confirmation; a finite whole number.
 #' @param confirm Logical. Permit a live run whose estimate exceeds `max_calls`.
+#' @param max_tokens_config Optional named list of token limits by call type,
+#'   as for `FocusGroup$new()`: `utterance`, `moderator`, `desire`,
+#'   `desire_retry`, `summary`, and `interim_summary`. A model that reasons
+#'   before it answers needs `desire` and `desire_retry` large enough to hold
+#'   its reasoning and the score.
+#' @param reasoning_effort Optional reasoning-effort setting passed to the
+#'   provider: one string, such as `"low"`, for every call, or a named vector
+#'   by call type (`"moderator"`, `"participant"`, `"desire"`, `"summary"`,
+#'   `"probe"`). It is written over the `reasoning_effort` of `config` for
+#'   those calls; `NULL` leaves `config` as it is. LLMR forwards it on
+#'   OpenAI-compatible providers.
+#' @param on_desire_failure Character. Under `"desire_based"`, what happens
+#'   when a participant's desire score cannot be obtained after its retry.
+#'   `"error"` (the default) stops the session with an error of class
+#'   `focusgroup_desire_failure`, returned as a partial session as described
+#'   in Details. `"random"` chooses the speaker among the participants with
+#'   valid scores by the usual rule, and uniformly among the eligible
+#'   participants only when none has a valid score; the failure is recorded
+#'   in the selected message's `metadata$desire_scoring_failure`.
 #' @param .runner Optional function used instead of live model calls. It
 #'   receives a data frame with `config` and `messages` list-columns and returns
 #'   those rows with at least `response_text`. Token columns such as
@@ -353,9 +372,17 @@ run_focus_group <- function(topic, config, n_participants = 6,
                             flow = "desire_based", seed = NULL,
                             message_mode = c("roleflip", "flat"), verbose = TRUE,
                             max_participant_responses = NULL, max_calls = 100L,
-                            confirm = FALSE, .runner = NULL) {
+                            confirm = FALSE, max_tokens_config = NULL,
+                            reasoning_effort = NULL,
+                            on_desire_failure = c("error", "random"),
+                            .runner = NULL) {
   .fg_validate_config(config)
   message_mode <- match.arg(message_mode)
+  on_desire_failure <- match.arg(on_desire_failure)
+  reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
+  if (!is.null(max_tokens_config) && !is.list(max_tokens_config)) {
+    stop("`max_tokens_config` must be `NULL` or a named list.", call. = FALSE)
+  }
 
   if (!is.character(topic) || length(topic) != 1L || is.na(topic) ||
       !nzchar(trimws(topic))) {
@@ -466,10 +493,14 @@ run_focus_group <- function(topic, config, n_participants = 6,
     purpose = purpose,
     agents = agents,
     moderator_id = moderator_id,
-    turn_taking_flow = create_conversation_flow(flow, agents, moderator_id),
+    turn_taking_flow = create_conversation_flow(
+      flow, agents, moderator_id,
+      flow_params = list(on_desire_failure = on_desire_failure)),
     question_script = question_script,
     admin_config = config,
-    max_participant_responses = response_limit
+    max_tokens_config = max_tokens_config %||% list(),
+    max_participant_responses = response_limit,
+    reasoning_effort = reasoning_effort
   )
 
   result <- .fg_execute_session(fg, flow, message_mode, n_participants,

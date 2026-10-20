@@ -18,6 +18,9 @@ run_focus_group(
   max_participant_responses = NULL,
   max_calls = 100L,
   confirm = FALSE,
+  max_tokens_config = NULL,
+  reasoning_effort = NULL,
+  on_desire_failure = c("error", "random"),
   .runner = NULL
 )
 }
@@ -71,6 +74,28 @@ responses per moderator question. \code{NULL}, the default, uses the option
 confirmation; a finite whole number.}
 
 \item{confirm}{Logical. Permit a live run whose estimate exceeds \code{max_calls}.}
+
+\item{max_tokens_config}{Optional named list of token limits by call type,
+as for \code{FocusGroup$new()}: \code{utterance}, \code{moderator}, \code{desire},
+\code{desire_retry}, \code{summary}, and \code{interim_summary}. A model that reasons
+before it answers needs \code{desire} and \code{desire_retry} large enough to hold
+its reasoning and the score.}
+
+\item{reasoning_effort}{Optional reasoning-effort setting passed to the
+provider: one string, such as \code{"low"}, for every call, or a named vector
+by call type (\code{"moderator"}, \code{"participant"}, \code{"desire"}, \code{"summary"},
+\code{"probe"}). It is written over the \code{reasoning_effort} of \code{config} for
+those calls; \code{NULL} leaves \code{config} as it is. LLMR forwards it on
+OpenAI-compatible providers.}
+
+\item{on_desire_failure}{Character. Under \code{"desire_based"}, what happens
+when a participant's desire score cannot be obtained after its retry.
+\code{"error"} (the default) stops the session with an error of class
+\code{focusgroup_desire_failure}, returned as a partial session as described
+in Details. \code{"random"} chooses the speaker among the participants with
+valid scores by the usual rule, and uniformly among the eligible
+participants only when none has a valid score; the failure is recorded
+in the selected message's \code{metadata$desire_scoring_failure}.}
 
 \item{.runner}{Optional function used instead of live model calls. It
 receives a data frame with \code{config} and \code{messages} list-columns and returns

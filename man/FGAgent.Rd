@@ -145,7 +145,8 @@ Generate an utterance for the agent.
   current_phase = "discussion",
   conversation_log = NULL,
   standing_rules = NULL,
-  self_state = TRUE
+  self_state = TRUE,
+  call_params = NULL
 )}\if{html}{\out{</div>}}
 }
 
@@ -179,6 +180,10 @@ built-in default appropriate to the agent's role.}
 \item{\code{self_state}}{Logical. If \code{TRUE} (default), a compact "points you have
 already made" digest of the agent's own prior turns is added to the system
 message (participants only) to discourage self-repetition.}
+
+\item{\code{call_params}}{Optional named list of model parameters written over
+the agent's configuration for this utterance and its retry, such as
+\code{list(reasoning_effort = "low")}.}
 }
 \if{html}{\out{</div>}}
 }
@@ -209,7 +214,9 @@ contribute to the discussion at the current moment.
   current_moderator_question = "N/A",
   last_speaker_id = "N/A",
   last_utterance_text = "N/A",
-  conversation_log = NULL
+  conversation_log = NULL,
+  max_tokens_retry = NULL,
+  call_params = NULL
 )}\if{html}{\out{</div>}}
 }
 
@@ -234,13 +241,26 @@ contribute to the discussion at the current moment.
 supplied (and the template is not a legacy flat template), desire scoring
 is role-flipped so the agent reads its own prior turns as its own voice;
 \code{NULL} keeps the legacy flat construction.}
+
+\item{\code{max_tokens_retry}}{Integer or NULL. The budget of the one retry made
+when the first reply is empty or cut off; \code{NULL} uses 256. No retry is
+made when \code{max_tokens_desire} is already at least this large.}
+
+\item{\code{call_params}}{Optional named list of model parameters written over
+the agent's configuration for these calls, such as
+\code{list(reasoning_effort = "low")}.}
 }
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
-Numeric. A score from 0 (no desire) to 10 (very strong desire).
-A reply that cannot be read as a score is an error; the usage of the
-calls made, including a retry, is recorded on the agent first.
+Numeric. A score from 0 (no desire) to 10 (very strong desire),
+read from the reply's final answer only: reasoning the provider
+returns separately, or that the model writes inside \verb{<think>} tags or
+the gpt-oss channel markup, is never read. A reply that cannot be read
+as a score is an error; the usage of the calls made, including a
+retry, is recorded on the agent first. The configuration's
+temperature, when it sets one, is used; none is added when it does
+not.
 }
 }
 \if{html}{\out{<hr>}}

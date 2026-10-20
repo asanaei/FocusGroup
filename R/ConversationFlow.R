@@ -16,8 +16,9 @@ NULL
 #' @field participant_ids A character vector of agent identifiers, excluding the moderator.
 #' @field moderator_id Character. The ID of the moderator agent.
 #' @field last_speaker_id The ID of the agent who last spoke. Can be `NULL`.
-#' @field selection_metadata Details recorded for the latest selection.
-#'   Desire-scoring failures record the condition and neutral fallback here.
+#' @field selection_metadata Details recorded for the latest selection when
+#'   it departs from the flow's usual rule, such as a lowered desire threshold
+#'   or, under `on_desire_failure = "random"`, a desire-scoring failure.
 #'
 #' @section Methods for Subclassing:
 #' \describe{
@@ -229,6 +230,9 @@ ProbabilisticFlow <- R6::R6Class("ProbabilisticFlow",
 #' This flow is mainly for choosing which participant responds to the moderator.
 #'
 #' @field min_desire_threshold Numeric. Minimum desire score for a participant to be considered.
+#' @field on_desire_failure Character. `"error"` stops the session when a
+#'   participant's desire score cannot be obtained; `"random"` continues with
+#'   the valid scores.
 #' @noRd
 DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
   inherit = ConversationFlow,
@@ -237,18 +241,26 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
     #' @param agents A named list of `FGAgent` objects.
     #' @param moderator_id Character. The ID of the moderator agent.
     #' @param min_desire_threshold Numeric. Minimum desire score to be eligible.
-    initialize = function(agents, moderator_id, min_desire_threshold = 3) {
+    #' @param on_desire_failure Character. `"error"` or `"random"`.
+    initialize = function(agents, moderator_id, min_desire_threshold = 3,
+                          on_desire_failure = "error") {
       super$initialize(agents, moderator_id)
       private$last_desire_scores <- stats::setNames(
         rep(NA_real_, length(self$participant_ids)), self$participant_ids)
       private$min_desire_threshold <- min_desire_threshold
+      private$on_desire_failure <- match.arg(on_desire_failure, c("error", "random"))
     },
 
     #' @description Selects the next participant based on desire to talk.
     #' @param focus_group The `FocusGroup` object, providing context like current question, history.
     #' @return The selected `FGAgent`. When no participant clears the desire
     #'   threshold the highest-scoring participant is chosen, so this returns
-    #'   `NULL` only when there are no participants.
+    #'   `NULL` only when there are no participants. A score that cannot be
+    #'   obtained stops the session with an error of class
+    #'   `focusgroup_desire_failure` under `on_desire_failure = "error"`; under
+    #'   `"random"` the speaker is chosen by the same rule among the valid
+    #'   scores, or uniformly among the eligible participants when none is
+    #'   valid, and the failure is recorded.
     select_next_speaker = function(focus_group) {
       if (length(self$participant_ids) == 0) return(NULL)
 
@@ -274,6 +286,7 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       if (!is.null(self$last_speaker_id) && self$last_speaker_id %in% eligible_ids && length(eligible_ids) > 1) {
         eligible_ids <- setdiff(eligible_ids, self$last_speaker_id)
       }
+      desire_call_params <- .fg_call_params(focus_group, "desire")
       score_per_agent <- function(ids) {
         for (pid in ids) {
           agent <- self$agents[[pid]]
@@ -289,13 +302,18 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
               current_moderator_question = focus_group$current_question_text %||% "N/A",
               last_speaker_id = last_utterance_info$speaker_id,
               last_utterance_text = last_utterance_info$text,
-              conversation_log = focus_group$conversation_log
+              conversation_log = focus_group$conversation_log,
+              max_tokens_retry = focus_group$max_tokens_desire_retry,
+              call_params = desire_call_params
             )),
             error = function(e) {
-              failures[[pid]] <<- conditionMessage(e)
+              failures[[pid]] <<- e
               NA_real_
             }
           )
+          if (is.na(sc) && identical(private$on_desire_failure, "error")) {
+            private$stop_for_desire_failure(pid, failures[[pid]])
+          }
           desire_scores[pid] <<- as.numeric(sc)
         }
       }
@@ -367,13 +385,13 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
       # empty character vector means all scored). A reply that is empty or
       # length-truncated is reported as unscored rather than scored 0, so the
       # caller re-scores it on the per-agent path (which retries at a larger
-      # budget). The desire budget follows the configured `max_tokens_desire`,
-      # and no temperature is injected (some reasoning models need their native
-      # value; the score is a single integer).
+      # budget). The desire budget follows the configured `max_tokens_desire`;
+      # the configuration's temperature is kept, and none is added when it is
+      # unset (some reasoning models accept only their native value).
       broadcast_group <- function(ids) {
         cfg <- self$agents[[ids[1]]]$config
         cfg$model_params$max_tokens <- focus_group$max_tokens_desire
-        cfg$model_params$temperature <- NULL
+        cfg <- .fg_with_params(cfg, desire_call_params)
         out <- tryCatch(
           LLMR::call_llm_broadcast(config = cfg, messages = lapply(ids, build_desire_msg),
                                    tries = 5, wait_seconds = 2, backoff_factor = 3,
@@ -388,8 +406,10 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         if (is.null(out) || is.null(out$success) || is.null(out$response_text)) return(ids)
         unscored <- character(0)
         for (i in seq_along(mapped)) {
-          txt <- out$response_text[i]
-          sc <- if (isTRUE(out$success[i]) && nzchar(trimws(txt %||% "")))
+          txt <- as.character(out$response_text[i] %||% "")
+          txt <- if (!length(txt) || is.na(txt[[1]])) "" else .fg_final_answer(txt[[1]])
+          sc <- if (isTRUE(out$success[i]) && nzchar(trimws(txt)) &&
+                    !identical(as.character(out$finish_reason[i] %||% NA), "length"))
             parse_score_0_10(txt) else NA_integer_
           if (!is.na(sc)) desire_scores[mapped[[i]]] <<- as.numeric(sc)
           else unscored <- c(unscored, mapped[[i]])
@@ -432,35 +452,44 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 
       private$last_desire_scores <- desire_scores
 
+      # Only `on_desire_failure = "random"` reaches here with failures; the
+      # valid scores are kept, and the speaker is drawn uniformly only when
+      # none is valid.
+      scored <- desire_scores[eligible_ids]
+      valid <- scored[!is.na(scored)]
+      failure_record <- NULL
       if (length(failures)) {
-        reasons <- unique(unlist(failures, use.names = FALSE))
-        self$selection_metadata <- list(
-          desire_scoring_failure = list(
-            reason = paste(reasons, collapse = "; "),
-            fallback = "uniform_random",
-            candidates = unname(eligible_ids)
-          )
+        reasons <- unique(vapply(failures, conditionMessage, character(1)))
+        failure_record <- list(
+          reason = paste(reasons, collapse = "; "),
+          fallback = if (length(valid)) "valid_scores" else "uniform_random",
+          candidates = unname(eligible_ids),
+          failed = names(failures)
         )
         if (!private$failure_message_emitted) {
-          message(
-            "Desire scoring failed; selecting uniformly among eligible participants."
-          )
+          message(paste(
+            "Desire scoring failed; choosing among the valid scores, or",
+            "uniformly when none is valid (on_desire_failure = \"random\")."))
           private$failure_message_emitted <- TRUE
         }
-        return(self$agents[[sample(eligible_ids, 1L)]])
+        if (!length(valid)) {
+          self$selection_metadata <- list(desire_scoring_failure = failure_record)
+          return(self$agents[[sample(eligible_ids, 1L)]])
+        }
+      }
+      with_failure <- function(metadata) {
+        if (!is.null(failure_record)) {
+          metadata$desire_scoring_failure <- failure_record
+        }
+        metadata
       }
 
-      scored <- desire_scores[eligible_ids]
-      eligible_participants <- scored[
-        !is.na(scored) & scored >= private$min_desire_threshold
-      ]
+      eligible_participants <- valid[valid >= private$min_desire_threshold]
 
       # If no one meets the threshold but there's ongoing conversation, lower the bar
       if (length(eligible_participants) == 0 && length(focus_group$conversation_log) > 2) {
         # Allow lower threshold for ongoing conversations to maintain flow
-        eligible_participants <- scored[
-          !is.na(scored) & scored >= (private$min_desire_threshold - 1)
-        ]
+        eligible_participants <- valid[valid >= (private$min_desire_threshold - 1)]
         if (length(eligible_participants)) {
           self$selection_metadata <- list(
             flow = "desire_based", fallback = "threshold_lowered",
@@ -471,29 +500,26 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 
       if (length(eligible_participants) == 0) {
         # If still no one eligible, pick the highest scored participant even if 0 to keep conversation moving
-        if (length(scored) > 0) {
-          max_score <- max(scored, na.rm = TRUE)
-          candidates <- names(scored[scored == max_score])
-          next_speaker_id <- if (length(candidates) == 1) candidates[1] else sample(candidates, 1)
-          self$selection_metadata <- list(
-            flow = "desire_based", fallback = "highest_below_threshold",
-            threshold = private$min_desire_threshold,
-            scores = as.list(scored), selected_id = next_speaker_id)
-          return(self$agents[[next_speaker_id]])
-        }
-        return(NULL)
+        max_score <- max(valid)
+        candidates <- names(valid)[valid == max_score]
+        next_speaker_id <- if (length(candidates) == 1) candidates[1] else sample(candidates, 1)
+        self$selection_metadata <- with_failure(list(
+          flow = "desire_based", fallback = "highest_below_threshold",
+          threshold = private$min_desire_threshold,
+          scores = as.list(scored), selected_id = next_speaker_id))
+        return(self$agents[[next_speaker_id]])
       }
-      
-      max_score <- max(eligible_participants, na.rm = TRUE)
-      candidates <- names(eligible_participants[eligible_participants == max_score])
-      
-      if (length(candidates) == 0) { # Should not happen if eligible_participants is not empty
-        return(NULL)
-      } else if (length(candidates) == 1) {
+
+      max_score <- max(eligible_participants)
+      candidates <- names(eligible_participants)[eligible_participants == max_score]
+      if (length(candidates) == 1) {
         next_speaker_id <- candidates[1]
       } else {
         # Tie-breaking: random among highest scorers
         next_speaker_id <- sample(candidates, 1)
+      }
+      if (!is.null(failure_record)) {
+        self$selection_metadata <- with_failure(self$selection_metadata %||% list())
       }
       return(self$agents[[next_speaker_id]])
     }
@@ -503,7 +529,18 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
     last_desire_scores = NULL,
     last_scoring_mode = NULL,
     min_desire_threshold = 3,
-    failure_message_emitted = FALSE
+    on_desire_failure = "error",
+    failure_message_emitted = FALSE,
+
+    stop_for_desire_failure = function(agent_id, cause) {
+      rlang::abort(
+        c(sprintf("Desire scoring failed for participant %s: %s", agent_id,
+                  conditionMessage(cause)),
+          i = paste("Set `on_desire_failure = \"random\"` to choose among the",
+                    "valid scores instead.")),
+        class = "focusgroup_desire_failure", agent_id = agent_id,
+        parent = cause)
+    }
   )
 )
 
@@ -517,7 +554,15 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
 #' @param moderator_id Character. The ID of the moderator agent.
 #' @param flow_params List. Additional parameters specific to the chosen flow type.
 #'   For "probabilistic": `initial_propensities` (named numeric vector), `recovery_increment` (numeric).
-#'   For "desire_based": `min_desire_threshold` (numeric).
+#'   For "desire_based": `min_desire_threshold` (numeric) and
+#'   `on_desire_failure`, `"error"` (the default) or `"random"`. Under
+#'   `"error"` a desire score that cannot be obtained, after its retry, stops
+#'   the session with an error of class `focusgroup_desire_failure`. Under
+#'   `"random"` the speaker is chosen among the participants with valid
+#'   scores by the usual rule, and uniformly among the eligible participants
+#'   only when none has a valid score; the failure is recorded in the
+#'   selected message's `metadata$desire_scoring_failure`. Earlier versions
+#'   always chose uniformly at random when any score failed.
 #' @return An initialized `ConversationFlow` object (e.g., `RoundRobinFlow`, `ProbabilisticFlow`, `DesireBasedFlow`).
 #' @export
 #' @examples
@@ -549,6 +594,10 @@ create_conversation_flow <- function(mode, agents, moderator_id, flow_params = l
     stop("`initial_propensities` must be finite, nonnegative, and not all zero.",
          call. = FALSE)
   }
+  odf <- flow_params$on_desire_failure %||% "error"
+  if (!is.character(odf) || length(odf) != 1L || !odf %in% c("error", "random")) {
+    stop("`on_desire_failure` must be \"error\" or \"random\".", call. = FALSE)
+  }
   if (!is.character(mode) || length(mode) != 1) {
     stop("'mode' must be a single character string.")
   }
@@ -565,7 +614,8 @@ create_conversation_flow <- function(mode, agents, moderator_id, flow_params = l
     "desire_based" = DesireBasedFlow$new(
       agents,
       moderator_id,
-      min_desire_threshold = flow_params$min_desire_threshold %||% 3
+      min_desire_threshold = flow_params$min_desire_threshold %||% 3,
+      on_desire_failure = odf
       ),
     stop(paste0("Unknown conversation flow mode: '", mode,
                 "'. Supported modes are 'round_robin', 'probabilistic', 'desire_based'."))

@@ -22,7 +22,8 @@ test_that("public call signatures use the family grammar", {
     run_args,
     c("topic", "config", "n_participants", "guide", "demographics",
       "survey_responses", "flow", "seed", "message_mode", "verbose",
-      "max_participant_responses", "max_calls", "confirm", ".runner")
+      "max_participant_responses", "max_calls", "confirm",
+      "max_tokens_config", "reasoning_effort", "on_desire_failure", ".runner")
   )
 
   analysis_args <- names(formals(analyze_focus_group))

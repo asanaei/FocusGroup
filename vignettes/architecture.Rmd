@@ -90,9 +90,14 @@ do not collect participant responses.
 The round-robin mode cycles through participants. The probabilistic mode
 samples from speaking propensities. The desire-based mode asks eligible
 participants for model-produced scores and selects among eligible candidates.
-Provider failures in desire scoring are recorded in the message metadata and
-trigger one message to the user. Selection then uses a neutral draw among the
-candidates; a failure is never recorded as a score of zero.
+A score is read from the reply's final answer, never from reasoning the
+model returns with it. A desire score that cannot be obtained, after one retry
+with a larger budget, stops the session with an error of class
+`focusgroup_desire_failure`. With `on_desire_failure = "random"` the session
+continues instead: the speaker is chosen among the participants with valid
+scores by the same rule, or by a uniform draw when none has one, and the
+failure is recorded in the message metadata. A failure is never recorded as a
+score of zero.
 
 The loop stops when the script is exhausted, `num_rounds` is reached, or the
 last closing entry is processed. It stores a final summary in `final_summary`.

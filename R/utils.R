@@ -302,11 +302,79 @@ format_conversation_history <- function(conversation_log,
 }
 
 
-# Retry budget for desire scoring when the first reply is empty or length-
-# truncated. Reasoning models can exhaust a small budget on hidden reasoning
-# before emitting the single integer; 256 output tokens lets it surface. Used
-# only on the retry, so ordinary models never pay it.
+# Default retry budget for desire scoring when the first reply is empty or
+# length-truncated. A reasoning model can exhaust a small budget on reasoning
+# before emitting the single integer. Used only on the retry, so ordinary
+# models never pay it; `max_tokens_config$desire_retry` replaces it, which a
+# model that reasons at length needs.
 .fg_desire_retry_tokens <- 256L
+
+# The call types a session distinguishes when it applies per-call settings.
+.fg_call_types <- c("moderator", "participant", "desire", "summary", "probe")
+
+# Check a session's `reasoning_effort`: NULL, one setting for every call
+# type, or a named vector or list giving settings by call type.
+.fg_validate_reasoning_effort <- function(reasoning_effort) {
+  if (is.null(reasoning_effort)) return(NULL)
+  values <- if (is.list(reasoning_effort)) reasoning_effort else as.list(reasoning_effort)
+  ok <- length(values) >= 1L && all(vapply(values, function(v) {
+    is.character(v) && length(v) == 1L && !is.na(v) && nzchar(trimws(v))
+  }, logical(1)))
+  if (!ok) {
+    stop("`reasoning_effort` must be `NULL`, one non-empty string, or a named ",
+         "vector of strings by call type.", call. = FALSE)
+  }
+  types <- names(values)
+  if (is.null(types)) {
+    if (length(values) != 1L) {
+      stop("An unnamed `reasoning_effort` must be one string; name the ",
+           "elements to set it by call type.", call. = FALSE)
+    }
+    return(values[[1]])
+  }
+  if (anyNA(types) || any(!types %in% .fg_call_types) || anyDuplicated(types)) {
+    stop("`reasoning_effort` names must be distinct call types among ",
+         paste(.fg_call_types, collapse = ", "), ".", call. = FALSE)
+  }
+  values
+}
+
+# Model parameters a session applies to one call type over the agent's
+# configuration: its `reasoning_effort`, when it sets one for that type.
+.fg_call_params <- function(focus_group, type) {
+  effort <- focus_group$reasoning_effort
+  if (is.list(effort)) effort <- effort[[type]]
+  if (is.null(effort)) list() else list(reasoning_effort = effort)
+}
+
+# A configuration with `params` written over its model parameters.
+.fg_with_params <- function(config, params) {
+  if (is.null(config) || !length(params)) return(config)
+  config$model_params <- utils::modifyList(config$model_params %||% list(), params)
+  config
+}
+
+# The final answer of a reply, without reasoning the model wrote into it.
+# Some providers return a reasoning model's thinking inside the reply text
+# rather than in a separate field: as <think> blocks, or in the channel
+# markup of the gpt-oss models, whose answer follows the "final" channel tag.
+# Only the text outside the reasoning is the answer, and a reasoning block
+# that never closes leaves none. A reply without such markup is unchanged.
+.fg_final_answer <- function(text) {
+  markup <- "<\\|channel\\|>|</?(think|thinking|reasoning)>"
+  if (!grepl(markup, text, ignore.case = TRUE, perl = TRUE)) return(text)
+  final <- regexpr("<\\|channel\\|>\\s*final\\s*<\\|message\\|>", text, perl = TRUE)
+  if (final > 0) {
+    text <- substring(text, final + attr(final, "match.length"))
+    text <- sub("<\\|(end|return|call)\\|>.*$", "", text, perl = TRUE)
+  } else if (grepl("<|channel|>", text, fixed = TRUE)) {
+    return("")
+  }
+  text <- gsub("(?is)<(think|thinking|reasoning)>.*?</\\1>", "", text, perl = TRUE)
+  text <- sub("(?is)<(think|thinking|reasoning)>.*$", "", text, perl = TRUE)
+  text <- sub("(?is)^.*</(think|thinking|reasoning)>", "", text, perl = TRUE)
+  trimws(text)
+}
 
 # ---- Token & parsing utilities ---------------------------------------------
 
@@ -362,7 +430,15 @@ format_conversation_history <- function(conversation_log,
   out
 }
 
+# The reply's final answer: its text with any reasoning written into it
+# removed. Reasoning a provider returns separately (the `thinking` field of
+# an llmr_response, or a runner's `thinking` column) is never part of it.
 .fg_response_text <- function(response_obj) {
+  .fg_final_answer(.fg_raw_text(response_obj))
+}
+
+# The reply text as returned, before reasoning or anything else is removed.
+.fg_raw_text <- function(response_obj) {
   if (is.data.frame(response_obj) && "response_text" %in% names(response_obj)) {
     text <- as.character(response_obj$response_text[[1]])
     return(if (!length(text) || is.na(text)) "" else text)

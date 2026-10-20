@@ -41,6 +41,15 @@ NULL
 #' @field max_tokens_utterance Integer. Default max tokens for participant utterances.
 #' @field max_tokens_moderator Integer. Default max tokens for moderator utterances.
 #' @field max_tokens_desire Integer. Default max tokens for desire-to-talk queries.
+#' @field max_tokens_desire_retry Integer. Max tokens for the one retry of a
+#'   desire query whose reply was empty or cut off.
+#' @field max_tokens_summary Integer. Max tokens for the final summary.
+#' @field max_tokens_interim_summary Integer. Max tokens for an interim summary.
+#' @field reasoning_effort `NULL`, one reasoning-effort setting for every call
+#'   type, or a named list of settings by call type (`"moderator"`,
+#'   `"participant"`, `"desire"`, `"summary"`, `"probe"`). A setting is written
+#'   over the configuration's `reasoning_effort` for those calls; `NULL` leaves
+#'   the configurations as they are.
 #' @field max_participant_responses Integer. Maximum number of participant exchanges per round before the moderator can intervene. Can also be set globally via `options(focusgroup.max_participant_responses = N)`.
 #' @field total_tokens_sent Numeric. Tokens sent across all LLM calls in the
 #'   group, as reported; calls that reported no count add nothing.
@@ -101,6 +110,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     max_tokens_utterance = 160,
     max_tokens_moderator = 400,
     max_tokens_desire = 16,
+    max_tokens_desire_retry = 256L,
+    max_tokens_summary = 400,
+    max_tokens_interim_summary = 250L,
+    reasoning_effort = NULL,
     max_participant_responses = 2L,
     total_tokens_sent = 0,
     total_tokens_received = 0,
@@ -118,14 +131,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param prompt_templates List. Custom prompt templates. Defaults are used if not provided.
     #' @param admin_config An `llm_config` object for administrative model tasks.
     #'   If `NULL`, the moderator's explicitly supplied `config` is used.
-    #' @param max_tokens_config List. Optional. Named list with `utterance`, `moderator`, `desire`
-    #'        to override default max token limits for these LLM call types.
+    #' @param max_tokens_config List. Optional. Named list with `utterance`,
+    #'   `moderator`, `desire`, `desire_retry`, `summary`, and
+    #'   `interim_summary` to override the default max token limits (160, 400,
+    #'   16, 256, 400, and 250) for these call types. A model that reasons
+    #'   before answering needs `desire` and `desire_retry` large enough to hold
+    #'   its reasoning and the score.
     #' @param max_participant_responses Integer. Optional. Maximum participant exchanges per round before moderator intervention.
     #'        Defaults to `getOption("focusgroup.max_participant_responses", 2L)`.
+    #' @param reasoning_effort Optional reasoning-effort setting, as described
+    #'   for the `reasoning_effort` field.
     initialize = function(topic, purpose, agents, moderator_id, turn_taking_flow,
                           question_script = list(), prompt_templates = list(),
                           admin_config = NULL, max_tokens_config = list(),
-                          max_participant_responses = NULL) {
+                          max_participant_responses = NULL,
+                          reasoning_effort = NULL) {
       # Validations
       if (!is.character(topic) || length(topic) != 1 || nchar(topic) == 0) stop("'topic' must be a non-empty character string.")
       if (!is.character(purpose) || length(purpose) != 1 || nchar(purpose) == 0) stop("'purpose' must be a non-empty character string.")
@@ -171,6 +191,26 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$max_tokens_utterance <- max_tokens_config$utterance %||% self$max_tokens_utterance
       self$max_tokens_moderator <- max_tokens_config$moderator %||% self$max_tokens_moderator
       self$max_tokens_desire <- max_tokens_config$desire %||% self$max_tokens_desire
+      self$max_tokens_desire_retry <- max_tokens_config$desire_retry %||% self$max_tokens_desire_retry
+      self$max_tokens_summary <- max_tokens_config$summary %||% self$max_tokens_summary
+      self$max_tokens_interim_summary <- max_tokens_config$interim_summary %||%
+        self$max_tokens_interim_summary
+      unknown_caps <- setdiff(names(max_tokens_config %||% list()),
+                              c("utterance", "moderator", "desire", "desire_retry",
+                                "summary", "interim_summary", "probe"))
+      if (length(unknown_caps)) {
+        stop("Unknown `max_tokens_config` element(s): ",
+             paste(unknown_caps, collapse = ", "), ".", call. = FALSE)
+      }
+      for (cap in names(max_tokens_config %||% list())) {
+        value <- max_tokens_config[[cap]]
+        if (!is.numeric(value) || length(value) != 1L || is.na(value) ||
+            !is.finite(value) || value < 1 || value != floor(value)) {
+          stop("`max_tokens_config$", cap, "` must be one positive whole number.",
+               call. = FALSE)
+        }
+      }
+      self$reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
       self$max_participant_responses <- max_participant_responses %||% getOption("focusgroup.max_participant_responses", 2L)
 
       self$total_tokens_sent <- 0
@@ -226,7 +266,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       summarize_probe_tokens   <- 64000L  # probe window larger than cap so trigger can fire
       summarize_trigger_count  <- 200L
       summarize_cooldown_rounds <- 10L
-      interim_summary_tokens   <- 250L
+      interim_summary_tokens   <- self$max_tokens_interim_summary
 
       while(simulation_active) {
         round_counter <- round_counter + 1L
@@ -262,7 +302,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
           if (verbose) cat("\n--- Generating interim summary for context management ---\n")
           attr(self, "execution_phase") <- "interim_summary"
           interim_summary_text <- self$summarize(
-            config = self$admin_config,
+            config = .fg_with_params(self$admin_config,
+                                     .fg_call_params(self, "summary")),
             summary_level = 3,
             max_tokens = interim_summary_tokens,
             internal_call = TRUE,
@@ -284,7 +325,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
       # the finished run.
       if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
       final_summary <- tryCatch(
-        self$summarize(config = self$admin_config, summary_level = 1,
+        self$summarize(config = .fg_with_params(self$admin_config,
+                                                .fg_call_params(self, "summary")),
+                       summary_level = 1, max_tokens = self$max_tokens_summary,
                        internal_call = FALSE),
         error = function(e) {
           warning("The final summary call failed (",
@@ -1399,7 +1442,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
         current_moderator_question = self$current_question_text, # This is the question *being asked* or *related to*
         conversation_summary_so_far = self$current_conversation_summary,
         current_phase = current_phase_name,
-        conversation_log = self$conversation_log
+        conversation_log = self$conversation_log,
+        call_params = .fg_call_params(self, "moderator")
       ))
       mod_text <- if (is.list(mod_res)) mod_res$text else as.character(mod_res)
       mod_meta <- if (is.list(mod_res) && !is.null(mod_res$meta)) mod_res$meta else list()
@@ -1455,7 +1499,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
                 current_moderator_question = self$current_question_text, # The question they are responding to
                 conversation_summary_so_far = self$current_conversation_summary,
                 current_phase = current_phase_name,
-                conversation_log = self$conversation_log
+                conversation_log = self$conversation_log,
+                call_params = .fg_call_params(self, "participant")
               ))
               part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
               part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()

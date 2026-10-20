@@ -152,6 +152,9 @@ FGAgent <- R6::R6Class("FGAgent",
     #' @param self_state Logical. If `TRUE` (default), a compact "points you have
     #'   already made" digest of the agent's own prior turns is added to the system
     #'   message (participants only) to discourage self-repetition.
+    #' @param call_params Optional named list of model parameters written over
+    #'   the agent's configuration for this utterance and its retry, such as
+    #'   `list(reasoning_effort = "low")`.
     #' @return A list with `text` (the generated utterance) and `meta` (a list
     #'   of call metadata: `response_id`, `finish_reason`, `sent_tokens`,
     #'   `rec_tokens`, `total_tokens`, `usage_unknown`, `duration_s`,
@@ -169,7 +172,8 @@ FGAgent <- R6::R6Class("FGAgent",
                                   current_phase = "discussion",
                                   conversation_log = NULL,
                                   standing_rules = NULL,
-                                  self_state = TRUE) {
+                                  self_state = TRUE,
+                                  call_params = NULL) {
 
       if (is.null(self$config)) {
         stop("An explicit config is required to generate an utterance.", call. = FALSE)
@@ -206,6 +210,7 @@ FGAgent <- R6::R6Class("FGAgent",
       current_config$model_params$max_tokens <-
         configured_max_tokens %||% max_tokens_utterance
       current_config$model_params$temperature <- current_config$model_params$temperature %||% 0.7
+      current_config <- .fg_with_params(current_config, call_params)
 
       # Build the messages. A legacy/custom template that inlines the transcript
       # (via {{conversation_history}}/{{persona_description}}) keeps the old
@@ -347,9 +352,20 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   supplied (and the template is not a legacy flat template), desire scoring
     #'   is role-flipped so the agent reads its own prior turns as its own voice;
     #'   `NULL` keeps the legacy flat construction.
-    #' @return Numeric. A score from 0 (no desire) to 10 (very strong desire).
-    #'   A reply that cannot be read as a score is an error; the usage of the
-    #'   calls made, including a retry, is recorded on the agent first.
+    #' @param max_tokens_retry Integer or NULL. The budget of the one retry made
+    #'   when the first reply is empty or cut off; `NULL` uses 256. No retry is
+    #'   made when `max_tokens_desire` is already at least this large.
+    #' @param call_params Optional named list of model parameters written over
+    #'   the agent's configuration for these calls, such as
+    #'   `list(reasoning_effort = "low")`.
+    #' @return Numeric. A score from 0 (no desire) to 10 (very strong desire),
+    #'   read from the reply's final answer only: reasoning the provider
+    #'   returns separately, or that the model writes inside `<think>` tags or
+    #'   the gpt-oss channel markup, is never read. A reply that cannot be read
+    #'   as a score is an error; the usage of the calls made, including a
+    #'   retry, is recorded on the agent first. The configuration's
+    #'   temperature, when it sets one, is used; none is added when it does
+    #'   not.
     get_need_to_talk = function(topic,
                                 conversation_history_string,
                                 desire_prompt_template,
@@ -357,7 +373,9 @@ FGAgent <- R6::R6Class("FGAgent",
                                 current_moderator_question = "N/A",
                                 last_speaker_id = "N/A",
                                 last_utterance_text = "N/A",
-                                conversation_log = NULL) {
+                                conversation_log = NULL,
+                                max_tokens_retry = NULL,
+                                call_params = NULL) {
       if (is.null(self$config)) {
         stop("An explicit config is required for desire scoring.", call. = FALSE)
       }
@@ -375,10 +393,11 @@ FGAgent <- R6::R6Class("FGAgent",
       # Desire scoring asks for one integer, so it keeps its own small budget
       # rather than a caller's generation setting, which is sized for prose.
       current_config$model_params$max_tokens <- max_tokens_desire
-      # Do not inject a temperature for desire scoring: some reasoning models
-      # require their native temperature (e.g. 1) and the score is a single
-      # integer, so the caller's sampling setting is left untouched.
-      current_config$model_params$temperature <- NULL
+      # The configuration's temperature, if any, is kept as configured. None
+      # is added when it is unset, since some reasoning models accept only
+      # their native value.
+      current_config <- .fg_with_params(current_config, call_params)
+      retry_tokens <- max_tokens_retry %||% .fg_desire_retry_tokens
 
       # Desire scoring is still an agent-perspective judgment: if it reads its own
       # prior turns as external "SpeakerID:" text it can misjudge novelty. Role-
@@ -419,9 +438,9 @@ FGAgent <- R6::R6Class("FGAgent",
       # models, which answer within the default budget on the first call.
       truncated <- identical(.fg_response_finish(response_obj), "length")
       if ((!nzchar(trimws(response_text)) || truncated) &&
-          max_tokens_desire < .fg_desire_retry_tokens) {
+          max_tokens_desire < retry_tokens) {
         retry_cfg <- current_config
-        retry_cfg$model_params$max_tokens <- .fg_desire_retry_tokens
+        retry_cfg$model_params$max_tokens <- retry_tokens
         response_obj <- score_once(retry_cfg)
         response_text <- .fg_response_text(response_obj)
       }

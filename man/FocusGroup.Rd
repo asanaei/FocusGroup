@@ -86,6 +86,19 @@ replayed (e.g. in the GUI continuation experiment) with the same construction.}
 
 \item{\code{max_tokens_desire}}{Integer. Default max tokens for desire-to-talk queries.}
 
+\item{\code{max_tokens_desire_retry}}{Integer. Max tokens for the one retry of a
+desire query whose reply was empty or cut off.}
+
+\item{\code{max_tokens_summary}}{Integer. Max tokens for the final summary.}
+
+\item{\code{max_tokens_interim_summary}}{Integer. Max tokens for an interim summary.}
+
+\item{\code{reasoning_effort}}{\code{NULL}, one reasoning-effort setting for every call
+type, or a named list of settings by call type (\code{"moderator"},
+\code{"participant"}, \code{"desire"}, \code{"summary"}, \code{"probe"}). A setting is written
+over the configuration's \code{reasoning_effort} for those calls; \code{NULL} leaves
+the configurations as they are.}
+
 \item{\code{max_participant_responses}}{Integer. Maximum number of participant exchanges per round before the moderator can intervene. Can also be set globally via \code{options(focusgroup.max_participant_responses = N)}.}
 
 \item{\code{total_tokens_sent}}{Numeric. Tokens sent across all LLM calls in the
@@ -143,7 +156,8 @@ Initialize a new FocusGroup simulation.
   prompt_templates = list(),
   admin_config = NULL,
   max_tokens_config = list(),
-  max_participant_responses = NULL
+  max_participant_responses = NULL,
+  reasoning_effort = NULL
 )}\if{html}{\out{</div>}}
 }
 
@@ -168,11 +182,18 @@ If empty, a minimal default script (opening, generic discussion, closing) is use
 \item{\code{admin_config}}{An \code{llm_config} object for administrative model tasks.
 If \code{NULL}, the moderator's explicitly supplied \code{config} is used.}
 
-\item{\code{max_tokens_config}}{List. Optional. Named list with \code{utterance}, \code{moderator}, \code{desire}
-to override default max token limits for these LLM call types.}
+\item{\code{max_tokens_config}}{List. Optional. Named list with \code{utterance},
+\code{moderator}, \code{desire}, \code{desire_retry}, \code{summary}, and
+\code{interim_summary} to override the default max token limits (160, 400,
+16, 256, 400, and 250) for these call types. A model that reasons
+before answering needs \code{desire} and \code{desire_retry} large enough to hold
+its reasoning and the score.}
 
 \item{\code{max_participant_responses}}{Integer. Optional. Maximum participant exchanges per round before moderator intervention.
 Defaults to \code{getOption("focusgroup.max_participant_responses", 2L)}.}
+
+\item{\code{reasoning_effort}}{Optional reasoning-effort setting, as described
+for the \code{reasoning_effort} field.}
 }
 \if{html}{\out{</div>}}
 }
