@@ -1206,7 +1206,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
 
       ggplot2::ggplot(conv_summary, ggplot2::aes(x = .data$phase, y = .data$cumulative_messages, color = .data$agent_id, group = .data$agent_id)) +
-        ggplot2::geom_line(size = 1.2) +
+        ggplot2::geom_line(linewidth = 1.2) +
         ggplot2::geom_point(size = 2.8) + ggplot2::geom_point(size = 1,color='white') + ggplot2::coord_flip() +
         ggplot2::labs(
           title = "Participation Timeline",
@@ -1332,7 +1332,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       ggplot2::ggplot(timeline_data, ggplot2::aes(x = .data$message_id)) +
         ggplot2::geom_line(ggplot2::aes(y = .data$word_count), alpha = 0.3, color = "gray") +
-        ggplot2::geom_line(ggplot2::aes(y = .data$word_count_smooth), color = "blue", size = 1.2) +
+        ggplot2::geom_line(ggplot2::aes(y = .data$word_count_smooth), color = "blue", linewidth = 1.2) +
         ggplot2::labs(
           title = "Message Length Timeline",
           subtitle = "Evolution of message length throughout the conversation",

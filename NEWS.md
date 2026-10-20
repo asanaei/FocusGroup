@@ -1,3 +1,154 @@
+# FocusGroup 0.5.4
+
+## Personas from survey records
+
+* `create_agents_from_survey()` renders answers the file leaves without a
+  value label; they used to be dropped without notice. A number between the
+  two labeled endpoints of a scale is shown on that scale ("On a scale of 1
+  to 7, where 1 is ... and 7 is ..., you place yourself at 5"); a number in a
+  numeric field is shown as the number ("age: 25"); any other unlabeled code
+  is shown as the code, with the warning "Shown as the bare code because the
+  file has no value label for it". A scale that also labels a midpoint (0, 5,
+  and 10, say) leaves an unlabeled answer as the bare code, with that
+  warning. Persona text changes for files such as the ANES, whose seven-point
+  scales label only their endpoints.
+
+* New argument `scale_template` sets the sentence for an answer placed on
+  such a scale, for all items or per item, using the placeholders `{lo}`,
+  `{lo_label}`, `{hi}`, `{hi_label}`, and `{value}`. A template without
+  `{value}`, or with an unknown placeholder, is an error; the rendering
+  report records the template used.
+
+* New argument `question_wording`, a named character vector giving the
+  question as asked for each survey item. An item without a wording is shown
+  under its variable label, with the warning "No question wording was
+  supplied for N survey item(s)"; it used to be shown under the name given in
+  `survey_vars` (such as "scale_env_vs_business") without a warning. A name
+  is now used only for an item the file gives no label.
+
+* New argument `value_labels` (a data frame with `variable`, `code`, and
+  `label`, or haven's named-list form) replaces the file's label for a code
+  or labels a code the file leaves unlabeled. Labels exactly 80 characters
+  long, the most a Stata label holds, draw the warning "Labels exactly 80
+  characters long may have been cut short".
+
+* New function `persona_rendering_report()`: one row per requested field and
+  item of each persona, saying what text it was rendered as, or that it was
+  dropped and why. Rosters from `create_agents_from_survey()`,
+  `create_agents_from_data()`, and `create_agents()` carry it.
+
+* Other new warnings and messages: unlabeled negative codes are left out as
+  missing, as before, now with a warning; labels of negative codes are shown
+  as answers, as before, now with a warning; answers left out as missing
+  values are listed in a message; requested variables that are not in the
+  file are named in a warning (they used to be dropped silently); items
+  shown under the same text get " [VAR]" appended, with a warning (the
+  persona used to keep the first answer and lose the second). Tagged missing
+  values (haven `NA(d)`) are dropped; their labels used to be rendered as
+  answers unless they matched `na_strings`. Variables requested twice are
+  rendered once, with a warning, as are `value_labels` and `scale_template`
+  entries for variables not requested and variable labels exactly 80
+  characters long.
+
+* The default `na_strings`, now returned by the new
+  `fg_default_na_strings()`, also covers the labels the ANES 2024 release
+  gives its negative missing-data codes ("-3. RESTRICTED", "-6. No post
+  interview", "-7. Insufficient partial, interview deleted", "-2. DK/RF in
+  ...", "-2. Data will be released separately when available", and others)
+  and the WVS labels "No answer", "Not applicable", and "Not available".
+  Such answers are now left out as missing; they used to be shown as answers
+  ("Answer: -3. RESTRICTED"). "Error" and "RESTRICTED" count only as a whole
+  label, and "break off" and "insufficient" only in a label with a negative
+  code.
+
+* Numbers in personas are written in full ("income: 100000"); values of
+  100000 and above used to appear in scientific notation ("1e+05").
+
+## Injections, branches, and probes
+
+* New `fg_injection()` puts a message into a session at a stated point,
+  `fg_after_item(k)` (after the moderator's line at guide item k) or
+  `fg_before_turn(t)`, from the moderator or a named outside voice such as
+  "Guest expert", either into the shared log or only into the participants'
+  prompts. Injected messages are flagged in the log with their arm and cut
+  point.
+
+* New `run_focus_group_arms()` runs a session up to the injection point once
+  and then the full remainder once per arm, so the arms share every message
+  before the injection; each branch records the prefix it continued, and
+  each arm restores the random-number state of the branch point.
+
+* New `fg_probe()` asks each participant a question at stated points
+  (including "start" and "end"); the answers are saved in the result's
+  `probes` table and never enter the shared log or later prompts.
+
+* New `moderator_verbatim` (`TRUE`, or guide item numbers) delivers guide
+  items as written, without a model call.
+
+* `run_focus_group()` gains `injections`, `probes`, and `moderator_verbatim`.
+  New errors are raised before any call for a point beyond the guide's items
+  or turns, an injection from a participant or "System", arms that are
+  unnamed, not distinct, fewer than two, inject nothing, or name different
+  first points, and invalid `moderator_verbatim` values; a point the session
+  never reached draws a warning.
+
+## Reasoning models
+
+* Under `"desire_based"` turn-taking, a desire score that cannot be obtained
+  after its retry now stops the session with an error of class
+  `focusgroup_desire_failure`, returned inside a
+  `focusgroup_incomplete_session`. It used to discard every agent's valid
+  score and draw the speaker uniformly at random, noted only in metadata.
+  `on_desire_failure = "random"` continues instead: it chooses among the
+  valid scores by the usual rule and draws at random only when none is
+  valid, recording the fallback.
+
+* Scores and utterances are read from the final answer only: reasoning in
+  `<think>`, `<thinking>`, or `<reasoning>` tags or in the gpt-oss channel
+  markup is removed, and a reasoning block that never closes counts as no
+  answer. A number inside the reasoning used to be read as the score.
+
+* Desire-scoring calls keep a configured temperature; it used to be removed,
+  against a code comment saying it was kept. None is added when the
+  configuration sets none.
+
+* `run_focus_group()` gains `reasoning_effort` (one setting for every call,
+  or one per call type: moderator, participant, desire, summary, probe) and
+  `max_tokens_config`, which now also sets `desire_retry` (default 256),
+  `summary`, `interim_summary`, and `probe`.
+
+## Records
+
+* Results gain `calls` (every model call, including retries and failures:
+  messages sent, raw reply, reasoning text, cleaned text, score, settings,
+  and tokens including reasoning tokens) and `routing` (every speaker pick:
+  candidates, exclusions, scores, rule, and how a tie was broken).
+
+* Session metadata records the response limit, seed, `on_desire_failure`,
+  `reasoning_effort`, token limits, per-call settings, prompt templates,
+  standing rules, and the FocusGroup and LLMR versions. Only allowlisted
+  model parameters are recorded, so no key or endpoint enters a record.
+
+## Other corrections
+
+* Reply cleaning keeps discourse openings such as "As a result," and "As an
+  aside,"; it still removes persona self-introductions such as "As a
+  teacher,".
+
+* `analyze_participation_balance()` lists every participant; one who never
+  spoke has 0 messages. They used to be left out.
+
+* The interim summary covers the messages the prompt window drops, instead
+  of the last 30 messages, and is not made while the window holds the whole
+  discussion.
+
+* Moderator templates no longer assert history that may not exist, such as
+  a completed icebreaker.
+
+* In the Studio's continuation tab, the edited message is the one
+  previewed; with a System row in the roster they used to be one message
+  apart.
+
 # FocusGroup 0.5.3
 
 ## Participants

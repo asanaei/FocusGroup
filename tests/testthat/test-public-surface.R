@@ -10,6 +10,7 @@ test_that("the package exports exactly the first-release surface", {
     "create_conversation_flow",
     "fg_after_item",
     "fg_before_turn",
+    "fg_default_na_strings",
     "fg_injection",
     "fg_probe",
     "focus_group_from_transcript",

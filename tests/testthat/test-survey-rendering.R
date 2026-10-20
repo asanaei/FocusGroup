@@ -93,7 +93,7 @@ test_that("an unlabeled answer between labeled endpoints is rendered on its scal
 })
 
 test_that("the scale rule refuses code sets that are not endpoint-labeled scales", {
-  na <- .fg_default_na_strings
+  na <- fg_default_na_strings()
   render <- function(values, labels) {
     .fg_render_column(.lab(values, labels), "x", na)[, c("text", "rendered_as", "status")]
   }
@@ -167,7 +167,8 @@ test_that("the missing-data labels of ANES negative codes are left out by defaul
   expect_true(all(.fg_is_missing_label(anes, na)))
   # Answers that merely mention such words are kept.
   kept <- c("2. There is an error", "1. Abortion should be permitted with restrictions",
-            "3. Terrorism", "1. Restrict immigration", "4. Postpone the vote")
+            "3. Terrorism", "1. Restrict immigration", "4. Postpone the vote",
+            "2. Break off relations", "3. Insufficient funding", "Breakoff")
   expect_false(any(.fg_is_missing_label(kept, na)))
 })
 

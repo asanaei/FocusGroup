@@ -12,7 +12,7 @@ create_agents_from_survey(
   survey_vars = NULL,
   rows = NULL,
   weights = NULL,
-  na_strings = .fg_default_na_strings,
+  na_strings = fg_default_na_strings(),
   question_wording = NULL,
   value_labels = NULL,
   scale_template = .fg_default_scale_template,
@@ -65,8 +65,8 @@ its negative missing-data codes, such as "-3. RESTRICTED", "-6. No post
 interview", "-5. Sufficient partial, breakoff", "-4. Error", "-2. DK/RF in
 V241288 or V241289", and "-2. Open-end responses available in separate
 file". "Error" and "RESTRICTED" count only as a whole label. Pass your own
-vector, or extend \code{FocusGroup:::.fg_default_na_strings}, to match another
-file's missing-data vocabulary.}
+vector, or extend \code{\link[=fg_default_na_strings]{fg_default_na_strings()}}, to match another file's
+missing-data vocabulary.}
 
 \item{question_wording}{Optional named character vector giving the question
 as asked for survey items, keyed by variable name, as in

@@ -1469,7 +1469,9 @@ generate_persona <- function(demographics, survey_responses = NULL,
 # V241289", "-2. Open-end responses available in separate file", "-2. Data
 # will be released separately when available", and WVS's "No answer", "Not
 # applicable", and "Not available". "Error" and "RESTRICTED" count only as a
-# whole label, so that an answer such as "There is an error" is kept.
+# whole label, and "break off" and "insufficient" only in a label with a
+# negative code, so that answers such as "There is an error" or "Break off
+# relations" are kept.
 .fg_default_na_strings <- c("inapplicable", "missing", "refused",
                             "don't know", "don.t know", "not asked",
                             "legitimate skip", "no answer", "not applicable",
@@ -1477,9 +1479,27 @@ generate_persona <- function(demographics, survey_responses = NULL,
                             "^\\s*(-?[0-9]+\\.)?\\s*restricted\\b",
                             "^\\s*(-?[0-9]+\\.)?\\s*error\\s*$", "technical error",
                             "no post[- ](election )?interview", "interview deleted",
-                            "break ?off", "insuffici?ent", "separate file",
+                            "^\\s*-[0-9]+\\..*\\bbreak ?off\\b",
+                            "^\\s*-[0-9]+\\..*\\binsuffici?ent\\b", "separate file",
                             "released separately", "will be (released|available)",
                             "not reported")
+
+#' Missing-value patterns used by default for survey files
+#'
+#' Returns the regular expressions that [create_agents_from_survey()] uses by
+#' default to recognize value labels marking an answer as missing, such as
+#' "Refused", "Don't know", "Inapplicable", and the labels the ANES and WVS
+#' give their negative missing-data codes ("-3. RESTRICTED", "-6. No post
+#' interview"). Patterns are matched ignoring case. Extend the vector to
+#' match another file's vocabulary.
+#'
+#' @return A character vector of regular expressions.
+#' @seealso [create_agents_from_survey()]
+#' @examples
+#' na <- c(fg_default_na_strings(), "prefer not to say")
+#' head(na)
+#' @export
+fg_default_na_strings <- function() .fg_default_na_strings
 
 # Choose the column key shown to the model: the human variable label (question
 # wording) when present, else the column name. `named` overrides take priority.
@@ -1643,8 +1663,8 @@ generate_persona <- function(demographics, survey_responses = NULL,
 #'   interview", "-5. Sufficient partial, breakoff", "-4. Error", "-2. DK/RF in
 #'   V241288 or V241289", and "-2. Open-end responses available in separate
 #'   file". "Error" and "RESTRICTED" count only as a whole label. Pass your own
-#'   vector, or extend `FocusGroup:::.fg_default_na_strings`, to match another
-#'   file's missing-data vocabulary.
+#'   vector, or extend [fg_default_na_strings()], to match another file's
+#'   missing-data vocabulary.
 #' @param question_wording Optional named character vector giving the question
 #'   as asked for survey items, keyed by variable name, as in
 #'   `c(V241248 = "Where would you place yourself on abortion?")`. It takes
@@ -1794,7 +1814,7 @@ create_agents_from_survey <- function(n_participants,
                                       survey_vars = NULL,
                                       rows = NULL,
                                       weights = NULL,
-                                      na_strings = .fg_default_na_strings,
+                                      na_strings = fg_default_na_strings(),
                                       question_wording = NULL,
                                       value_labels = NULL,
                                       scale_template = .fg_default_scale_template,

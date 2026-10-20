@@ -189,9 +189,12 @@ panel_agents <- create_agents_from_data(
 It renders each answer from the file's value labels. A number the file leaves
 unlabeled is shown on its scale when the item labels only the endpoints ("On a
 scale of 1 to 7, where 1 is ... and 7 is ..., you place yourself at 5"), and
-as a number in a numeric field such as age. Questions are shown in the wording
-given in `question_wording`, else under the variable labels, with a warning. `value_labels` replaces labels the
-file cut short and labels stray codes.
+as a number in a numeric field such as age; `scale_template` rewords that
+sentence, for instance for a placement of a candidate rather than oneself.
+Questions are shown in the wording given in `question_wording`, else under the
+variable labels, with a warning. `value_labels` replaces labels the file cut
+short and labels stray codes. Labels that mark an answer as missing, matched
+by `fg_default_na_strings()`, are left out.
 
 ```r
 survey_agents <- create_agents_from_survey(

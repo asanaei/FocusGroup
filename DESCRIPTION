@@ -1,7 +1,7 @@
 Package: FocusGroup
 Type: Package
 Title: Focus Group Simulation Using LLM Agents
-Version: 0.5.3
+Version: 0.5.4
 Authors@R:
     person("Ali", "Sanaei", , "sanaei@uchicago.edu", role = c("aut", "cre"))
 Description: Moderated focus group discussions simulated with large language
@@ -25,7 +25,7 @@ Imports:
     LLMR (>= 0.8.8)
 Suggests:
     testthat (>= 3.0.0),
-    ggplot2,
+    ggplot2 (>= 3.4.0),
     quanteda,
     quanteda.textstats,
     topicmodels,
