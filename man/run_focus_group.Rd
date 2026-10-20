@@ -129,10 +129,43 @@ not to this list.}
 \code{n_participants}, \code{estimated_calls}, \code{provider}, \code{model}, \code{complete}
 (\code{TRUE} for a finished session, \code{FALSE} for a partial one), and
 \code{failure} (\code{NULL}, or a list with the \code{phase} and \code{message} of the
-error that stopped the session). It holds no configuration object.}
+error that stopped the session); then the conditions of the run:
+\code{max_participant_responses}, \code{seed} (\code{NA} when none was given),
+\code{on_desire_failure}, \code{reasoning_effort}, \code{max_tokens} (the token
+limit of each call type), \code{call_settings} (a data frame giving, for
+each call type and agent, the provider, model, and model parameters
+the calls start from), \code{prompt_templates}, \code{standing_rules} (the
+system-message rules for participants and the moderator),
+\code{disclosure}, \code{versions} (of FocusGroup, LLMR, and R), and \code{started}.
+It holds no configuration object.}
+\item{calls}{A data frame with one row per model call the session
+made, in order, including retries and failed calls: \code{call_id},
+\code{call_type} (\code{"moderator"}, \code{"participant"}, \code{"desire"}, \code{"summary"},
+\code{"interim_summary"}, or \code{"probe"}), \code{agent_id}, \code{attempt} (2 for a
+retry), \code{round}, \code{phase}, \code{message_id} (the message the call produced,
+if any), \code{provider}, \code{model}, the list-columns \code{settings} (the model
+parameters sent) and \code{messages} (the messages sent), \code{raw_text} (the
+reply before any cleaning), \code{thinking} (reasoning the provider returned
+separately), \code{cleaned_text}, \code{score} (for desire calls), \code{finish_reason},
+\code{response_id}, \code{sent_tokens}, \code{rec_tokens}, \code{total_tokens},
+\code{reasoning_tokens}, \code{duration_s}, \code{error} (the error a failed call
+raised), and \code{timestamp}. Only scalar sampling and length parameters
+enter \code{settings}; keys and endpoint addresses never do.}
+\item{routing}{A data frame with one row per speaker selection: \code{pick},
+\code{round}, \code{phase}, \code{turn} (the participant turn it chose for),
+\code{flow}, \code{rule} (such as \code{"rotation"}, \code{"propensity_draw"},
+\code{"highest_score"}, \code{"threshold_lowered"}, \code{"highest_below_threshold"},
+or \code{"uniform_after_failure"}), \code{selected_id}, \code{message_id},
+\code{threshold}, \code{tie_break} (\code{"none"}, \code{"random"}, or \code{"draw"}),
+\code{scoring_mode}, and the list-columns \code{candidates}, \code{excluded} (named
+by participant, giving the reason, such as \code{"previous_speaker"} or
+\code{"score_failed"}), \code{scores} (desire scores, or selection
+probabilities for \code{"probabilistic"}), and \code{tied}.}
 }
 Results saved by FocusGroup 0.5.2 and earlier lack \code{usage$unknown},
-\code{metadata$complete}, and \code{metadata$failure}.
+\code{metadata$complete}, and \code{metadata$failure}; results saved by 0.5.3 and
+earlier lack \code{calls}, \code{routing}, and the metadata that follows
+\code{failure}.
 }
 \description{
 Constructs the agents, moderator guide, and turn-taking flow, then runs one

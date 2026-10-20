@@ -253,7 +253,8 @@ test_that("the GUI persona path applies the seed to the respondent draw", {
   expect_s3_class(result1, "focus_group_result")
   expect_named(
     result1,
-    c("focus_group", "transcript", "summary", "participants", "usage", "metadata"),
+    c("focus_group", "transcript", "summary", "participants", "usage", "metadata",
+      "calls", "routing"),
     ignore.order = FALSE
   )
   expect_named(

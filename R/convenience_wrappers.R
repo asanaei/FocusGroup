@@ -315,10 +315,43 @@ NULL
 #'     `n_participants`, `estimated_calls`, `provider`, `model`, `complete`
 #'     (`TRUE` for a finished session, `FALSE` for a partial one), and
 #'     `failure` (`NULL`, or a list with the `phase` and `message` of the
-#'     error that stopped the session). It holds no configuration object.}
+#'     error that stopped the session); then the conditions of the run:
+#'     `max_participant_responses`, `seed` (`NA` when none was given),
+#'     `on_desire_failure`, `reasoning_effort`, `max_tokens` (the token
+#'     limit of each call type), `call_settings` (a data frame giving, for
+#'     each call type and agent, the provider, model, and model parameters
+#'     the calls start from), `prompt_templates`, `standing_rules` (the
+#'     system-message rules for participants and the moderator),
+#'     `disclosure`, `versions` (of FocusGroup, LLMR, and R), and `started`.
+#'     It holds no configuration object.}
+#'   \item{calls}{A data frame with one row per model call the session
+#'     made, in order, including retries and failed calls: `call_id`,
+#'     `call_type` (`"moderator"`, `"participant"`, `"desire"`, `"summary"`,
+#'     `"interim_summary"`, or `"probe"`), `agent_id`, `attempt` (2 for a
+#'     retry), `round`, `phase`, `message_id` (the message the call produced,
+#'     if any), `provider`, `model`, the list-columns `settings` (the model
+#'     parameters sent) and `messages` (the messages sent), `raw_text` (the
+#'     reply before any cleaning), `thinking` (reasoning the provider returned
+#'     separately), `cleaned_text`, `score` (for desire calls), `finish_reason`,
+#'     `response_id`, `sent_tokens`, `rec_tokens`, `total_tokens`,
+#'     `reasoning_tokens`, `duration_s`, `error` (the error a failed call
+#'     raised), and `timestamp`. Only scalar sampling and length parameters
+#'     enter `settings`; keys and endpoint addresses never do.}
+#'   \item{routing}{A data frame with one row per speaker selection: `pick`,
+#'     `round`, `phase`, `turn` (the participant turn it chose for),
+#'     `flow`, `rule` (such as `"rotation"`, `"propensity_draw"`,
+#'     `"highest_score"`, `"threshold_lowered"`, `"highest_below_threshold"`,
+#'     or `"uniform_after_failure"`), `selected_id`, `message_id`,
+#'     `threshold`, `tie_break` (`"none"`, `"random"`, or `"draw"`),
+#'     `scoring_mode`, and the list-columns `candidates`, `excluded` (named
+#'     by participant, giving the reason, such as `"previous_speaker"` or
+#'     `"score_failed"`), `scores` (desire scores, or selection
+#'     probabilities for `"probabilistic"`), and `tied`.}
 #' }
 #' Results saved by FocusGroup 0.5.2 and earlier lack `usage$unknown`,
-#' `metadata$complete`, and `metadata$failure`.
+#' `metadata$complete`, and `metadata$failure`; results saved by 0.5.3 and
+#' earlier lack `calls`, `routing`, and the metadata that follows
+#' `failure`.
 #'
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -504,7 +537,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
   )
 
   result <- .fg_execute_session(fg, flow, message_mode, n_participants,
-                                estimated_calls, verbose)
+                                estimated_calls, verbose,
+                                run_meta = list(seed = seed,
+                                                on_desire_failure = on_desire_failure))
 
   if (verbose) cat("Simulation complete.\n")
   result
@@ -526,9 +561,10 @@ run_focus_group <- function(topic, config, n_participants = 6,
 }
 
 .fg_execute_session <- function(fg, flow, message_mode, n_participants,
-                                estimated_calls, verbose = FALSE) {
+                                estimated_calls, verbose = FALSE,
+                                run_meta = list()) {
   result <- function() .fg_focus_group_result(
-    fg, flow, message_mode, n_participants, estimated_calls)
+    fg, flow, message_mode, n_participants, estimated_calls, run_meta)
   tryCatch(
     withr::with_options(list(focusgroup.message_mode = message_mode),
                        fg$run_simulation(verbose = verbose)),
@@ -616,9 +652,11 @@ run_focus_group <- function(topic, config, n_participants = 6,
 }
 
 .fg_focus_group_result <- function(focus_group, flow, message_mode,
-                                   n_participants, estimated_calls) {
+                                   n_participants, estimated_calls,
+                                   run_meta = list()) {
   transcript <- .fg_transcript_data(focus_group$conversation_log)
   participant_data <- .fg_participant_data(focus_group$agents)
+  records <- focus_group$records %||% .fg_empty_records()
   sent <- focus_group$total_tokens_sent %||% NA_real_
   rec <- focus_group$total_tokens_received %||% NA_real_
   status <- attr(focus_group, "session_status")
@@ -642,11 +680,147 @@ run_focus_group <- function(topic, config, n_participants = 6,
         provider = moderator_config$provider %||% NA_character_,
         model = moderator_config$model %||% NA_character_,
         complete = status$complete %||% NA,
-        failure = status$failure
-      )
+        failure = status$failure,
+        max_participant_responses = as.integer(
+          focus_group$max_participant_responses %||% NA_integer_),
+        seed = if (is.null(run_meta$seed)) NA_integer_ else as.integer(run_meta$seed),
+        on_desire_failure = run_meta$on_desire_failure %||% NA_character_,
+        reasoning_effort = focus_group$reasoning_effort,
+        max_tokens = .fg_token_limits(focus_group),
+        call_settings = .fg_settings_data(focus_group),
+        prompt_templates = focus_group$prompt_templates,
+        standing_rules = records$info$standing_rules,
+        disclosure = records$info$disclosure %||% NA_character_,
+        versions = records$info$versions %||% .fg_versions(),
+        started = records$info$started %||% as.POSIXct(NA)
+      ),
+      calls = .fg_calls_data(records$calls),
+      routing = .fg_routing_data(records$routing)
     ),
     class = c("focus_group_result", "list")
   )
+}
+
+# A session's token limits by call type.
+.fg_token_limits <- function(focus_group) {
+  limit <- function(name, default) as.numeric(focus_group[[name]] %||% default)
+  list(utterance = limit("max_tokens_utterance", NA_real_),
+       moderator = limit("max_tokens_moderator", NA_real_),
+       desire = limit("max_tokens_desire", NA_real_),
+       desire_retry = limit("max_tokens_desire_retry", .fg_desire_retry_tokens),
+       summary = limit("max_tokens_summary", 400),
+       interim_summary = limit("max_tokens_interim_summary", 250),
+       probe = limit("max_tokens_probe", NA_real_))
+}
+
+# The settings each call type starts from, by agent: the allowlisted model
+# parameters after the session's limits and reasoning effort are applied. A
+# participant's reply is at least 220 tokens, and the moderator's opening and
+# closing use 300 and 250, when the configuration sets no limit. The
+# settings of each call as made are in the `calls` record.
+.fg_settings_data <- function(focus_group) {
+  rows <- list()
+  add <- function(type, agent_id, config, max_tokens = NULL, temperature = NULL) {
+    if (is.null(config) || !inherits(config, "llm_config")) return(invisible())
+    if (!is.null(max_tokens)) config$model_params$max_tokens <- max_tokens
+    if (!is.null(temperature)) {
+      config$model_params$temperature <- config$model_params$temperature %||% temperature
+    }
+    config <- .fg_with_params(config, .fg_call_params(focus_group, type))
+    rows[[length(rows) + 1L]] <<- list(call_type = type, agent_id = agent_id,
+      provider = config$provider %||% NA_character_,
+      model = config$model %||% NA_character_,
+      settings = .fg_call_settings(config))
+  }
+  limits <- .fg_token_limits(focus_group)
+  moderator_id <- focus_group$moderator_id %||% NA_character_
+  for (id in names(focus_group$agents)) {
+    config <- focus_group$agents[[id]]$config
+    configured <- config$model_params$max_tokens
+    if (identical(id, moderator_id)) {
+      add("moderator", id, config, configured %||% limits$moderator, 0.7)
+    } else {
+      add("participant", id, config,
+          configured %||% max(limits$utterance, 220, na.rm = TRUE), 0.7)
+      add("desire", id, config, limits$desire)
+      if (!is.na(limits$probe)) add("probe", id, config, limits$probe)
+    }
+  }
+  add("summary", NA_character_, focus_group$admin_config, limits$summary)
+  add("interim_summary", NA_character_, focus_group$admin_config, limits$interim_summary)
+  out <- data.frame(
+    call_type = vapply(rows, `[[`, character(1), "call_type"),
+    agent_id = vapply(rows, function(r) as.character(r$agent_id), character(1)),
+    provider = vapply(rows, function(r) as.character(r$provider), character(1)),
+    model = vapply(rows, function(r) as.character(r$model), character(1)),
+    stringsAsFactors = FALSE)
+  out$settings <- I(lapply(rows, `[[`, "settings"))
+  out
+}
+
+# One column of a list of records: a scalar per record, with NA where a
+# record lacks the field.
+.fg_record_column <- function(records, name, type) {
+  convert <- switch(type, character = as.character, integer = as.integer,
+                    double = as.double, logical = as.logical)
+  na <- convert(NA)
+  vapply(records, function(x) {
+    value <- x[[name]]
+    if (is.null(value) || !length(value) || (is.atomic(value) && is.na(value[[1]]))) na
+    else convert(value[[1]])
+  }, na)
+}
+
+# The `calls` component of a result: one row per model call.
+.fg_calls_data <- function(calls) {
+  col <- function(name, type) .fg_record_column(calls, name, type)
+  count <- function(name) {
+    values <- col(name, "double")
+    if (all(is.na(values) | values <= .Machine$integer.max)) as.integer(values) else values
+  }
+  out <- data.frame(
+    call_id = col("call_id", "integer"), call_type = col("call_type", "character"),
+    agent_id = col("agent_id", "character"), attempt = col("attempt", "integer"),
+    round = col("round", "integer"), phase = col("phase", "character"),
+    message_id = col("message_id", "integer"),
+    provider = col("provider", "character"), model = col("model", "character"),
+    stringsAsFactors = FALSE)
+  out$settings <- I(lapply(calls, function(x) x$settings %||% list()))
+  out$messages <- I(lapply(calls, function(x) x$messages %||% list()))
+  out$raw_text <- col("raw_text", "character")
+  out$thinking <- col("thinking", "character")
+  out$cleaned_text <- col("cleaned_text", "character")
+  out$score <- col("score", "double")
+  out$finish_reason <- col("finish_reason", "character")
+  out$response_id <- col("response_id", "character")
+  out$sent_tokens <- count("sent_tokens")
+  out$rec_tokens <- count("rec_tokens")
+  out$total_tokens <- count("total_tokens")
+  out$reasoning_tokens <- count("reasoning_tokens")
+  out$duration_s <- col("duration_s", "double")
+  out$error <- col("error", "character")
+  out$timestamp <- as.POSIXct(col("timestamp", "double"), origin = "1970-01-01", tz = "UTC")
+  out
+}
+
+# The `routing` component of a result: one row per speaker selection.
+.fg_routing_data <- function(routing) {
+  col <- function(name, type) .fg_record_column(routing, name, type)
+  out <- data.frame(
+    pick = col("pick", "integer"), round = col("round", "integer"),
+    phase = col("phase", "character"), turn = col("turn", "integer"),
+    flow = col("flow", "character"), rule = col("rule", "character"),
+    selected_id = col("selected_id", "character"),
+    message_id = col("message_id", "integer"),
+    threshold = col("threshold", "double"),
+    tie_break = col("tie_break", "character"),
+    scoring_mode = col("scoring_mode", "character"),
+    stringsAsFactors = FALSE)
+  out$candidates <- I(lapply(routing, function(x) x$candidates %||% character()))
+  out$excluded <- I(lapply(routing, function(x) x$excluded %||% character()))
+  out$scores <- I(lapply(routing, function(x) x$scores))
+  out$tied <- I(lapply(routing, function(x) x$tied %||% character()))
+  out
 }
 
 #' Print a focus group result

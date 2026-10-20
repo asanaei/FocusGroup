@@ -114,6 +114,13 @@ reported total, or its sent and received counts when it reported no total.}
 incomplete, so that the three token fields are lower bounds when it is
 positive; \code{NA} when that number cannot be determined, as after a call that
 raised an error.}
+
+\item{\code{records}}{List. The record of the most recent session: \code{calls}, one
+entry per model call the session made; \code{routing}, one entry per speaker
+selection; \code{probes} and \code{injections}, described in \code{\link[=run_focus_group]{run_focus_group()}};
+and \code{info}, the versions, standing rules, and settings in force when the
+session started. \code{\link[=run_focus_group]{run_focus_group()}} returns the first four as data
+frames. Objects saved by FocusGroup 0.5.3 and earlier lack it.}
 }
 \if{html}{\out{</div>}}
 }
@@ -224,7 +231,8 @@ the simulation stops at whichever condition is met first.}
 Invisibly returns the \code{conversation_log}. When a call fails,
 the error propagates and the messages completed so far remain in
 \code{conversation_log}. A failed final summary is not an error: it warns
-and leaves \code{final_summary} as \code{NA}.
+and leaves \code{final_summary} as \code{NA}. Every model call the session
+makes, and every speaker selection, is recorded in \code{records}.
 }
 }
 \if{html}{\out{<hr>}}
@@ -253,9 +261,10 @@ Generate a summary of the conversation using an LLM.
 \item{\code{max_tokens}}{Integer. Optional. Max tokens for the summary.}
 
 \item{\code{internal_call}}{Logical. Marks a summary made for context
-management during the session. It is kept for compatibility and no
-longer changes anything: the call's usage is added to the group's
-token fields either way, and to no agent's.}
+management during the session. It does not change the call: the
+call's usage is added to the group's token fields either way, and to
+no agent's. A session's call record lists such a summary as
+\code{"interim_summary"}.}
 
 \item{\code{transcript_override}}{Character. Optional. If provided, this transcript is summarized instead of \code{self$conversation_log}.}
 

@@ -46,6 +46,13 @@ RandomFlow <- R6::R6Class("RandomFlow", inherit = ConversationFlow,
 \item{\code{selection_metadata}}{Details recorded for the latest selection when
 it departs from the flow's usual rule, such as a lowered desire threshold
 or, under \code{on_desire_failure = "random"}, a desire-scoring failure.}
+
+\item{\code{routing_record}}{The record of the latest selection, whatever rule
+made it: a list with \code{flow}, \code{rule}, \code{candidates}, \code{excluded} (a named
+character vector giving the reason each excluded participant was passed
+over), \code{scores}, \code{threshold}, \code{tied}, \code{tie_break}, and \code{selected_id}. A
+running session copies it into its routing record after every pick. A
+subclass that does not set it is recorded with rule \code{"custom"}.}
 }
 \if{html}{\out{</div>}}
 }

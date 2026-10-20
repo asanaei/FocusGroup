@@ -61,6 +61,12 @@ NULL
 #'   incomplete, so that the three token fields are lower bounds when it is
 #'   positive; `NA` when that number cannot be determined, as after a call that
 #'   raised an error.
+#' @field records List. The record of the most recent session: `calls`, one
+#'   entry per model call the session made; `routing`, one entry per speaker
+#'   selection; `probes` and `injections`, described in [run_focus_group()];
+#'   and `info`, the versions, standing rules, and settings in force when the
+#'   session started. [run_focus_group()] returns the first four as data
+#'   frames. Objects saved by FocusGroup 0.5.3 and earlier lack it.
 #'
 #' @details
 #' The group's token fields count every model call made on its behalf: the
@@ -119,6 +125,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     total_tokens_received = 0,
     total_tokens = 0,
     calls_usage_unknown = 0,
+    records = NULL,
 
     #' @description Initialize a new FocusGroup simulation.
     #' @param topic Character. The main discussion topic.
@@ -217,6 +224,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$total_tokens_received <- 0
       self$total_tokens <- 0
       self$calls_usage_unknown <- 0
+      self$records <- .fg_empty_records()
     },
 
     #' @description Run the full focus group simulation.
@@ -229,7 +237,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @return Invisibly returns the `conversation_log`. When a call fails,
     #'   the error propagates and the messages completed so far remain in
     #'   `conversation_log`. A failed final summary is not an error: it warns
-    #'   and leaves `final_summary` as `NA`.
+    #'   and leaves `final_summary` as `NA`. Every model call the session
+    #'   makes, and every speaker selection, is recorded in `records`.
     run_simulation = function(num_rounds = NULL, verbose = FALSE) {
       if (length(self$conversation_log)) {
         stop(
@@ -241,106 +250,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
       # Record the active message construction so a saved object replays the same
       # way (e.g. the GUI continuation experiment).
       self$message_mode <- .fg_message_mode()
-      if (verbose) {
-        cat("Starting focus group simulation...\n")
-        cat("Topic:", self$topic, "\n")
-        cat("Purpose:", self$purpose, "\n")
-      }
-
-      private$current_phase_index <- 0
-      round_counter <- 0L
-      simulation_active <- TRUE
-      private$last_summary_round <- -Inf
-
-      # Log a roster system message so all agents "see" who is present
-      participant_ids <- setdiff(names(self$agents), self$moderator_id)
-      roster_msg <- paste0(
-        "Participants: ", paste(participant_ids, collapse = ", "),
-        "; Moderator: ", self$moderator_id
-      )
-      private$log_message("System", roster_msg, round = round_counter,
-                          is_moderator = FALSE, phase = "setup", meta = list())
-
-      # Working context ceilings and triggers.
-      summarize_trigger_tokens <- 48000L
-      summarize_probe_tokens   <- 64000L  # probe window larger than cap so trigger can fire
-      summarize_trigger_count  <- 200L
-      summarize_cooldown_rounds <- 10L
-      interim_summary_tokens   <- self$max_tokens_interim_summary
-
-      while(simulation_active) {
-        round_counter <- round_counter + 1L
-        if (!is.null(num_rounds) && round_counter > num_rounds) {
-            if (verbose) cat("\n--- Reached num_rounds limit (", num_rounds, "). Simulation Ended ---\n")
-            break
-        }
-
-        # advance_round returns FALSE if the script ends or the moderator closes.
-        simulation_active <- private$advance_round(current_round = round_counter,
-                                                   verbose = verbose)
-
-        # Threshold-based interim summarization and prompt window trimming.
-        # Use a probe window larger than the trigger so the token condition can actually fire.
-        needs_summary <- FALSE
-        if ((round_counter - private$last_summary_round) >= summarize_cooldown_rounds) {
-          recent_hist <- make_prompt_history(
-            self$conversation_log,
-            include_summary = NULL,
-            max_tokens_history = summarize_probe_tokens
-          )
-          recent_tokens <- estimate_tokens(recent_hist)
-          needs_summary <- recent_tokens >= summarize_trigger_tokens ||
-            length(self$conversation_log) > summarize_trigger_count
-        }
-        # The summary stands in for the messages the prompt window no longer
-        # shows, so it covers exactly those; while the window still holds the
-        # whole discussion there is nothing to summarize.
-        dropped_transcript <- if (needs_summary) {
-          private$get_dropped_transcript_for_summary(summarize_probe_tokens)
-        } else ""
-        if (nzchar(dropped_transcript)) {
-          if (verbose) cat("\n--- Generating interim summary for context management ---\n")
-          attr(self, "execution_phase") <- "interim_summary"
-          interim_summary_text <- self$summarize(
-            config = .fg_with_params(self$admin_config,
-                                     .fg_call_params(self, "summary")),
-            summary_level = 3,
-            max_tokens = interim_summary_tokens,
-            internal_call = TRUE,
-            transcript_override = dropped_transcript
-          )
-          self$current_conversation_summary <- interim_summary_text
-          private$last_summary_round <- round_counter
-          if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
-        }
-      }
-      # The loop exits one of two ways: the round-limit branch above breaks with
-      # simulation_active still TRUE (and prints its own line), or advance_round
-      # returns FALSE and sets simulation_active to FALSE. The latter is the
-      # normal close (script exhausted or moderator ended), so announce it here.
-      if (verbose && !simulation_active) cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
-
-      # Final summary of the entire discussion. The transcript is complete at
-      # this point; a summary failure is reported, never allowed to destroy
-      # the finished run.
-      if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
-      final_summary <- tryCatch(
-        self$summarize(config = .fg_with_params(self$admin_config,
-                                                .fg_call_params(self, "summary")),
-                       summary_level = 1, max_tokens = self$max_tokens_summary,
-                       internal_call = FALSE),
-        error = function(e) {
-          warning("The final summary call failed (",
-                  conditionMessage(e),
-                  "); the completed transcript is returned without it.",
-                  call. = FALSE)
-          NA_character_
-        })
-      self$final_summary <- final_summary
-      if (verbose && !is.na(final_summary)) {
-        cat("Final Summary:\n", final_summary, "\n")
-      }
-
+      private$start_records()
+      private$with_records(private$run_session(num_rounds, verbose))
       invisible(self$conversation_log)
     },
 
@@ -350,9 +261,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param summary_level Integer (1-3). 1: Prose overview, 2: Detailed bulleted, 3: Short bulleted takeaways.
     #' @param max_tokens Integer. Optional. Max tokens for the summary.
     #' @param internal_call Logical. Marks a summary made for context
-    #'   management during the session. It is kept for compatibility and no
-    #'   longer changes anything: the call's usage is added to the group's
-    #'   token fields either way, and to no agent's.
+    #'   management during the session. It does not change the call: the
+    #'   call's usage is added to the group's token fields either way, and to
+    #'   no agent's. A session's call record lists such a summary as
+    #'   `"interim_summary"`.
     #' @param transcript_override Character. Optional. If provided, this transcript is summarized instead of `self$conversation_log`.
     #' @param .runner Optional function used instead of live model calls. It
     #'   receives a data frame with `config` and `messages` list-columns and
@@ -427,9 +339,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
         .runner = .runner %||% self$agents[[self$moderator_id]]$.runner,
         tries = 5,
         wait_seconds = 2,
-        backoff_factor = 3
+        backoff_factor = 3,
+        .call = list(type = if (isTRUE(internal_call)) "interim_summary" else "summary")
       )
       summary_text <- .fg_response_text(response_obj)
+      .fg_note_call(response_obj, cleaned_text = summary_text)
 
       if (!nzchar(trimws(summary_text))) {
         stop("Summarization returned an empty model response.", call. = FALSE)
@@ -791,7 +705,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
         .usage = function(u) .fg_record_group(self, u),
         messages = list(list(role = "user", content = theme_prompt)),
         .runner = .runner %||% self$agents[[self$moderator_id]]$.runner,
-        tries = 5
+        tries = 5,
+        .call = list(type = "themes")
       )
 
       themes_summary <- .fg_response_text(response_obj)
@@ -1309,6 +1224,181 @@ FocusGroup <- R6::R6Class("FocusGroup",
     record_token_usage = function(sent = 0L, rec = 0L, total, unknown) {
       .fg_add_group_usage(self, sent, rec, total, unknown)
     },
+    # Start the session record: no calls or picks yet, and the versions,
+    # standing rules, and disclosure setting in force.
+    start_records = function() {
+      self$records <- .fg_empty_records()
+      self$records$info <- list(
+        started = as.POSIXct(Sys.time(), tz = "UTC"),
+        versions = .fg_versions(),
+        message_mode = self$message_mode,
+        standing_rules = list(participant = .fg_standing_rules(FALSE),
+                              moderator = .fg_standing_rules(TRUE)),
+        disclosure = getOption("focusgroup.disclosure", "transparent"),
+        rng_kind = RNGkind()
+      )
+      private$pending_calls <- integer()
+      private$participant_turns <- 0L
+      private$current_round <- 0L
+    },
+
+    # Evaluate `expr` while collecting the session's call records.
+    with_records = function(expr) {
+      withCallingHandlers(expr,
+        focusgroup_call = function(cnd) private$collect_call(cnd),
+        focusgroup_call_note = function(cnd) private$collect_note(cnd))
+    },
+
+    collect_call = function(cnd) {
+      id <- length(self$records$calls) + 1L
+      record <- c(list(call_id = id), cnd$record,
+                  list(round = as.integer(private$current_round %||% NA_integer_),
+                       phase = as.character(attr(self, "execution_phase") %||% NA_character_),
+                       message_id = NA_integer_))
+      self$records$calls[[id]] <- record
+      cnd$handle$index <- id
+      if (record$call_type %in% c("moderator", "participant")) {
+        private$pending_calls <- c(private$pending_calls, id)
+      }
+    },
+
+    collect_note = function(cnd) {
+      id <- cnd$handle$index
+      if (is.null(id) || id > length(self$records$calls)) return(invisible(NULL))
+      for (field in names(cnd$fields)) {
+        self$records$calls[[id]][[field]] <- cnd$fields[[field]]
+      }
+    },
+
+    # Copy the flow's record of the pick just made into the session's routing
+    # record; returns its position so the resulting message can be linked.
+    record_routing = function(selected) {
+      flow <- self$turn_taking_flow
+      has_field <- "routing_record" %in% names(flow)
+      record <- if (has_field) flow$routing_record else NULL
+      selected_id <- if (is.null(selected)) NA_character_ else selected$id
+      if (is.null(record)) {
+        record <- .fg_routing_record(class(flow)[1], "custom",
+                                     flow$participant_ids %||% character(),
+                                     selected_id)
+      }
+      record$selected_id <- selected_id
+      if (has_field) flow$routing_record <- NULL
+      pick <- length(self$records$routing) + 1L
+      self$records$routing[[pick]] <- c(
+        list(pick = pick, round = as.integer(private$current_round),
+             phase = as.character(attr(self, "execution_phase") %||% NA_character_),
+             turn = as.integer(private$participant_turns + 1L)),
+        record, list(message_id = NA_integer_))
+      pick
+    },
+
+    # The session itself: the roster message, the moderator cycles of the
+    # script, interim summaries, and the final summary.
+    run_session = function(num_rounds, verbose) {
+      if (verbose) {
+        cat("Starting focus group simulation...\n")
+        cat("Topic:", self$topic, "\n")
+        cat("Purpose:", self$purpose, "\n")
+      }
+
+      private$current_phase_index <- 0
+      round_counter <- 0L
+      simulation_active <- TRUE
+      private$last_summary_round <- -Inf
+
+      # Log a roster system message so all agents "see" who is present
+      participant_ids <- setdiff(names(self$agents), self$moderator_id)
+      roster_msg <- paste0(
+        "Participants: ", paste(participant_ids, collapse = ", "),
+        "; Moderator: ", self$moderator_id
+      )
+      private$log_message("System", roster_msg, round = round_counter,
+                          is_moderator = FALSE, phase = "setup", meta = list())
+
+      # Working context ceilings and triggers.
+      summarize_trigger_tokens <- 48000L
+      summarize_probe_tokens   <- 64000L  # probe window larger than cap so trigger can fire
+      summarize_trigger_count  <- 200L
+      summarize_cooldown_rounds <- 10L
+      interim_summary_tokens   <- self$max_tokens_interim_summary
+
+      while(simulation_active) {
+        round_counter <- round_counter + 1L
+        private$current_round <- round_counter
+        if (!is.null(num_rounds) && round_counter > num_rounds) {
+            if (verbose) cat("\n--- Reached num_rounds limit (", num_rounds, "). Simulation Ended ---\n")
+            break
+        }
+
+        # advance_round returns FALSE if the script ends or the moderator closes.
+        simulation_active <- private$advance_round(current_round = round_counter,
+                                                   verbose = verbose)
+
+        # Threshold-based interim summarization and prompt window trimming.
+        # Use a probe window larger than the trigger so the token condition can actually fire.
+        needs_summary <- FALSE
+        if ((round_counter - private$last_summary_round) >= summarize_cooldown_rounds) {
+          recent_hist <- make_prompt_history(
+            self$conversation_log,
+            include_summary = NULL,
+            max_tokens_history = summarize_probe_tokens
+          )
+          recent_tokens <- estimate_tokens(recent_hist)
+          needs_summary <- recent_tokens >= summarize_trigger_tokens ||
+            length(self$conversation_log) > summarize_trigger_count
+        }
+        # The summary stands in for the messages the prompt window no longer
+        # shows, so it covers exactly those; while the window still holds the
+        # whole discussion there is nothing to summarize.
+        dropped_transcript <- if (needs_summary) {
+          private$get_dropped_transcript_for_summary(summarize_probe_tokens)
+        } else ""
+        if (nzchar(dropped_transcript)) {
+          if (verbose) cat("\n--- Generating interim summary for context management ---\n")
+          attr(self, "execution_phase") <- "interim_summary"
+          interim_summary_text <- self$summarize(
+            config = .fg_with_params(self$admin_config,
+                                     .fg_call_params(self, "summary")),
+            summary_level = 3,
+            max_tokens = interim_summary_tokens,
+            internal_call = TRUE,
+            transcript_override = dropped_transcript
+          )
+          self$current_conversation_summary <- interim_summary_text
+          private$last_summary_round <- round_counter
+          if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
+        }
+      }
+      # The loop exits one of two ways: the round-limit branch above breaks with
+      # simulation_active still TRUE (and prints its own line), or advance_round
+      # returns FALSE and sets simulation_active to FALSE. The latter is the
+      # normal close (script exhausted or moderator ended), so announce it here.
+      if (verbose && !simulation_active) cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
+
+      # Final summary of the entire discussion. The transcript is complete at
+      # this point; a summary failure is reported, never allowed to destroy
+      # the finished run.
+      if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
+      final_summary <- tryCatch(
+        self$summarize(config = .fg_with_params(self$admin_config,
+                                                .fg_call_params(self, "summary")),
+                       summary_level = 1, max_tokens = self$max_tokens_summary,
+                       internal_call = FALSE),
+        error = function(e) {
+          warning("The final summary call failed (",
+                  conditionMessage(e),
+                  "); the completed transcript is returned without it.",
+                  call. = FALSE)
+          NA_character_
+        })
+      self$final_summary <- final_summary
+      if (verbose && !is.na(final_summary)) {
+        cat("Final Summary:\n", final_summary, "\n")
+      }
+
+      invisible(self$conversation_log)
+    },
 
     advance_round = function(current_round, verbose = FALSE) {
       moderator_agent <- self$agents[[self$moderator_id]]
@@ -1477,6 +1567,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
         repeat {
           next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
+          pick <- private$record_routing(next_participant)
 
           if (!is.null(next_participant)) {
             if (next_participant$id == self$moderator_id && length(self$agents) > 1) {
@@ -1509,11 +1600,13 @@ FocusGroup <- R6::R6Class("FocusGroup",
                 part_meta$metadata %||% list(),
                 selection_metadata
               )
-              private$log_message(next_participant$id, part_text,
-                                  round = current_round,
-                                  is_moderator = FALSE,
-                                  phase = current_phase_name,
-                                  meta = part_meta)
+              message_id <- private$log_message(next_participant$id, part_text,
+                                                round = current_round,
+                                                is_moderator = FALSE,
+                                                phase = current_phase_name,
+                                                meta = part_meta)
+              self$records$routing[[pick]]$message_id <- message_id
+              private$participant_turns <- private$participant_turns + 1L
               if (verbose) cat(paste0(next_participant$id, ": ", part_text, "\n"))
 
               self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
@@ -1590,6 +1683,12 @@ FocusGroup <- R6::R6Class("FocusGroup",
       )
       if (!is.null(meta$usage_unknown)) msg$metadata$usage_unknown <- meta$usage_unknown
       self$conversation_log <- c(self$conversation_log, list(msg))
+      # The model calls that produced this message are linked to it.
+      for (id in private$pending_calls) {
+        self$records$calls[[id]]$message_id <- msg$message_id
+      }
+      private$pending_calls <- integer()
+      invisible(msg$message_id)
     },
 
     # Helper to get filtered log for analysis methods. The synthetic setup
@@ -1621,6 +1720,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
     current_phase_index = 0L,
     last_summary_round = NULL,
+    current_round = 0L,
+    participant_turns = 0L,
+    pending_calls = integer(),
 
     # The transcript of the messages that fall before the prompt window, for
     # the interim summary; "" when the window still holds every message. The

@@ -242,13 +242,15 @@ FGAgent <- R6::R6Class("FGAgent",
 
       usage <- .fg_usage_recorder()
       on.exit(.fg_add_agent_usage(self, usage$value()), add = TRUE)
+      call_type <- if (isTRUE(self$is_moderator)) "moderator" else "participant"
       response_obj <- .fg_call_llm(
         config = current_config,
         messages = msgs,
         .runner = self$.runner, .usage = usage$add,
         tries = 5,
         wait_seconds = 2,
-        backoff_factor = 3
+        backoff_factor = 3,
+        .call = list(type = call_type, agent_id = self$id, attempt = 1L)
       )
 
       utterance_text <- .fg_response_text(response_obj)
@@ -267,6 +269,7 @@ FGAgent <- R6::R6Class("FGAgent",
       } else {
         utterance_text <- trimws(original_text)
       }
+      .fg_note_call(response_obj, cleaned_text = utterance_text)
 
       # Fallback: retry once only when the model was actually cut off, returned
       # nothing, or trailed off mid-thought. A short, well-formed answer ("I
@@ -306,10 +309,12 @@ FGAgent <- R6::R6Class("FGAgent",
           .runner = self$.runner, .usage = usage$add,
           tries = 3,
           wait_seconds = 2,
-          backoff_factor = 2
+          backoff_factor = 2,
+          .call = list(type = call_type, agent_id = self$id, attempt = 2L)
         )
         cand <- trimws(.fg_response_text(response_obj2))
         cand <- .fg_strip_role_preamble(cand)
+        .fg_note_call(response_obj2, cleaned_text = cand)
         retry_incomplete <- !nzchar(cand) ||
           identical(.fg_response_finish(response_obj2), "length") ||
           grepl("\\.\\.\\.\\s*$", cand)
@@ -419,16 +424,18 @@ FGAgent <- R6::R6Class("FGAgent",
 
       usage <- .fg_usage_recorder()
       on.exit(.fg_add_agent_usage(self, usage$value()), add = TRUE)
-      score_once <- function(cfg) {
+      score_once <- function(cfg, attempt) {
         ro <- .fg_call_llm(
           config = cfg, messages = desire_msgs,
           .runner = self$.runner, .usage = usage$add,
-          tries = 5, wait_seconds = 2, backoff_factor = 3
+          tries = 5, wait_seconds = 2, backoff_factor = 3,
+          .call = list(type = "desire", agent_id = self$id, attempt = attempt)
         )
+        .fg_note_call(ro, cleaned_text = .fg_response_text(ro))
         ro
       }
 
-      response_obj <- score_once(current_config)
+      response_obj <- score_once(current_config, 1L)
       response_text <- .fg_response_text(response_obj)
 
       # A reasoning model can spend the whole token budget on hidden reasoning and
@@ -441,7 +448,7 @@ FGAgent <- R6::R6Class("FGAgent",
           max_tokens_desire < retry_tokens) {
         retry_cfg <- current_config
         retry_cfg$model_params$max_tokens <- retry_tokens
-        response_obj <- score_once(retry_cfg)
+        response_obj <- score_once(retry_cfg, 2L)
         response_text <- .fg_response_text(response_obj)
       }
 
@@ -460,6 +467,7 @@ FGAgent <- R6::R6Class("FGAgent",
       }
 
       sc <- parse_score_0_10(response_text)
+      .fg_note_call(response_obj, score = as.numeric(sc))
       return(as.numeric(sc))
     }
   ),

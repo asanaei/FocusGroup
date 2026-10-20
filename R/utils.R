@@ -376,10 +376,131 @@ format_conversation_history <- function(conversation_log,
   trimws(text)
 }
 
+# ---- Session records -----------------------------------------------------------
+# A running session keeps a record of every model call it makes: the messages
+# sent, the reply as returned, the settings, and the usage. .fg_call_llm()
+# signals a `focusgroup_call` condition when a call returns or fails, and a
+# running session collects it; a later `focusgroup_call_note` adds what the
+# caller made of the reply, such as the cleaned text or the score. Outside a
+# session the signals are ignored. Only an allowlist of scalar model
+# parameters enters a record, so neither a key nor an endpoint URL can.
+
+.fg_record_params <- c("max_tokens", "max_completion_tokens", "max_output_tokens",
+  "temperature", "top_p", "top_k", "frequency_penalty", "presence_penalty",
+  "repetition_penalty", "seed", "reasoning_effort", "thinking_budget",
+  "include_thoughts", "logprobs", "top_logprobs")
+
+# The recorded settings of a call: the allowlisted scalar model parameters.
+.fg_call_settings <- function(config) {
+  params <- config$model_params %||% list()
+  params <- params[intersect(.fg_record_params, names(params))]
+  Filter(function(v) is.atomic(v) && length(v) == 1L, params)
+}
+
+# A nonnegative whole count, or NA.
+.fg_count_or_na <- function(x) {
+  x <- suppressWarnings(as.numeric(x %||% NA_real_)[1])
+  if (is.na(x) || !is.finite(x) || x < 0 || x != floor(x)) NA_real_ else x
+}
+
+# One call's record from its configuration, messages, and context, and the
+# response it returned or the error it raised. A response is an
+# llmr_response, a one-row runner frame, or one row of a broadcast result as
+# a list.
+.fg_call_record <- function(config, messages, context = list(),
+                            response = NULL, error = NULL) {
+  row <- if (is.data.frame(response)) .fg_usage_rows(response)[[1]] else response
+  field <- function(name) {
+    value <- if (is.list(row) && name %in% names(row)) row[[name]] else NULL
+    if (!length(value) || (is.atomic(value) && is.na(value[[1]]))) NA else value[[1]]
+  }
+  counts <- if (is.null(response)) list(sent = NA, rec = NA, total = NA) else
+    suppressWarnings(.fg_normalize_usage(row))
+  reasoning <- if (inherits(response, "llmr_response")) {
+    tryCatch(LLMR::tokens(response)$reasoning, error = function(e) NA)
+  } else field("reasoning_tokens") %|NA|% field("reasoning")
+  thinking <- if (inherits(response, "llmr_response")) response$thinking else
+    field("thinking") %|NA|% (if (is.list(row) && is.list(row$response) &&
+                                 length(row$response) && is.list(row$response[[1]]))
+      row$response[[1]]$thinking else NA)
+  raw_text <- if (is.null(response)) NA_character_ else
+    if (is.list(row) && !inherits(response, "llmr_response") &&
+        "response_text" %in% names(row)) as.character(field("response_text")) else
+      .fg_raw_text(response)
+  list(
+    call_type = as.character(context$type %||% NA_character_),
+    agent_id = as.character(context$agent_id %||% NA_character_),
+    attempt = as.integer(context$attempt %||% 1L),
+    provider = as.character(config$provider %||% NA_character_),
+    model = as.character(config$model %||% NA_character_),
+    settings = .fg_call_settings(config),
+    messages = lapply(messages, function(m) m[intersect(c("role", "content"), names(m))]),
+    raw_text = as.character(raw_text),
+    thinking = as.character(thinking %||% NA_character_)[1],
+    cleaned_text = NA_character_,
+    score = NA_real_,
+    finish_reason = if (is.null(response)) NA_character_ else .fg_response_finish(response),
+    response_id = as.character(field("response_id")),
+    duration_s = suppressWarnings(as.numeric(field("duration_s") %|NA|% field("duration"))),
+    sent_tokens = .fg_count_or_na(counts$sent),
+    rec_tokens = .fg_count_or_na(counts$rec),
+    total_tokens = .fg_count_or_na(counts$total),
+    reasoning_tokens = .fg_count_or_na(reasoning),
+    error = if (is.null(error)) NA_character_ else conditionMessage(error),
+    timestamp = Sys.time()
+  )
+}
+
+# An empty session record.
+.fg_empty_records <- function() {
+  list(calls = list(), routing = list(), probes = list(), injections = list(),
+       info = list())
+}
+
+# The versions a session record names.
+.fg_versions <- function() {
+  version_of <- function(pkg) {
+    tryCatch(as.character(utils::packageVersion(pkg)),
+             error = function(e) NA_character_)
+  }
+  list(FocusGroup = version_of("FocusGroup"), LLMR = version_of("LLMR"),
+       R = paste(R.version$major, R.version$minor, sep = "."))
+}
+
+# NA-coalescing: `y` when `x` is NULL or NA.
+`%|NA|%` <- function(x, y) {
+  if (is.null(x) || !length(x) || (is.atomic(x) && is.na(x[[1]]))) y else x
+}
+
+# Signal a call record to a running session. Returns the handle that later
+# notes on the same call use; outside a session the handle stays unindexed
+# and notes are ignored.
+.fg_emit_call <- function(record) {
+  handle <- new.env(parent = emptyenv())
+  signalCondition(structure(
+    list(message = "Model call", record = record, handle = handle),
+    class = c("focusgroup_call", "condition")))
+  handle
+}
+
+# Add fields, such as `cleaned_text` or `score`, to the record of the call
+# that returned `response`.
+.fg_note_call <- function(response, ...) {
+  handle <- attr(response, "focusgroup_call", exact = TRUE)
+  if (is.null(handle) || is.null(handle$index)) return(invisible(NULL))
+  signalCondition(structure(
+    list(message = "Model call note", handle = handle, fields = list(...)),
+    class = c("focusgroup_call_note", "condition")))
+  invisible(NULL)
+}
+
 # ---- Token & parsing utilities ---------------------------------------------
 
 # Dispatch one request and record its returned usage before validating output.
-.fg_call_llm <- function(config, messages, .runner = NULL, ..., .usage = NULL) {
+# `.call` describes the call for the session record: its `type`, `agent_id`,
+# and `attempt`.
+.fg_call_llm <- function(config, messages, .runner = NULL, ..., .usage = NULL,
+                         .call = NULL) {
   publish <- function(usage) {
     if (!is.null(.usage)) .usage(usage)
     signalCondition(structure(list(message = "Model usage", usage = usage),
@@ -399,9 +520,27 @@ format_conversation_history <- function(conversation_log,
     }
   }, error = function(e) {
     publish(.fg_usage_unavailable())
+    .fg_emit_call(.fg_call_record(config, messages, .call, error = e))
     stop(e)
   })
   publish(attr(out, "focusgroup_usage", exact = TRUE) %||% .fg_usage_record(out))
+  handle <- .fg_emit_call(tryCatch(
+    .fg_call_record(config, messages, .call, response = out),
+    error = function(e) .fg_call_record(config, messages, .call, error = simpleError(
+      paste("The call returned, but its record could not be built:", conditionMessage(e))))))
+  if (!is.null(handle$index)) {
+    out <- withCallingHandlers(
+      .fg_validate_reply(out, .runner),
+      error = function(e) .fg_note_call(structure(list(), focusgroup_call = handle),
+                                        error = conditionMessage(e)))
+    attr(out, "focusgroup_call") <- handle
+    return(out)
+  }
+  .fg_validate_reply(out, .runner)
+}
+
+# Check a reply's shape and success; returns it unchanged.
+.fg_validate_reply <- function(out, .runner) {
   if (!is.null(.runner)) {
     required <- c("config", "messages", "response_text")
     if (!is.data.frame(out) || nrow(out) != 1L ||
