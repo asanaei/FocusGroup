@@ -157,6 +157,30 @@ imported_analysis <- analyze_focus_group(imported, include_plots = FALSE)
 print(imported_analysis)
 ```
 
+## Replay a session
+
+`fg_player()` writes a session to a self-contained HTML file that steps
+through it message by message, built from the records the session saved and
+without any model call. The package includes a synthetic session made with a
+scripted runner, which the chunk below replays; `open = FALSE` keeps the
+browser closed while the vignette is built.
+
+```{r player}
+session <- readRDS(system.file("extdata", "player-session.rds",
+                               package = "FocusGroup"))
+page <- fg_player(session, file = tempfile(fileext = ".html"), open = FALSE)
+file.exists(page)
+table(session$routing$rule)
+```
+
+Each speaker selection in `session$routing` appears as a panel before the
+turn it chose. Under desire-based selection the panel shows the score of
+every participant asked, marks the previous speaker as not asked, and states
+whether a tie was drawn at random; a call-on or a participant addressed by
+the moderator is marked as such. For a printable page, use `mode = "static"`;
+for a study with arms, pass the result of `run_focus_group_arms()` to write
+one file per arm.
+
 ## Construct the objects directly
 
 The R6 interface exposes the parts assembled by `run_focus_group()`.
