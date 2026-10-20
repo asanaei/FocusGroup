@@ -1734,8 +1734,11 @@ fg_turns <- function(x) {
     paste(off, collapse = ", "), paste(ctx$participant_labels, collapse = ", ")))
 
   # A claim for the whole group cites every participant who spoke on each
-  # item it cites.
-  if (.fg_universal_claim(claim$text)) {
+  # item it cites. A claim about the moderator or another voice alone, such
+  # as an invitation to everyone, reports no participant's position.
+  about_others <- length(claim$speakers) > 0L &&
+    !any(claim$speakers %in% ctx$participant_labels)
+  if (!about_others && .fg_universal_claim(claim$text)) {
     cited_ok <- valid(c(claim$evidence, claim$context))
     items <- unique(unname(ctx$item_of[as.character(cited_ok)]))
     msgs <- ctx$msgs[ctx$msgs$message_id %in% unit$scope, , drop = FALSE]
