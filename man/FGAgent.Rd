@@ -91,6 +91,7 @@ positive; \code{NA} when that number cannot be determined.}
 \item \href{#method-FGAgent-new}{\code{FGAgent$new()}}
 \item \href{#method-FGAgent-generate_utterance}{\code{FGAgent$generate_utterance()}}
 \item \href{#method-FGAgent-get_need_to_talk}{\code{FGAgent$get_need_to_talk()}}
+\item \href{#method-FGAgent-answer_probe}{\code{FGAgent$answer_probe()}}
 \item \href{#method-FGAgent-clone}{\code{FGAgent$clone()}}
 }
 }
@@ -261,6 +262,57 @@ as a score is an error; the usage of the calls made, including a
 retry, is recorded on the agent first. The configuration's
 temperature, when it sets one, is used; none is added when it does
 not.
+}
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-FGAgent-answer_probe"></a>}}
+\if{latex}{\out{\hypertarget{method-FGAgent-answer_probe}{}}}
+\subsection{Method \code{answer_probe()}}{
+Answer a private question put by the researcher. The
+agent reads its persona, the standing rules, and the discussion so
+far, as for a turn, and the question as the closing instruction. The
+answer is returned, not logged, and is not added to \code{history}.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{FGAgent$answer_probe(
+  question,
+  conversation_log,
+  topic = NULL,
+  template = "{{probe_question}}",
+  max_tokens = NULL,
+  conversation_summary = NULL,
+  call_params = NULL
+)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{question}}{Character. The question.}
+
+\item{\code{conversation_log}}{List. The discussion so far.}
+
+\item{\code{topic}}{Character or NULL. The session topic, available to the
+template as \code{{{topic}}}.}
+
+\item{\code{template}}{Character. The instruction template; \code{{{probe_question}}}
+is replaced by the question.}
+
+\item{\code{max_tokens}}{Integer or NULL. The budget; \code{NULL} uses the
+configuration's limit, or 300 when it sets none.}
+
+\item{\code{conversation_summary}}{Character or NULL. A summary of earlier
+discussion to add to the system message.}
+
+\item{\code{call_params}}{Optional named list of model parameters written over
+the configuration for this call.}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+A list with \code{answer} (the final answer, trimmed, or \code{NA} when
+the reply is empty after one retry with a larger budget), \code{raw_text}
+(the reply as returned), \code{finish_reason}, and \code{call_id} (the call's
+row in the session's call record, or \code{NA} outside a session).
 }
 }
 \if{html}{\out{<hr>}}

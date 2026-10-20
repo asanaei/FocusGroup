@@ -309,6 +309,34 @@ format_conversation_history <- function(conversation_log,
 # model that reasons at length needs.
 .fg_desire_retry_tokens <- 256L
 
+# The prompt window: the estimated tokens of history a prompt shows.
+.fg_prompt_window_tokens <- 64000L
+
+# Phases whose moderator line poses a question, and phases whose line is
+# answered by participant turns.
+.fg_question_phases <- c("icebreaker_question", "engagement_question",
+                         "exploration_question", "probing_focused",
+                         "ending_question", "generic_discussion", "transition")
+.fg_response_phases <- c("icebreaker_question", "engagement_question",
+                         "exploration_question", "probing_focused",
+                         "ending_question", "generic_discussion")
+
+# A copy of a session that shares nothing mutable with it: the group, each
+# agent, and the turn-taking flow, whose roster is pointed at the copied
+# agents. Attributes the session carries are kept.
+.fg_clone_session <- function(fg) {
+  out <- fg$clone(deep = TRUE)
+  agents <- lapply(fg$agents, function(a) a$clone(deep = TRUE))
+  attributes(agents) <- attributes(fg$agents)
+  out$agents <- agents
+  out$turn_taking_flow$agents <- agents
+  for (name in c("execution_phase", "session_status", "additional_usage",
+                 "recorded_usage")) {
+    attr(out, name) <- attr(fg, name)
+  }
+  out
+}
+
 # The call types a session distinguishes when it applies per-call settings.
 .fg_call_types <- c("moderator", "participant", "desire", "summary", "probe")
 

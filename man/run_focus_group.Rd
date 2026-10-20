@@ -21,6 +21,9 @@ run_focus_group(
   max_tokens_config = NULL,
   reasoning_effort = NULL,
   on_desire_failure = c("error", "random"),
+  injections = NULL,
+  probes = NULL,
+  moderator_verbatim = FALSE,
   .runner = NULL
 )
 }
@@ -97,6 +100,22 @@ valid scores by the usual rule, and uniformly among the eligible
 participants only when none has a valid score; the failure is recorded
 in the selected message's \code{metadata$desire_scoring_failure}.}
 
+\item{injections}{Optional \code{\link[=fg_injection]{fg_injection()}} or list of injections, each
+placed into the session at its point. To compare sessions that share
+everything before an injection, use \code{\link[=run_focus_group_arms]{run_focus_group_arms()}}.}
+
+\item{probes}{Optional \code{\link[=fg_probe]{fg_probe()}} or list of probes, private questions
+asked of each participant at stated points. The answers are returned in
+\code{probes} and never enter the discussion.}
+
+\item{moderator_verbatim}{\code{FALSE} (the default) has the moderator's model
+render each guide item as a line of its own. \code{TRUE} delivers every guide
+item exactly as written, with no model call, and a vector of item
+numbers delivers those items so. A verbatim message carries
+\code{metadata$verbatim = TRUE}. The opening and closing instructions of the
+numeric phase banks are instructions to the moderator, so verbatim
+delivery suits a guide written as the lines to be said.}
+
 \item{.runner}{Optional function used instead of live model calls. It
 receives a data frame with \code{config} and \code{messages} list-columns and returns
 those rows with at least \code{response_text}. Token columns such as
@@ -136,8 +155,9 @@ limit of each call type), \code{call_settings} (a data frame giving, for
 each call type and agent, the provider, model, and model parameters
 the calls start from), \code{prompt_templates}, \code{standing_rules} (the
 system-message rules for participants and the moderator),
-\code{disclosure}, \code{versions} (of FocusGroup, LLMR, and R), and \code{started}.
-It holds no configuration object.}
+\code{disclosure}, \code{versions} (of FocusGroup, LLMR, and R), \code{started}, and
+\code{branch} (\code{NULL}, or for a session run by \code{\link[=run_focus_group_arms]{run_focus_group_arms()}} its
+arm and branch point). It holds no configuration object.}
 \item{calls}{A data frame with one row per model call the session
 made, in order, including retries and failed calls: \code{call_id},
 \code{call_type} (\code{"moderator"}, \code{"participant"}, \code{"desire"}, \code{"summary"},
@@ -149,8 +169,10 @@ reply before any cleaning), \code{thinking} (reasoning the provider returned
 separately), \code{cleaned_text}, \code{score} (for desire calls), \code{finish_reason},
 \code{response_id}, \code{sent_tokens}, \code{rec_tokens}, \code{total_tokens},
 \code{reasoning_tokens}, \code{duration_s}, \code{error} (the error a failed call
-raised), and \code{timestamp}. Only scalar sampling and length parameters
-enter \code{settings}; keys and endpoint addresses never do.}
+raised), \code{timestamp}, and \code{arm} (the arm of a session continued by
+\code{\link[=run_focus_group_arms]{run_focus_group_arms()}}, otherwise \code{NA}). Only scalar sampling and
+length parameters enter \code{settings}; keys and endpoint addresses never
+do.}
 \item{routing}{A data frame with one row per speaker selection: \code{pick},
 \code{round}, \code{phase}, \code{turn} (the participant turn it chose for),
 \code{flow}, \code{rule} (such as \code{"rotation"}, \code{"propensity_draw"},
@@ -160,12 +182,22 @@ or \code{"uniform_after_failure"}), \code{selected_id}, \code{message_id},
 \code{scoring_mode}, and the list-columns \code{candidates}, \code{excluded} (named
 by participant, giving the reason, such as \code{"previous_speaker"} or
 \code{"score_failed"}), \code{scores} (desire scores, or selection
-probabilities for \code{"probabilistic"}), and \code{tied}.}
+probabilities for \code{"probabilistic"}), and \code{tied}, followed by \code{arm}.}
+\item{probes}{A data frame with one row per probe answer: \code{probe} (its
+label), \code{point}, \code{agent_id}, \code{question}, \code{answer} (the final answer,
+or \code{NA} when none came), \code{raw_text}, \code{finish_reason}, \code{call_id} (its
+row in \code{calls}), \code{round}, \code{phase}, \code{turn} (the next participant turn),
+\code{after_message_id} (the last message before it), and \code{arm}.}
+\item{injections}{A data frame with one row per injection: \code{label},
+\code{arm}, \code{point}, \code{delivered} (\code{FALSE} for one whose point the session
+never reached, which is also reported with a warning), \code{message_id},
+\code{speaker_id}, \code{from}, \code{visibility}, \code{text}, \code{cut_after_message_id}
+(the message it follows), \code{round}, \code{phase}, and \code{turn}.}
 }
 Results saved by FocusGroup 0.5.2 and earlier lack \code{usage$unknown},
 \code{metadata$complete}, and \code{metadata$failure}; results saved by 0.5.3 and
-earlier lack \code{calls}, \code{routing}, and the metadata that follows
-\code{failure}.
+earlier lack \code{calls}, \code{routing}, \code{probes}, \code{injections}, and the metadata
+that follows \code{failure}.
 }
 \description{
 Constructs the agents, moderator guide, and turn-taking flow, then runs one

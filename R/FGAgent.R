@@ -469,6 +469,75 @@ FGAgent <- R6::R6Class("FGAgent",
       sc <- parse_score_0_10(response_text)
       .fg_note_call(response_obj, score = as.numeric(sc))
       return(as.numeric(sc))
+    },
+
+    #' @description Answer a private question put by the researcher. The
+    #'   agent reads its persona, the standing rules, and the discussion so
+    #'   far, as for a turn, and the question as the closing instruction. The
+    #'   answer is returned, not logged, and is not added to `history`.
+    #' @param question Character. The question.
+    #' @param conversation_log List. The discussion so far.
+    #' @param topic Character or NULL. The session topic, available to the
+    #'   template as `{{topic}}`.
+    #' @param template Character. The instruction template; `{{probe_question}}`
+    #'   is replaced by the question.
+    #' @param max_tokens Integer or NULL. The budget; `NULL` uses the
+    #'   configuration's limit, or 300 when it sets none.
+    #' @param conversation_summary Character or NULL. A summary of earlier
+    #'   discussion to add to the system message.
+    #' @param call_params Optional named list of model parameters written over
+    #'   the configuration for this call.
+    #' @return A list with `answer` (the final answer, trimmed, or `NA` when
+    #'   the reply is empty after one retry with a larger budget), `raw_text`
+    #'   (the reply as returned), `finish_reason`, and `call_id` (the call's
+    #'   row in the session's call record, or `NA` outside a session).
+    answer_probe = function(question, conversation_log, topic = NULL,
+                            template = "{{probe_question}}", max_tokens = NULL,
+                            conversation_summary = NULL, call_params = NULL) {
+      if (is.null(self$config)) {
+        stop("An explicit config is required to answer a probe.", call. = FALSE)
+      }
+      instruction <- replace_placeholders(
+        template, list(probe_question = question, topic = topic %||% ""))
+      transcript <- .fg_log_to_transcript(conversation_log)
+      sys_text <- paste(c(
+        self$persona_description,
+        self$communication_style_instruction %||% "",
+        if (!is.null(conversation_summary) && nzchar(conversation_summary) &&
+            !identical(conversation_summary, "N/A"))
+          paste0("Summary of earlier discussion: ", conversation_summary),
+        .fg_standing_rules(self$is_moderator)
+      ), collapse = "\n\n")
+      msgs <- .fg_build_agent_messages(transcript, self$id, sys_text,
+                                       instruction = instruction, self_state = NULL)
+      config <- self$config
+      budget <- max_tokens %||% config$model_params$max_tokens %||% 300L
+      config$model_params$max_tokens <- budget
+      config <- .fg_with_params(config, call_params)
+
+      usage <- .fg_usage_recorder()
+      on.exit(.fg_add_agent_usage(self, usage$value()), add = TRUE)
+      ask <- function(cfg, attempt) {
+        response <- .fg_call_llm(
+          config = cfg, messages = msgs, .runner = self$.runner,
+          .usage = usage$add, tries = 5, wait_seconds = 2, backoff_factor = 3,
+          .call = list(type = "probe", agent_id = self$id, attempt = attempt))
+        .fg_note_call(response, cleaned_text = trimws(.fg_response_text(response)))
+        response
+      }
+      response <- ask(config, 1L)
+      answer <- trimws(.fg_response_text(response))
+      if (!nzchar(answer) || identical(.fg_response_finish(response), "length")) {
+        retry <- config
+        retry$model_params$max_tokens <- max(4 * budget, 1024)
+        response <- ask(retry, 2L)
+        answer <- trimws(.fg_response_text(response))
+      }
+      handle <- attr(response, "focusgroup_call", exact = TRUE)
+      list(answer = if (nzchar(answer)) answer else NA_character_,
+           raw_text = .fg_raw_text(response),
+           finish_reason = .fg_response_finish(response),
+           call_id = as.integer(if (is.null(handle)) NA_integer_ else handle$index %||% NA_integer_))
     }
   ),
 

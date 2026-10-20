@@ -33,6 +33,13 @@ reference:
     contents:
       - run_focus_group
 
+  - title: Injected messages, private probes, and branched sessions
+    contents:
+      - run_focus_group_arms
+      - fg_injection
+      - fg_probe
+      - fg_after_item
+
   - title: Moderator guides and turn-taking rules
     contents:
       - get_default_prompt_templates

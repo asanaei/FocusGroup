@@ -93,6 +93,9 @@ desire query whose reply was empty or cut off.}
 
 \item{\code{max_tokens_interim_summary}}{Integer. Max tokens for an interim summary.}
 
+\item{\code{max_tokens_probe}}{Integer or \code{NULL}. Max tokens for a probe answer;
+\code{NULL} uses the agent configuration's limit, or 300 when it sets none.}
+
 \item{\code{reasoning_effort}}{\code{NULL}, one reasoning-effort setting for every call
 type, or a named list of settings by call type (\code{"moderator"},
 \code{"participant"}, \code{"desire"}, \code{"summary"}, \code{"probe"}). A setting is written
@@ -129,6 +132,7 @@ frames. Objects saved by FocusGroup 0.5.3 and earlier lack it.}
 \itemize{
 \item \href{#method-FocusGroup-new}{\code{FocusGroup$new()}}
 \item \href{#method-FocusGroup-run_simulation}{\code{FocusGroup$run_simulation()}}
+\item \href{#method-FocusGroup-run_arms}{\code{FocusGroup$run_arms()}}
 \item \href{#method-FocusGroup-summarize}{\code{FocusGroup$summarize()}}
 \item \href{#method-FocusGroup-analyze}{\code{FocusGroup$analyze()}}
 \item \href{#method-FocusGroup-analyze_topics}{\code{FocusGroup$analyze_topics()}}
@@ -182,7 +186,9 @@ Initialize a new FocusGroup simulation.
 \item{\code{turn_taking_flow}}{An initialized \code{ConversationFlow} object.}
 
 \item{\code{question_script}}{List. Moderator's script defining phases and questions.
-If empty, a minimal default script (opening, generic discussion, closing) is used.}
+If empty, a minimal default script (opening, generic discussion, closing) is used.
+An item with \code{verbatim = TRUE} is delivered as its \code{text} reads,
+with no model call; it must have a text.}
 
 \item{\code{prompt_templates}}{List. Custom prompt templates. Defaults are used if not provided.}
 
@@ -190,9 +196,10 @@ If empty, a minimal default script (opening, generic discussion, closing) is use
 If \code{NULL}, the moderator's explicitly supplied \code{config} is used.}
 
 \item{\code{max_tokens_config}}{List. Optional. Named list with \code{utterance},
-\code{moderator}, \code{desire}, \code{desire_retry}, \code{summary}, and
-\code{interim_summary} to override the default max token limits (160, 400,
-16, 256, 400, and 250) for these call types. A model that reasons
+\code{moderator}, \code{desire}, \code{desire_retry}, \code{summary}, \code{interim_summary},
+and \code{probe} to override the default max token limits (160, 400, 16,
+256, 400, 250, and the configuration's own limit or 300) for these
+call types. A model that reasons
 before answering needs \code{desire} and \code{desire_retry} large enough to hold
 its reasoning and the score.}
 
@@ -212,7 +219,12 @@ for the \code{reasoning_effort} field.}
 Run the full focus group simulation.
 Iterates through the \code{question_script} phases or a specified number of rounds.
 \subsection{Usage}{
-\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$run_simulation(num_rounds = NULL, verbose = FALSE)}\if{html}{\out{</div>}}
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$run_simulation(
+  num_rounds = NULL,
+  verbose = FALSE,
+  injections = NULL,
+  probes = NULL
+)}\if{html}{\out{</div>}}
 }
 
 \subsection{Arguments}{
@@ -224,6 +236,12 @@ decides to end. If both \code{num_rounds} and \code{question_script} are provide
 the simulation stops at whichever condition is met first.}
 
 \item{\code{verbose}}{Logical. If \code{TRUE}, prints progress and utterances to the console.}
+
+\item{\code{injections}}{Optional \code{\link[=fg_injection]{fg_injection()}} or list of injections to
+place into the session at their points.}
+
+\item{\code{probes}}{Optional \code{\link[=fg_probe]{fg_probe()}} or list of probes to ask at their
+points; the answers go to \code{records$probes}, never to the log.}
 }
 \if{html}{\out{</div>}}
 }
@@ -232,7 +250,46 @@ Invisibly returns the \code{conversation_log}. When a call fails,
 the error propagates and the messages completed so far remain in
 \code{conversation_log}. A failed final summary is not an error: it warns
 and leaves \code{final_summary} as \code{NA}. Every model call the session
-makes, and every speaker selection, is recorded in \code{records}.
+makes, and every speaker selection, is recorded in \code{records}. An
+injection or probe whose point the session never reaches is reported
+with a warning.
+}
+}
+\if{html}{\out{<hr>}}
+\if{html}{\out{<a id="method-FocusGroup-run_arms"></a>}}
+\if{latex}{\out{\hypertarget{method-FocusGroup-run_arms}{}}}
+\subsection{Method \code{run_arms()}}{
+Run the session up to a branch point once, then continue
+a copy of it once per arm. \code{\link[=run_focus_group_arms]{run_focus_group_arms()}} describes the
+design and builds results from the objects returned here.
+\subsection{Usage}{
+\if{html}{\out{<div class="r">}}\preformatted{FocusGroup$run_arms(arms, probes = NULL, num_rounds = NULL, verbose = FALSE)}\if{html}{\out{</div>}}
+}
+
+\subsection{Arguments}{
+\if{html}{\out{<div class="arguments">}}
+\describe{
+\item{\code{arms}}{A named list of arms, each \code{NULL}, an \code{\link[=fg_injection]{fg_injection()}}, or
+a list of injections; the first injection of every arm that has one
+must name the same point.}
+
+\item{\code{probes}}{Optional \code{\link[=fg_probe]{fg_probe()}} or list of probes.}
+
+\item{\code{num_rounds}}{Integer. Optional maximum number of moderator cycles.}
+
+\item{\code{verbose}}{Logical. Print progress.}
+}
+\if{html}{\out{</div>}}
+}
+\subsection{Returns}{
+A list with \code{prefix}, this object, stopped at the branch point,
+and \code{arms}, a named list of \code{FocusGroup} objects, each a copy of the
+prefix continued to the end of the session under one arm. A failure
+in an arm raises an error of class \code{focusgroup_branch_failure} whose
+fields \code{arm}, \code{branch} (the failed arm's object), \code{completed},
+\code{phase}, and \code{parent} describe it. A session that ends before the
+branch point raises an error of class
+\code{focusgroup_injection_unreached}.
 }
 }
 \if{html}{\out{<hr>}}

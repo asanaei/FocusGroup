@@ -16,7 +16,7 @@ test_that("partial sessions preserve the live prefix, cause, and operation phase
     expect_identical(e$partial$metadata$failure$message, "fixture provider failure")
     expect_false(e$partial$metadata$complete)
     expect_named(e$partial, c("focus_group", "transcript", "summary", "participants", "usage", "metadata",
-                              "calls", "routing"))
+                              "calls", "routing", "probes", "injections"))
     expect_equal(nrow(e$partial$transcript), n)
     expect_equal(e$partial$usage$total, 9 * (n - 1))
     expect_true(is.na(e$partial$usage$unknown))

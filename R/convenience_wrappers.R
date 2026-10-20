@@ -243,6 +243,19 @@ NULL
 #'   valid scores by the usual rule, and uniformly among the eligible
 #'   participants only when none has a valid score; the failure is recorded
 #'   in the selected message's `metadata$desire_scoring_failure`.
+#' @param injections Optional [fg_injection()] or list of injections, each
+#'   placed into the session at its point. To compare sessions that share
+#'   everything before an injection, use [run_focus_group_arms()].
+#' @param probes Optional [fg_probe()] or list of probes, private questions
+#'   asked of each participant at stated points. The answers are returned in
+#'   `probes` and never enter the discussion.
+#' @param moderator_verbatim `FALSE` (the default) has the moderator's model
+#'   render each guide item as a line of its own. `TRUE` delivers every guide
+#'   item exactly as written, with no model call, and a vector of item
+#'   numbers delivers those items so. A verbatim message carries
+#'   `metadata$verbatim = TRUE`. The opening and closing instructions of the
+#'   numeric phase banks are instructions to the moderator, so verbatim
+#'   delivery suits a guide written as the lines to be said.
 #' @param .runner Optional function used instead of live model calls. It
 #'   receives a data frame with `config` and `messages` list-columns and returns
 #'   those rows with at least `response_text`. Token columns such as
@@ -322,8 +335,9 @@ NULL
 #'     each call type and agent, the provider, model, and model parameters
 #'     the calls start from), `prompt_templates`, `standing_rules` (the
 #'     system-message rules for participants and the moderator),
-#'     `disclosure`, `versions` (of FocusGroup, LLMR, and R), and `started`.
-#'     It holds no configuration object.}
+#'     `disclosure`, `versions` (of FocusGroup, LLMR, and R), `started`, and
+#'     `branch` (`NULL`, or for a session run by [run_focus_group_arms()] its
+#'     arm and branch point). It holds no configuration object.}
 #'   \item{calls}{A data frame with one row per model call the session
 #'     made, in order, including retries and failed calls: `call_id`,
 #'     `call_type` (`"moderator"`, `"participant"`, `"desire"`, `"summary"`,
@@ -335,8 +349,10 @@ NULL
 #'     separately), `cleaned_text`, `score` (for desire calls), `finish_reason`,
 #'     `response_id`, `sent_tokens`, `rec_tokens`, `total_tokens`,
 #'     `reasoning_tokens`, `duration_s`, `error` (the error a failed call
-#'     raised), and `timestamp`. Only scalar sampling and length parameters
-#'     enter `settings`; keys and endpoint addresses never do.}
+#'     raised), `timestamp`, and `arm` (the arm of a session continued by
+#'     [run_focus_group_arms()], otherwise `NA`). Only scalar sampling and
+#'     length parameters enter `settings`; keys and endpoint addresses never
+#'     do.}
 #'   \item{routing}{A data frame with one row per speaker selection: `pick`,
 #'     `round`, `phase`, `turn` (the participant turn it chose for),
 #'     `flow`, `rule` (such as `"rotation"`, `"propensity_draw"`,
@@ -346,12 +362,22 @@ NULL
 #'     `scoring_mode`, and the list-columns `candidates`, `excluded` (named
 #'     by participant, giving the reason, such as `"previous_speaker"` or
 #'     `"score_failed"`), `scores` (desire scores, or selection
-#'     probabilities for `"probabilistic"`), and `tied`.}
+#'     probabilities for `"probabilistic"`), and `tied`, followed by `arm`.}
+#'   \item{probes}{A data frame with one row per probe answer: `probe` (its
+#'     label), `point`, `agent_id`, `question`, `answer` (the final answer,
+#'     or `NA` when none came), `raw_text`, `finish_reason`, `call_id` (its
+#'     row in `calls`), `round`, `phase`, `turn` (the next participant turn),
+#'     `after_message_id` (the last message before it), and `arm`.}
+#'   \item{injections}{A data frame with one row per injection: `label`,
+#'     `arm`, `point`, `delivered` (`FALSE` for one whose point the session
+#'     never reached, which is also reported with a warning), `message_id`,
+#'     `speaker_id`, `from`, `visibility`, `text`, `cut_after_message_id`
+#'     (the message it follows), `round`, `phase`, and `turn`.}
 #' }
 #' Results saved by FocusGroup 0.5.2 and earlier lack `usage$unknown`,
 #' `metadata$complete`, and `metadata$failure`; results saved by 0.5.3 and
-#' earlier lack `calls`, `routing`, and the metadata that follows
-#' `failure`.
+#' earlier lack `calls`, `routing`, `probes`, `injections`, and the metadata
+#' that follows `failure`.
 #'
 #' @examples
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -408,11 +434,45 @@ run_focus_group <- function(topic, config, n_participants = 6,
                             confirm = FALSE, max_tokens_config = NULL,
                             reasoning_effort = NULL,
                             on_desire_failure = c("error", "random"),
-                            .runner = NULL) {
-  .fg_validate_config(config)
+                            injections = NULL, probes = NULL,
+                            moderator_verbatim = FALSE, .runner = NULL) {
   message_mode <- match.arg(message_mode)
   on_desire_failure <- match.arg(on_desire_failure)
+  injections <- .fg_injection_list(injections)
+  setup <- .fg_session_setup(
+    topic = topic, config = config, n_participants = n_participants,
+    guide = guide, demographics = demographics,
+    survey_responses = survey_responses, flow = flow, seed = seed,
+    message_mode = message_mode, verbose = verbose,
+    max_participant_responses = max_participant_responses,
+    max_calls = max_calls, confirm = confirm,
+    max_tokens_config = max_tokens_config, reasoning_effort = reasoning_effort,
+    on_desire_failure = on_desire_failure, probes = probes,
+    moderator_verbatim = moderator_verbatim, n_arms = 1L, .runner = .runner,
+    seed_env = environment())
+
+  result <- .fg_execute_session(setup$fg, flow, message_mode,
+                                setup$n_participants, setup$estimated_calls,
+                                verbose, run_meta = setup$run_meta,
+                                injections = injections, probes = setup$probes)
+
+  if (verbose) cat("Simulation complete.\n")
+  result
+}
+
+# Validate the arguments of a run, build its agents, flow, and FocusGroup,
+# and check the estimate. The seed, when given, is set in `seed_env`, the
+# calling function's frame, so that it governs the whole run and the
+# caller's random-number state is restored when that function returns.
+.fg_session_setup <- function(topic, config, n_participants, guide,
+                              demographics, survey_responses, flow, seed,
+                              message_mode, verbose, max_participant_responses,
+                              max_calls, confirm, max_tokens_config,
+                              reasoning_effort, on_desire_failure, probes,
+                              moderator_verbatim, n_arms, .runner, seed_env) {
+  .fg_validate_config(config)
   reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
+  probes <- .fg_probe_list(probes)
   if (!is.null(max_tokens_config) && !is.list(max_tokens_config)) {
     stop("`max_tokens_config` must be `NULL` or a named list.", call. = FALSE)
   }
@@ -477,17 +537,26 @@ run_focus_group <- function(topic, config, n_participants = 6,
     "icebreaker_question", "engagement_question", "exploration_question",
     "probing_focused", "ending_question", "generic_discussion"
   )
+  verbatim <- .fg_verbatim_items(moderator_verbatim, length(estimate_script))
+  if (length(verbatim)) {
+    if (!length(question_script)) question_script <- estimate_script
+    for (i in verbatim) question_script[[i]]$verbatim <- TRUE
+  }
   phases <- vapply(estimate_script, `[[`, character(1), "phase")
   question_rounds <- sum(phases %in% response_phases)
-  moderator_outputs <- length(estimate_script)
+  moderator_outputs <- length(estimate_script) - length(verbatim)
   participant_outputs <- as.double(question_rounds) * response_limit
   desire_outputs <- if (identical(flow, "desire_based")) {
     participant_outputs * n_participants
   } else {
     0L
   }
+  probe_outputs <- sum(vapply(probes, function(p) {
+    length(p$at) * as.double(length(p$participants %||% seq_len(n_participants)))
+  }, numeric(1)))
   estimated_calls <- .fg_validate_estimate(
-    moderator_outputs + participant_outputs + desire_outputs + 1
+    (moderator_outputs + participant_outputs + desire_outputs + probe_outputs + 1) *
+      as.double(n_arms)
   )
   if (is.null(.runner) && estimated_calls > max_calls && !confirm) {
     stop(
@@ -497,7 +566,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
     )
   }
 
-  if (!is.null(seed)) withr::local_seed(as.integer(seed))
+  if (!is.null(seed)) withr::local_seed(as.integer(seed), .local_envir = seed_env)
   if (verbose) {
     cat("Setting up focus group simulation...\n")
     cat("Topic:", topic, "\n")
@@ -536,13 +605,24 @@ run_focus_group <- function(topic, config, n_participants = 6,
     reasoning_effort = reasoning_effort
   )
 
-  result <- .fg_execute_session(fg, flow, message_mode, n_participants,
-                                estimated_calls, verbose,
-                                run_meta = list(seed = seed,
-                                                on_desire_failure = on_desire_failure))
+  list(fg = fg, flow = flow, message_mode = message_mode,
+       n_participants = n_participants, estimated_calls = estimated_calls,
+       probes = probes,
+       run_meta = list(seed = seed, on_desire_failure = on_desire_failure))
+}
 
-  if (verbose) cat("Simulation complete.\n")
-  result
+# The guide items to deliver verbatim: none for FALSE, all for TRUE, or the
+# item numbers given.
+.fg_verbatim_items <- function(moderator_verbatim, n_items) {
+  if (isFALSE(moderator_verbatim)) return(integer())
+  if (isTRUE(moderator_verbatim)) return(seq_len(n_items))
+  v <- moderator_verbatim
+  if (!is.numeric(v) || !length(v) || anyNA(v) || any(!is.finite(v)) ||
+      any(v != floor(v)) || any(v < 1) || any(v > n_items) || anyDuplicated(v)) {
+    stop("`moderator_verbatim` must be TRUE, FALSE, or distinct guide item ",
+         "numbers from 1 to ", n_items, ".", call. = FALSE)
+  }
+  sort(as.integer(v))
 }
 
 # The model-output estimate must be a whole number that fits in an integer.
@@ -562,13 +642,19 @@ run_focus_group <- function(topic, config, n_participants = 6,
 
 .fg_execute_session <- function(fg, flow, message_mode, n_participants,
                                 estimated_calls, verbose = FALSE,
-                                run_meta = list()) {
+                                run_meta = list(), injections = NULL,
+                                probes = NULL) {
   result <- function() .fg_focus_group_result(
     fg, flow, message_mode, n_participants, estimated_calls, run_meta)
   tryCatch(
     withr::with_options(list(focusgroup.message_mode = message_mode),
-                       fg$run_simulation(verbose = verbose)),
+                       fg$run_simulation(verbose = verbose,
+                                         injections = injections,
+                                         probes = probes)),
     error = function(e) {
+      # An error raised before the session began, such as an injection
+      # point outside the guide, carries no partial result.
+      if (!length(fg$conversation_log)) stop(e)
       phase <- attr(fg, "execution_phase") %||% "setup"
       attr(fg, "session_status") <- list(complete = FALSE,
         failure = list(phase = phase, message = conditionMessage(e)))
@@ -692,10 +778,13 @@ run_focus_group <- function(topic, config, n_participants = 6,
         standing_rules = records$info$standing_rules,
         disclosure = records$info$disclosure %||% NA_character_,
         versions = records$info$versions %||% .fg_versions(),
-        started = records$info$started %||% as.POSIXct(NA)
+        started = records$info$started %||% as.POSIXct(NA),
+        branch = run_meta$branch
       ),
       calls = .fg_calls_data(records$calls),
-      routing = .fg_routing_data(records$routing)
+      routing = .fg_routing_data(records$routing),
+      probes = .fg_probes_data(records$probes),
+      injections = .fg_injections_data(records$injections)
     ),
     class = c("focus_group_result", "list")
   )
@@ -800,7 +889,36 @@ run_focus_group <- function(topic, config, n_participants = 6,
   out$duration_s <- col("duration_s", "double")
   out$error <- col("error", "character")
   out$timestamp <- as.POSIXct(col("timestamp", "double"), origin = "1970-01-01", tz = "UTC")
+  out$arm <- col("arm", "character")
   out
+}
+
+# The `probes` component of a result: one row per probe answer.
+.fg_probes_data <- function(probes) {
+  col <- function(name, type) .fg_record_column(probes, name, type)
+  data.frame(
+    probe = col("probe", "character"), point = col("point", "character"),
+    agent_id = col("agent_id", "character"), question = col("question", "character"),
+    answer = col("answer", "character"), raw_text = col("raw_text", "character"),
+    finish_reason = col("finish_reason", "character"),
+    call_id = col("call_id", "integer"), round = col("round", "integer"),
+    phase = col("phase", "character"), turn = col("turn", "integer"),
+    after_message_id = col("after_message_id", "integer"),
+    arm = col("arm", "character"), stringsAsFactors = FALSE)
+}
+
+# The `injections` component of a result: one row per planned injection.
+.fg_injections_data <- function(injections) {
+  col <- function(name, type) .fg_record_column(injections, name, type)
+  data.frame(
+    label = col("label", "character"), arm = col("arm", "character"),
+    point = col("point", "character"), delivered = col("delivered", "logical"),
+    message_id = col("message_id", "integer"),
+    speaker_id = col("speaker_id", "character"), from = col("from", "character"),
+    visibility = col("visibility", "character"), text = col("text", "character"),
+    cut_after_message_id = col("cut_after_message_id", "integer"),
+    round = col("round", "integer"), phase = col("phase", "character"),
+    turn = col("turn", "integer"), stringsAsFactors = FALSE)
 }
 
 # The `routing` component of a result: one row per speaker selection.
@@ -820,6 +938,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
   out$excluded <- I(lapply(routing, function(x) x$excluded %||% character()))
   out$scores <- I(lapply(routing, function(x) x$scores))
   out$tied <- I(lapply(routing, function(x) x$tied %||% character()))
+  out$arm <- col("arm", "character")
   out
 }
 

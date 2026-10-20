@@ -26,6 +26,10 @@
 #'     flat template and routed through the flat path.
 #' }
 #'
+#' @section Probe template:
+#' `participant_probe_instruction` closes the messages of a private probe
+#' ([fg_probe()]); `\{\{probe_question\}\}` is replaced by the question.
+#'
 #' @return A named list where each element is a character string representing a prompt template.
 #'         Placeholders like `\{\{topic\}\}`, `\{\{persona_description\}\}`, etc., are used within
 #'         the templates and will be filled dynamically during the simulation.
@@ -105,6 +109,14 @@ voiced, a respectful disagreement with a clear reason, or a concrete example;
 decrease it if your contribution would merely repeat what was already said.
 Please respond ONLY with a single integer between 0 (no desire) and 10 (very strong).
 Desire to talk score (0-10):",
+
+    # The closing instruction of a private probe (see fg_probe()). The
+    # participant answers from its persona and the discussion so far; the
+    # answer is saved and never enters the discussion.
+    participant_probe_instruction =
+"The researcher has a private question for you. The other participants will not see your answer, and it will not become part of the discussion.
+Question: {{probe_question}}
+Answer as yourself.",
 
     participant_desire_to_talk_nuanced =
 "You are a focus group participant.

@@ -41,7 +41,7 @@ test_that("run_focus_group returns the fixed result class and fields", {
   expect_named(
     result,
     c("focus_group", "transcript", "summary", "participants", "usage", "metadata",
-      "calls", "routing"),
+      "calls", "routing", "probes", "injections"),
     ignore.order = FALSE
   )
   expect_s3_class(result$focus_group, "FocusGroup")
@@ -81,7 +81,7 @@ test_that("result metadata records provenance without retaining a config object"
       "estimated_calls", "provider", "model", "complete", "failure",
       "max_participant_responses", "seed", "on_desire_failure",
       "reasoning_effort", "max_tokens", "call_settings", "prompt_templates",
-      "standing_rules", "disclosure", "versions", "started"),
+      "standing_rules", "disclosure", "versions", "started", "branch"),
     ignore.order = FALSE
   )
   expect_identical(result$metadata$message_mode, "roleflip")

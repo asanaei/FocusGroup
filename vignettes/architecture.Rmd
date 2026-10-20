@@ -108,6 +108,15 @@ has already run raises an error. Construct a new object for another full
 session. Use the continuation experiment in `run_focus_studio()` to compare a
 next message under original and edited histories.
 
+A message can also be placed into a running session: `fg_injection()`
+describes it and the point where it goes, after the moderator's line for a
+guide item (`fg_after_item()`) or before a participant turn
+(`fg_before_turn()`). `run_focus_group_arms()` runs the session to that point
+once, copies the whole session there, and continues each copy to the end
+under its own arm, so the arms share every message before the injection.
+`fg_probe()` asks each participant a private question at stated points; the
+answers are saved apart from the transcript and never enter the discussion.
+
 ## Messages and prompts
 
 The default `message_mode = "roleflip"` presents an agent's prior messages as

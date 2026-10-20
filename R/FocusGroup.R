@@ -45,6 +45,8 @@ NULL
 #'   desire query whose reply was empty or cut off.
 #' @field max_tokens_summary Integer. Max tokens for the final summary.
 #' @field max_tokens_interim_summary Integer. Max tokens for an interim summary.
+#' @field max_tokens_probe Integer or `NULL`. Max tokens for a probe answer;
+#'   `NULL` uses the agent configuration's limit, or 300 when it sets none.
 #' @field reasoning_effort `NULL`, one reasoning-effort setting for every call
 #'   type, or a named list of settings by call type (`"moderator"`,
 #'   `"participant"`, `"desire"`, `"summary"`, `"probe"`). A setting is written
@@ -119,6 +121,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     max_tokens_desire_retry = 256L,
     max_tokens_summary = 400,
     max_tokens_interim_summary = 250L,
+    max_tokens_probe = NULL,
     reasoning_effort = NULL,
     max_participant_responses = 2L,
     total_tokens_sent = 0,
@@ -135,13 +138,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param turn_taking_flow An initialized `ConversationFlow` object.
     #' @param question_script List. Moderator's script defining phases and questions.
     #'        If empty, a minimal default script (opening, generic discussion, closing) is used.
+    #'        An item with `verbatim = TRUE` is delivered as its `text` reads,
+    #'        with no model call; it must have a text.
     #' @param prompt_templates List. Custom prompt templates. Defaults are used if not provided.
     #' @param admin_config An `llm_config` object for administrative model tasks.
     #'   If `NULL`, the moderator's explicitly supplied `config` is used.
     #' @param max_tokens_config List. Optional. Named list with `utterance`,
-    #'   `moderator`, `desire`, `desire_retry`, `summary`, and
-    #'   `interim_summary` to override the default max token limits (160, 400,
-    #'   16, 256, 400, and 250) for these call types. A model that reasons
+    #'   `moderator`, `desire`, `desire_retry`, `summary`, `interim_summary`,
+    #'   and `probe` to override the default max token limits (160, 400, 16,
+    #'   256, 400, 250, and the configuration's own limit or 300) for these
+    #'   call types. A model that reasons
     #'   before answering needs `desire` and `desire_retry` large enough to hold
     #'   its reasoning and the score.
     #' @param max_participant_responses Integer. Optional. Maximum participant exchanges per round before moderator intervention.
@@ -183,6 +189,15 @@ FocusGroup <- R6::R6Class("FocusGroup",
       } else {
         self$question_script <- question_script
       }
+      for (i in seq_along(self$question_script)) {
+        item <- self$question_script[[i]]
+        if (isTRUE(item$verbatim) &&
+            !(is.character(item$text) && length(item$text) == 1L &&
+              !is.na(item$text) && nzchar(trimws(item$text)))) {
+          stop("Guide item ", i, " is marked verbatim but has no text to deliver.",
+               call. = FALSE)
+        }
+      }
       private$current_phase_index <- 0
 
       default_prompts_list <- get_default_prompt_templates()
@@ -202,6 +217,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$max_tokens_summary <- max_tokens_config$summary %||% self$max_tokens_summary
       self$max_tokens_interim_summary <- max_tokens_config$interim_summary %||%
         self$max_tokens_interim_summary
+      self$max_tokens_probe <- max_tokens_config$probe
       unknown_caps <- setdiff(names(max_tokens_config %||% list()),
                               c("utterance", "moderator", "desire", "desire_retry",
                                 "summary", "interim_summary", "probe"))
@@ -234,25 +250,131 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'   decides to end. If both `num_rounds` and `question_script` are provided,
     #'   the simulation stops at whichever condition is met first.
     #' @param verbose Logical. If `TRUE`, prints progress and utterances to the console.
+    #' @param injections Optional [fg_injection()] or list of injections to
+    #'   place into the session at their points.
+    #' @param probes Optional [fg_probe()] or list of probes to ask at their
+    #'   points; the answers go to `records$probes`, never to the log.
     #' @return Invisibly returns the `conversation_log`. When a call fails,
     #'   the error propagates and the messages completed so far remain in
     #'   `conversation_log`. A failed final summary is not an error: it warns
     #'   and leaves `final_summary` as `NA`. Every model call the session
-    #'   makes, and every speaker selection, is recorded in `records`.
-    run_simulation = function(num_rounds = NULL, verbose = FALSE) {
-      if (length(self$conversation_log)) {
-        stop(
-          "This FocusGroup object already contains a session and cannot run again. ",
-          "Use the continuation experiment in run_focus_studio() to generate a continuation.",
-          call. = FALSE
-        )
-      }
+    #'   makes, and every speaker selection, is recorded in `records`. An
+    #'   injection or probe whose point the session never reaches is reported
+    #'   with a warning.
+    run_simulation = function(num_rounds = NULL, verbose = FALSE,
+                              injections = NULL, probes = NULL) {
+      private$check_unused()
+      private$prepare_plan(.fg_injection_list(injections), .fg_probe_list(probes))
       # Record the active message construction so a saved object replays the same
       # way (e.g. the GUI continuation experiment).
       self$message_mode <- .fg_message_mode()
       private$start_records()
       private$with_records(private$run_session(num_rounds, verbose))
       invisible(self$conversation_log)
+    },
+
+    #' @description Run the session up to a branch point once, then continue
+    #'   a copy of it once per arm. [run_focus_group_arms()] describes the
+    #'   design and builds results from the objects returned here.
+    #' @param arms A named list of arms, each `NULL`, an [fg_injection()], or
+    #'   a list of injections; the first injection of every arm that has one
+    #'   must name the same point.
+    #' @param probes Optional [fg_probe()] or list of probes.
+    #' @param num_rounds Integer. Optional maximum number of moderator cycles.
+    #' @param verbose Logical. Print progress.
+    #' @return A list with `prefix`, this object, stopped at the branch point,
+    #'   and `arms`, a named list of `FocusGroup` objects, each a copy of the
+    #'   prefix continued to the end of the session under one arm. A failure
+    #'   in an arm raises an error of class `focusgroup_branch_failure` whose
+    #'   fields `arm`, `branch` (the failed arm's object), `completed`,
+    #'   `phase`, and `parent` describe it. A session that ends before the
+    #'   branch point raises an error of class
+    #'   `focusgroup_injection_unreached`.
+    run_arms = function(arms, probes = NULL, num_rounds = NULL, verbose = FALSE) {
+      private$check_unused()
+      arms <- .fg_arm_list(arms)
+      firsts <- Filter(Negate(is.null), lapply(arms, function(a) if (length(a)) a[[1]]))
+      events <- unique(vapply(firsts, function(inj) .fg_point_event(inj$at), character(1)))
+      if (length(events) != 1L) {
+        stop("The first injection of every arm must name the same point; found ",
+             paste(vapply(events, .fg_event_label, character(1)), collapse = ", "), ".",
+             call. = FALSE)
+      }
+      branch_event <- events[[1]]
+      # Each arm's injections are checked against the guide before any call.
+      for (name in names(arms)) {
+        private$prepare_plan(lapply(arms[[name]], function(inj) {
+          inj$label <- inj$label %||% name
+          inj
+        }), .fg_probe_list(probes))
+      }
+      private$prepare_plan(list(), .fg_probe_list(probes), pause_at = branch_event)
+
+      self$message_mode <- .fg_message_mode()
+      private$start_records()
+      status <- private$with_records({
+        private$session_begin(num_rounds, verbose)
+        private$session_continue(verbose)
+      })
+      if (!identical(status, "paused")) {
+        rlang::abort(sprintf("The session ended before the branch point %s; no arm was run.",
+                             .fg_event_label(branch_event)),
+                     class = "focusgroup_injection_unreached")
+      }
+      self$records$info$branch <- list(
+        point = .fg_event_label(branch_event),
+        prefix_messages = length(self$conversation_log),
+        prefix_last_message_id = as.integer(
+          self$conversation_log[[length(self$conversation_log)]]$message_id),
+        prefix_calls = length(self$records$calls),
+        prefix_hash = .fg_prefix_hash(self$conversation_log))
+      if (verbose) {
+        cat("
+--- Branch point ", .fg_event_label(branch_event), " reached after ",
+            length(self$conversation_log), " message(s) ---
+", sep = "")
+      }
+
+      # Every arm starts from the random-number state at the branch point.
+      if (!exists(".Random.seed", envir = globalenv(), inherits = FALSE)) stats::runif(1)
+      rng_state <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+      snapshot <- .fg_clone_session(self)
+      out <- list()
+      for (name in names(arms)) {
+        assign(".Random.seed", rng_state, envir = globalenv())
+        branch <- .fg_clone_session(snapshot)
+        bp <- branch$.__enclos_env__$private
+        bp$arm <- name
+        injections <- lapply(arms[[name]], function(inj) {
+          inj$label <- inj$label %||% name
+          inj
+        })
+        at_branch <- vapply(injections, function(inj) {
+          identical(.fg_point_event(inj$at), branch_event)
+        }, logical(1))
+        bp$prepare_plan(injections[!at_branch], .fg_probe_list(probes))
+        bp$fired <- private$fired
+        if (verbose) cat("
+=== Arm: ", name, " ===
+", sep = "")
+        done <- tryCatch({
+          bp$with_records({
+            for (inj in injections[at_branch]) bp$apply_injection(bp$plan_entry(inj), verbose)
+            bp$session_continue(verbose)
+            bp$session_finish(verbose)
+          })
+          TRUE
+        }, error = function(e) e)
+        if (!isTRUE(done)) {
+          rlang::abort(sprintf("Arm '%s' failed.", name),
+                       class = "focusgroup_branch_failure", arm = name,
+                       branch = branch, completed = out,
+                       phase = attr(branch, "execution_phase") %||% "setup",
+                       parent = done)
+        }
+        out[[name]] <- branch
+      }
+      list(prefix = self, arms = out)
     },
 
 
@@ -1254,7 +1376,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
       record <- c(list(call_id = id), cnd$record,
                   list(round = as.integer(private$current_round %||% NA_integer_),
                        phase = as.character(attr(self, "execution_phase") %||% NA_character_),
-                       message_id = NA_integer_))
+                       message_id = NA_integer_,
+                       arm = private$arm %||% NA_character_))
       self$records$calls[[id]] <- record
       cnd$handle$index <- id
       if (record$call_type %in% c("moderator", "participant")) {
@@ -1289,23 +1412,39 @@ FocusGroup <- R6::R6Class("FocusGroup",
         list(pick = pick, round = as.integer(private$current_round),
              phase = as.character(attr(self, "execution_phase") %||% NA_character_),
              turn = as.integer(private$participant_turns + 1L)),
-        record, list(message_id = NA_integer_))
+        record, list(message_id = NA_integer_, arm = private$arm %||% NA_character_))
       pick
     },
 
-    # The session itself: the roster message, the moderator cycles of the
-    # script, interim summaries, and the final summary.
+    # ---- The session engine -------------------------------------------------
+    # A session advances through stages, so that it can stop at a stated point
+    # and later continue from it, as branching requires. "round_start" takes
+    # the next guide item; "moderator" delivers its line; "after_item" handles
+    # the point just after that line; "turn" runs one participant turn;
+    # "round_end" and "round_end_last" check the prompt window; "loop_end"
+    # closes the loop. The final summary follows. The checkpoints "start",
+    # "after_item:k", "before_turn:t", and "end" run the probes and injections
+    # planned for them, and a session can pause at one.
+
     run_session = function(num_rounds, verbose) {
+      private$session_begin(num_rounds, verbose)
+      private$session_continue(verbose)
+      private$session_finish(verbose)
+    },
+
+    session_begin = function(num_rounds, verbose) {
       if (verbose) {
         cat("Starting focus group simulation...\n")
         cat("Topic:", self$topic, "\n")
         cat("Purpose:", self$purpose, "\n")
       }
-
       private$current_phase_index <- 0
-      round_counter <- 0L
-      simulation_active <- TRUE
+      private$current_round <- 0L
       private$last_summary_round <- -Inf
+      private$fired <- character()
+      private$state <- list(stage = "round_start", num_rounds = num_rounds,
+                            details = NULL, item = 0L, responses = 0L,
+                            ended_by = NA_character_)
 
       # Log a roster system message so all agents "see" who is present
       participant_ids <- setdiff(names(self$agents), self$moderator_id)
@@ -1313,109 +1452,56 @@ FocusGroup <- R6::R6Class("FocusGroup",
         "Participants: ", paste(participant_ids, collapse = ", "),
         "; Moderator: ", self$moderator_id
       )
-      private$log_message("System", roster_msg, round = round_counter,
+      private$log_message("System", roster_msg, round = 0L,
                           is_moderator = FALSE, phase = "setup", meta = list())
-
-      # Working context ceilings and triggers.
-      summarize_trigger_tokens <- 48000L
-      summarize_probe_tokens   <- 64000L  # probe window larger than cap so trigger can fire
-      summarize_trigger_count  <- 200L
-      summarize_cooldown_rounds <- 10L
-      interim_summary_tokens   <- self$max_tokens_interim_summary
-
-      while(simulation_active) {
-        round_counter <- round_counter + 1L
-        private$current_round <- round_counter
-        if (!is.null(num_rounds) && round_counter > num_rounds) {
-            if (verbose) cat("\n--- Reached num_rounds limit (", num_rounds, "). Simulation Ended ---\n")
-            break
-        }
-
-        # advance_round returns FALSE if the script ends or the moderator closes.
-        simulation_active <- private$advance_round(current_round = round_counter,
-                                                   verbose = verbose)
-
-        # Threshold-based interim summarization and prompt window trimming.
-        # Use a probe window larger than the trigger so the token condition can actually fire.
-        needs_summary <- FALSE
-        if ((round_counter - private$last_summary_round) >= summarize_cooldown_rounds) {
-          recent_hist <- make_prompt_history(
-            self$conversation_log,
-            include_summary = NULL,
-            max_tokens_history = summarize_probe_tokens
-          )
-          recent_tokens <- estimate_tokens(recent_hist)
-          needs_summary <- recent_tokens >= summarize_trigger_tokens ||
-            length(self$conversation_log) > summarize_trigger_count
-        }
-        # The summary stands in for the messages the prompt window no longer
-        # shows, so it covers exactly those; while the window still holds the
-        # whole discussion there is nothing to summarize.
-        dropped_transcript <- if (needs_summary) {
-          private$get_dropped_transcript_for_summary(summarize_probe_tokens)
-        } else ""
-        if (nzchar(dropped_transcript)) {
-          if (verbose) cat("\n--- Generating interim summary for context management ---\n")
-          attr(self, "execution_phase") <- "interim_summary"
-          interim_summary_text <- self$summarize(
-            config = .fg_with_params(self$admin_config,
-                                     .fg_call_params(self, "summary")),
-            summary_level = 3,
-            max_tokens = interim_summary_tokens,
-            internal_call = TRUE,
-            transcript_override = dropped_transcript
-          )
-          self$current_conversation_summary <- interim_summary_text
-          private$last_summary_round <- round_counter
-          if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
-        }
-      }
-      # The loop exits one of two ways: the round-limit branch above breaks with
-      # simulation_active still TRUE (and prints its own line), or advance_round
-      # returns FALSE and sets simulation_active to FALSE. The latter is the
-      # normal close (script exhausted or moderator ended), so announce it here.
-      if (verbose && !simulation_active) cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
-
-      # Final summary of the entire discussion. The transcript is complete at
-      # this point; a summary failure is reported, never allowed to destroy
-      # the finished run.
-      if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
-      final_summary <- tryCatch(
-        self$summarize(config = .fg_with_params(self$admin_config,
-                                                .fg_call_params(self, "summary")),
-                       summary_level = 1, max_tokens = self$max_tokens_summary,
-                       internal_call = FALSE),
-        error = function(e) {
-          warning("The final summary call failed (",
-                  conditionMessage(e),
-                  "); the completed transcript is returned without it.",
-                  call. = FALSE)
-          NA_character_
-        })
-      self$final_summary <- final_summary
-      if (verbose && !is.na(final_summary)) {
-        cat("Final Summary:\n", final_summary, "\n")
-      }
-
-      invisible(self$conversation_log)
+      private$checkpoint("start", verbose)
+      invisible(NULL)
     },
 
-    advance_round = function(current_round, verbose = FALSE) {
-      moderator_agent <- self$agents[[self$moderator_id]]
+    # Run stages until the session is done ("done") or pauses at the planned
+    # branch point ("paused").
+    session_continue = function(verbose) {
+      repeat {
+        stage <- private$state$stage
+        if (identical(stage, "done")) return("done")
+        paused <- switch(stage,
+          round_start = private$step_round_start(verbose),
+          moderator = private$step_moderator(verbose),
+          after_item = private$step_after_item(verbose),
+          turn = private$step_turn(verbose),
+          round_end = private$step_round_end(verbose, last = FALSE),
+          round_end_last = private$step_round_end(verbose, last = TRUE),
+          loop_end = private$step_loop_end(verbose),
+          stop("Unknown session stage: ", stage, call. = FALSE))
+        if (isTRUE(paused)) return("paused")
+      }
+    },
 
-      # 1. Determine Moderator's Action based on script/phase
+    step_round_start = function(verbose) {
+      private$current_round <- private$current_round + 1L
+      current_round <- private$current_round
+      num_rounds <- private$state$num_rounds
+      if (!is.null(num_rounds) && current_round > num_rounds) {
+        if (verbose) cat("\n--- Reached num_rounds limit (", num_rounds, "). Simulation Ended ---\n")
+        private$state$ended_by <- "num_rounds"
+        private$state$stage <- "loop_end"
+        return(FALSE)
+      }
       current_phase_details <- private$get_next_phase_or_question()
       if (is.null(current_phase_details)) {
         if (verbose) cat("Moderator script exhausted. Ending simulation.\n")
-        return(FALSE) # Script ended
+        private$state$ended_by <- "script"
+        private$state$stage <- "round_end_last"
+        return(FALSE)
       }
+      private$state$details <- current_phase_details
+      private$state$item <- as.integer(private$current_phase_index)
       current_phase_name <- current_phase_details$phase
       attr(self, "execution_phase") <- current_phase_name
       # Determine the current question text appropriately per phase
-      question_phases <- c("icebreaker_question", "engagement_question", "exploration_question", "probing_focused", "ending_question", "generic_discussion", "transition")
       if (!is.null(current_phase_details$text) && nzchar(current_phase_details$text)) {
         self$current_question_text <- current_phase_details$text
-      } else if (current_phase_name %in% question_phases) {
+      } else if (current_phase_name %in% .fg_question_phases) {
         # Fallback to the overall topic only for phases that ask a question or discussion
         self$current_question_text <- self$topic
       } else {
@@ -1429,8 +1515,40 @@ FocusGroup <- R6::R6Class("FocusGroup",
         }
         cat(" ---\n")
       }
+      private$state$stage <- "moderator"
+      FALSE
+    },
 
-      # 2. Moderator Speaks
+    step_moderator = function(verbose) {
+      current_phase_details <- private$state$details
+      current_phase_name <- current_phase_details$phase
+      current_round <- private$current_round
+
+      if (isTRUE(current_phase_details$verbatim)) {
+        # A verbatim item is the moderator's line as written; no model call.
+        mod_text <- current_phase_details$text
+        mod_meta <- list(metadata = list(verbatim = TRUE))
+      } else {
+        mod_res <- private$moderator_line(current_phase_details)
+        mod_text <- if (is.list(mod_res)) mod_res$text else as.character(mod_res)
+        mod_meta <- if (is.list(mod_res) && !is.null(mod_res$meta)) mod_res$meta else list()
+      }
+      private$log_message(self$moderator_id, mod_text, round = current_round,
+                          is_moderator = TRUE, phase = current_phase_name,
+                          meta = mod_meta)
+      if (verbose) cat(paste0(self$moderator_id, " (Moderator): ", mod_text, "\n"))
+      private$state$stage <- "after_item"
+      FALSE
+    },
+
+    # The moderator's line for a guide item, generated from its template.
+    # The moderator reads only the messages visible to it.
+    moderator_line = function(current_phase_details) {
+      moderator_agent <- self$agents[[self$moderator_id]]
+      current_phase_name <- current_phase_details$phase
+      question_phases <- .fg_question_phases
+      moderator_log <- private$moderator_view()
+
       moderator_prompt_key <- paste0("moderator_", current_phase_name)
       if (!moderator_prompt_key %in% names(self$prompt_templates)) {
           # Fallback to a generic moderator prompt if phase-specific one is missing
@@ -1455,14 +1573,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
       }
 
       # Pre-fill moderator template placeholders to avoid unresolved tokens in outputs
-      last_msg <- if (length(self$conversation_log) > 0) {
-        self$conversation_log[[length(self$conversation_log)]]
+      last_msg <- if (length(moderator_log) > 0) {
+        moderator_log[[length(moderator_log)]]
       } else {
         list(speaker_id = "N/A", text = "N/A")
       }
       participant_ids <- setdiff(names(self$agents), self$moderator_id)
       # Compute participation counts (exclude System and Moderator)
-      non_system <- Filter(function(m) !is.null(m$speaker_id) && m$speaker_id != "System", self$conversation_log)
+      non_system <- Filter(function(m) !is.null(m$speaker_id) && m$speaker_id != "System", moderator_log)
       non_mod <- Filter(function(m) m$speaker_id != self$moderator_id, non_system)
       counts_raw <- if (length(non_mod) > 0) table(vapply(non_mod, function(m) m$speaker_id, "")) else integer(0)
       counts <- stats::setNames(rep(0L, length(participant_ids)), participant_ids)
@@ -1513,18 +1631,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
       if (current_phase_name == "closing") mod_tokens <- 250
       if (current_phase_name == "summarizing") mod_tokens <- 200
 
-      # Fill placeholders specific to moderator prompts
-      # Some placeholders might be specific to certain moderator prompts (e.g., {{next_focus_group_question}})
-      # generate_utterance() fills the remaining agent-specific placeholders.
-
       # Construct conversation history for the moderator
       history_for_moderator <- make_prompt_history(
-        self$conversation_log,
+        moderator_log,
         include_summary = self$current_conversation_summary,
-        max_tokens_history = 64000L
+        max_tokens_history = .fg_prompt_window_tokens
       )
 
-      mod_res <- .fg_with_group_usage(self, moderator_agent$generate_utterance(
+      .fg_with_group_usage(self, moderator_agent$generate_utterance(
         topic = self$topic,
         conversation_history_string = history_for_moderator,
         utterance_prompt_template = moderator_template_filled,
@@ -1532,103 +1646,342 @@ FocusGroup <- R6::R6Class("FocusGroup",
         current_moderator_question = self$current_question_text, # This is the question *being asked* or *related to*
         conversation_summary_so_far = self$current_conversation_summary,
         current_phase = current_phase_name,
-        conversation_log = self$conversation_log,
+        conversation_log = moderator_log,
         call_params = .fg_call_params(self, "moderator")
       ))
-      mod_text <- if (is.list(mod_res)) mod_res$text else as.character(mod_res)
-      mod_meta <- if (is.list(mod_res) && !is.null(mod_res$meta)) mod_res$meta else list()
-      private$log_message(self$moderator_id, mod_text, round = current_round,
-                          is_moderator = TRUE, phase = current_phase_name,
-                          meta = mod_meta)
-      if (verbose) cat(paste0(self$moderator_id, " (Moderator): ", mod_text, "\n"))
+    },
 
-
-
+    step_after_item = function(verbose) {
+      if (private$checkpoint(paste0("after_item:", private$state$item), verbose)) {
+        return(TRUE)
+      }
+      current_phase_name <- private$state$details$phase
       # A script may contain several closing turns. End after the final closing
       # entry; otherwise continue through the remaining scripted instructions.
       if (current_phase_name == "closing") {
         if (private$current_phase_index >= length(self$question_script)) {
           if (verbose) cat("Moderator completed the closing. Ending simulation.\n")
-          return(FALSE)
+          private$state$ended_by <- "closing"
+          private$state$stage <- "round_end_last"
+        } else {
+          private$state$stage <- "round_end"
         }
+      } else if (current_phase_name %in% .fg_response_phases) {
+        # Allow multiple participants to respond organically before moderator intervenes again
+        private$state$responses <- 0L
+        private$state$stage <- "turn"
+      } else {
+        private$state$stage <- "round_end"
+      }
+      FALSE
+    },
+
+    # One participant turn of the current question.
+    step_turn = function(verbose) {
+      if (private$checkpoint(paste0("before_turn:", private$participant_turns + 1L),
+                             verbose)) {
         return(TRUE)
       }
+      current_phase_name <- private$state$details$phase
+      current_round <- private$current_round
+      next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
+      pick <- private$record_routing(next_participant)
 
-            # 3. Participant(s) Respond (if applicable for the phase)
-      # Typically, after moderator asks a question or makes a point requiring response.
-      # Phases like "opening", "summarizing", "transition", "closing" might not immediately solicit a participant response via flow.
-      phases_expecting_participant_response <- c("icebreaker_question", "engagement_question", "exploration_question", "probing_focused", "ending_question", "generic_discussion")
+      if (is.null(next_participant)) {
+        if (verbose) cat("No participant selected by flow (e.g., low desire). Ending participant response round.\n")
+        private$state$stage <- "round_end"
+        return(FALSE)
+      }
+      if (next_participant$id == self$moderator_id && length(self$agents) > 1) {
+        if (verbose) cat("Turn-taking flow selected moderator during participant response phase. Allowing moderator to manage flow.\n")
+        private$state$stage <- "round_end"
+        return(FALSE)
+      }
+      if (verbose) cat(paste("Selected participant by flow:", next_participant$id, "\n"))
 
-      if (current_phase_name %in% phases_expecting_participant_response) {
-        # Allow multiple participants to respond organically before moderator intervenes again
-        # This creates more natural conversation flow
-        participants_responded_this_round <- 0
-        max_participant_responses <- self$max_participant_responses
+      history_for_participant <- make_prompt_history(
+        self$conversation_log,
+        include_summary = self$current_conversation_summary,
+        max_tokens_history = .fg_prompt_window_tokens
+      )
 
-        repeat {
-          next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
-          pick <- private$record_routing(next_participant)
+      part_res <- .fg_with_group_usage(self, next_participant$generate_utterance(
+        topic = self$topic,
+        conversation_history_string = history_for_participant,
+        utterance_prompt_template = .fg_pick_template(self$prompt_templates, "utterance"),
+        max_tokens_utterance = max(self$max_tokens_utterance, 220L),
+        current_moderator_question = self$current_question_text, # The question they are responding to
+        conversation_summary_so_far = self$current_conversation_summary,
+        current_phase = current_phase_name,
+        conversation_log = self$conversation_log,
+        call_params = .fg_call_params(self, "participant")
+      ))
+      part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
+      part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()
+      selection_metadata <- self$turn_taking_flow$selection_metadata %||% list()
+      part_meta$metadata <- utils::modifyList(
+        part_meta$metadata %||% list(),
+        selection_metadata
+      )
+      message_id <- private$log_message(next_participant$id, part_text,
+                                        round = current_round,
+                                        is_moderator = FALSE,
+                                        phase = current_phase_name,
+                                        meta = part_meta)
+      self$records$routing[[pick]]$message_id <- message_id
+      private$participant_turns <- private$participant_turns + 1L
+      if (verbose) cat(paste0(next_participant$id, ": ", part_text, "\n"))
 
-          if (!is.null(next_participant)) {
-            if (next_participant$id == self$moderator_id && length(self$agents) > 1) {
-              if (verbose) cat("Turn-taking flow selected moderator during participant response phase. Allowing moderator to manage flow.\n")
-              break # Let moderator intervene if selected by flow
-            } else {
-              if (verbose) cat(paste("Selected participant by flow:", next_participant$id, "\n"))
+      self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
 
-              history_for_participant <- make_prompt_history(
-                self$conversation_log,
-                include_summary = self$current_conversation_summary,
-                max_tokens_history = 64000L
-              )
+      private$state$responses <- private$state$responses + 1L
+      # Break if we've had enough participant exchanges
+      if (private$state$responses >= self$max_participant_responses) {
+        if (verbose) cat("Maximum participant exchanges reached for this round.\n")
+        private$state$stage <- "round_end"
+      }
+      FALSE
+    },
 
-              part_res <- .fg_with_group_usage(self, next_participant$generate_utterance(
-                topic = self$topic,
-                conversation_history_string = history_for_participant,
-                utterance_prompt_template = .fg_pick_template(self$prompt_templates, "utterance"),
-                max_tokens_utterance = max(self$max_tokens_utterance, 220L),
-                current_moderator_question = self$current_question_text, # The question they are responding to
-                conversation_summary_so_far = self$current_conversation_summary,
-                current_phase = current_phase_name,
-                conversation_log = self$conversation_log,
-                call_params = .fg_call_params(self, "participant")
-              ))
-              part_text <- if (is.list(part_res)) part_res$text else as.character(part_res)
-              part_meta <- if (is.list(part_res) && !is.null(part_res$meta)) part_res$meta else list()
-              selection_metadata <- self$turn_taking_flow$selection_metadata %||% list()
-              part_meta$metadata <- utils::modifyList(
-                part_meta$metadata %||% list(),
-                selection_metadata
-              )
-              message_id <- private$log_message(next_participant$id, part_text,
-                                                round = current_round,
-                                                is_moderator = FALSE,
-                                                phase = current_phase_name,
-                                                meta = part_meta)
-              self$records$routing[[pick]]$message_id <- message_id
-              private$participant_turns <- private$participant_turns + 1L
-              if (verbose) cat(paste0(next_participant$id, ": ", part_text, "\n"))
+    step_round_end = function(verbose, last) {
+      private$maybe_interim_summary(verbose)
+      utils::flush.console()
+      private$state$stage <- if (last) "loop_end" else "round_start"
+      FALSE
+    },
 
-              self$turn_taking_flow$update_state_post_selection(next_participant$id, self)
+    step_loop_end = function(verbose) {
+      private$checkpoint("end", verbose)
+      # The loop exits one of two ways: the round limit, which prints its own
+      # line, or the normal close (script exhausted or moderator ended).
+      if (verbose && !identical(private$state$ended_by, "num_rounds")) {
+        cat("\n--- Simulation Concluded (script ended or moderator closed) ---\n")
+      }
+      private$report_undelivered()
+      private$state$stage <- "done"
+      FALSE
+    },
 
+    # Threshold-based interim summarization. The summary stands in for the
+    # messages the prompt window no longer shows, so it covers exactly those;
+    # while the window still holds the whole discussion there is nothing to
+    # summarize.
+    maybe_interim_summary = function(verbose) {
+      round_counter <- private$current_round
+      summarize_trigger_tokens <- 48000L
+      summarize_trigger_count <- 200L
+      summarize_cooldown_rounds <- 10L
+      needs_summary <- FALSE
+      if ((round_counter - private$last_summary_round) >= summarize_cooldown_rounds) {
+        recent_hist <- make_prompt_history(
+          self$conversation_log,
+          include_summary = NULL,
+          max_tokens_history = .fg_prompt_window_tokens
+        )
+        recent_tokens <- estimate_tokens(recent_hist)
+        needs_summary <- recent_tokens >= summarize_trigger_tokens ||
+          length(self$conversation_log) > summarize_trigger_count
+      }
+      dropped_transcript <- if (needs_summary) {
+        private$get_dropped_transcript_for_summary(.fg_prompt_window_tokens)
+      } else ""
+      if (nzchar(dropped_transcript)) {
+        if (verbose) cat("\n--- Generating interim summary for context management ---\n")
+        attr(self, "execution_phase") <- "interim_summary"
+        interim_summary_text <- self$summarize(
+          config = .fg_with_params(self$admin_config,
+                                   .fg_call_params(self, "summary")),
+          summary_level = 3,
+          max_tokens = self$max_tokens_interim_summary,
+          internal_call = TRUE,
+          transcript_override = dropped_transcript
+        )
+        self$current_conversation_summary <- interim_summary_text
+        private$last_summary_round <- round_counter
+        if (verbose && !is.null(interim_summary_text)) cat("Interim summary generated.\n")
+      }
+      invisible(NULL)
+    },
 
-              participants_responded_this_round <- participants_responded_this_round + 1
+    # Final summary of the entire discussion. The transcript is complete at
+    # this point; a summary failure is reported, never allowed to destroy
+    # the finished run.
+    session_finish = function(verbose) {
+      if (verbose) cat("\n--- Generating final summary of the entire discussion ---\n")
+      final_summary <- tryCatch(
+        self$summarize(config = .fg_with_params(self$admin_config,
+                                                .fg_call_params(self, "summary")),
+                       summary_level = 1, max_tokens = self$max_tokens_summary,
+                       internal_call = FALSE),
+        error = function(e) {
+          warning("The final summary call failed (",
+                  conditionMessage(e),
+                  "); the completed transcript is returned without it.",
+                  call. = FALSE)
+          NA_character_
+        })
+      self$final_summary <- final_summary
+      if (verbose && !is.na(final_summary)) {
+        cat("Final Summary:\n", final_summary, "\n")
+      }
+      invisible(self$conversation_log)
+    },
 
-              # Break if we've had enough participant exchanges or if no one else wants to talk
-              if (participants_responded_this_round >= max_participant_responses) {
-                if (verbose) cat("Maximum participant exchanges reached for this round.\n")
-                break
-              }
-            }
-          } else {
-            if (verbose) cat("No participant selected by flow (e.g., low desire). Ending participant response round.\n")
-            break
-          }
+    # ---- Probes and injections ---------------------------------------------
+
+    # Run the probes and injections planned for a checkpoint, once. Returns
+    # TRUE when the session is to pause there.
+    checkpoint = function(event, verbose) {
+      if (event %in% private$fired) return(FALSE)
+      private$fired <- c(private$fired, event)
+      for (probe in private$plan$probes) {
+        if (event %in% probe$events) private$run_probe(probe, event, verbose)
+      }
+      for (injection in private$plan$injections) {
+        if (identical(injection$event, event)) private$apply_injection(injection, verbose)
+      }
+      identical(private$plan$pause_at, event)
+    },
+
+    # Check and store the plan of injections and probes for this session.
+    # Points must lie within the guide: an item number no larger than the
+    # number of items, a turn no later than the last turn the guide allows.
+    prepare_plan = function(injections = list(), probes = list(), pause_at = NULL) {
+      n_items <- length(self$question_script)
+      if (!n_items) n_items <- 1L
+      phases <- if (length(self$question_script)) {
+        vapply(self$question_script, function(item) as.character(item$phase %||% ""),
+               character(1))
+      } else "generic_discussion"
+      max_turns <- sum(phases %in% .fg_response_phases) *
+        as.double(self$max_participant_responses)
+      check_point <- function(point, what) {
+        if (identical(point$type, "after_item") && point$value > n_items) {
+          stop(what, " ", format(point), " is beyond the ", n_items,
+               " item(s) of the guide.", call. = FALSE)
+        }
+        if (identical(point$type, "before_turn") && point$value > max_turns) {
+          stop(what, " ", format(point), " is beyond the ", max_turns,
+               " participant turn(s) the guide allows.", call. = FALSE)
         }
       }
+      participant_ids <- setdiff(names(self$agents), self$moderator_id)
+      injections <- lapply(seq_along(injections), function(i) {
+        injection <- injections[[i]]
+        check_point(injection$at, "Injection")
+        if (identical(injection$from, self$moderator_id)) injection$from <- "moderator"
+        if (!identical(injection$from, "moderator") &&
+            injection$from %in% c(participant_ids, "System")) {
+          stop("An injection cannot come from '", injection$from,
+               "': it names a participant or the System row.", call. = FALSE)
+        }
+        injection$label <- injection$label %||% paste0("injection_", i)
+        injection$event <- .fg_point_event(injection$at)
+        injection
+      })
+      probes <- lapply(seq_along(probes), function(i) {
+        probe <- probes[[i]]
+        for (point in probe$at) check_point(point, "Probe")
+        unknown <- setdiff(probe$participants %||% character(), participant_ids)
+        if (length(unknown)) {
+          stop("Probe participants not in the session: ",
+               paste(unknown, collapse = ", "), ".", call. = FALSE)
+        }
+        probe$label <- probe$label %||% paste0("probe_", i)
+        probe$events <- vapply(probe$at, .fg_point_event, character(1))
+        probe
+      })
+      private$plan <- list(injections = injections, probes = probes,
+                           pause_at = pause_at)
+      invisible(private$plan)
+    },
 
-      utils::flush.console()
-      return(TRUE) # Continue simulation
+    # Log an injected message and record it.
+    apply_injection = function(injection, verbose = FALSE) {
+      speaker <- if (identical(injection$from, "moderator")) self$moderator_id else injection$from
+      log <- self$conversation_log
+      cut_after <- if (length(log)) as.integer(log[[length(log)]]$message_id) else NA_integer_
+      phase <- private$state$details$phase %||% "setup"
+      info <- list(label = injection$label, arm = private$arm %||% NA_character_,
+                   point = format(injection$at), from = injection$from,
+                   visibility = injection$visibility,
+                   cut_after_message_id = cut_after)
+      message_id <- private$log_message(
+        speaker, injection$text, round = private$current_round,
+        is_moderator = identical(speaker, self$moderator_id), phase = phase,
+        meta = list(metadata = list(injected = TRUE, injection = info)))
+      self$records$injections[[length(self$records$injections) + 1L]] <- c(
+        info, list(delivered = TRUE, message_id = message_id, speaker_id = speaker,
+                   text = injection$text, round = private$current_round,
+                   phase = phase, turn = private$participant_turns + 1L))
+      if (verbose) cat(paste0(speaker, " (injected): ", injection$text, "\n"))
+      invisible(message_id)
+    },
+
+    # Ask one probe of each of its participants. The answers are recorded and
+    # never logged.
+    run_probe = function(probe, event, verbose) {
+      targets <- probe$participants %||% setdiff(names(self$agents), self$moderator_id)
+      template <- self$prompt_templates$participant_probe_instruction %||%
+        get_default_prompt_templates()$participant_probe_instruction
+      log <- self$conversation_log
+      after <- if (length(log)) as.integer(log[[length(log)]]$message_id) else NA_integer_
+      phase <- private$state$details$phase %||% "setup"
+      previous_phase <- attr(self, "execution_phase")
+      attr(self, "execution_phase") <- "probe"
+      for (id in targets) {
+        out <- .fg_with_group_usage(self, self$agents[[id]]$answer_probe(
+          question = probe$question, conversation_log = log, topic = self$topic,
+          template = template, max_tokens = self$max_tokens_probe,
+          conversation_summary = self$current_conversation_summary,
+          call_params = .fg_call_params(self, "probe")))
+        if (is.na(out$answer)) {
+          warning(sprintf("Probe '%s' at %s returned no answer from %s; it is recorded as NA.",
+                          probe$label, .fg_event_label(event), id), call. = FALSE)
+        }
+        self$records$probes[[length(self$records$probes) + 1L]] <- list(
+          probe = probe$label, point = .fg_event_label(event), agent_id = id,
+          question = probe$question, answer = out$answer, raw_text = out$raw_text,
+          finish_reason = out$finish_reason, call_id = out$call_id,
+          round = private$current_round, phase = phase,
+          turn = private$participant_turns + 1L, after_message_id = after,
+          arm = private$arm %||% NA_character_)
+        if (verbose) cat(paste0(id, " (probe ", probe$label, "): ", out$answer, "\n"))
+      }
+      attr(self, "execution_phase") <- previous_phase
+      invisible(NULL)
+    },
+
+    # Warn about, and record, the planned injections and probes a finished
+    # session never reached.
+    report_undelivered = function() {
+      for (injection in private$plan$injections) {
+        if (injection$event %in% private$fired) next
+        warning(sprintf("Injection '%s' at %s was not delivered: the session ended first.",
+                        injection$label, format(injection$at)), call. = FALSE)
+        self$records$injections[[length(self$records$injections) + 1L]] <- list(
+          label = injection$label, arm = private$arm %||% NA_character_,
+          point = format(injection$at), from = injection$from,
+          visibility = injection$visibility, cut_after_message_id = NA_integer_,
+          delivered = FALSE, message_id = NA_integer_, speaker_id = NA_character_,
+          text = injection$text, round = NA_integer_, phase = NA_character_,
+          turn = NA_integer_)
+      }
+      for (probe in private$plan$probes) {
+        missed <- setdiff(probe$events, private$fired)
+        if (length(missed)) {
+          warning(sprintf("Probe '%s' was not asked at %s: the session ended first.",
+                          probe$label, paste(vapply(missed, .fg_event_label, character(1)),
+                                             collapse = ", ")), call. = FALSE)
+        }
+      }
+    },
+
+    # The log as the moderator sees it: without messages injected for the
+    # participants alone.
+    moderator_view = function() {
+      Filter(function(m) !identical(m$metadata$injection$visibility, "participants"),
+             self$conversation_log)
     },
     # Guard for the plot_* methods: ggplot2 is a Suggests, not an Import.
     require_ggplot2 = function() {
@@ -1723,16 +2076,43 @@ FocusGroup <- R6::R6Class("FocusGroup",
     current_round = 0L,
     participant_turns = 0L,
     pending_calls = integer(),
+    state = NULL,
+    plan = list(injections = list(), probes = list(), pause_at = NULL),
+    fired = character(),
+    arm = NULL,
+
+    # A session runs once.
+    check_unused = function() {
+      if (length(self$conversation_log)) {
+        stop(
+          "This FocusGroup object already contains a session and cannot run again. ",
+          "Use the continuation experiment in run_focus_studio() to generate a continuation.",
+          call. = FALSE
+        )
+      }
+    },
+
+    # An injection prepared for this session's records, as prepare_plan()
+    # prepares the planned ones.
+    plan_entry = function(injection) {
+      if (identical(injection$from, self$moderator_id)) injection$from <- "moderator"
+      injection$event <- .fg_point_event(injection$at)
+      injection
+    },
 
     # The transcript of the messages that fall before the prompt window, for
     # the interim summary; "" when the window still holds every message. The
-    # System roster row is not discussion and is left out.
+    # System roster row is not discussion and is left out, and so is a
+    # message injected for the participants alone, since the moderator reads
+    # the summary.
     get_dropped_transcript_for_summary = function(max_tokens_history) {
         log <- self$conversation_log
         if (length(log) == 0) return("")
         start <- .fg_window_start(log, max_tokens_history)
-        dropped <- Filter(function(msg) !identical(msg$speaker_id, "System"),
-                          log[seq_len(start - 1L)])
+        dropped <- Filter(function(msg) {
+          !identical(msg$speaker_id, "System") &&
+            !identical(msg$metadata$injection$visibility, "participants")
+        }, log[seq_len(start - 1L)])
         if (!length(dropped)) return("")
         paste(vapply(dropped, function(msg) {
             paste0(msg$speaker_id, ": ", msg$text)

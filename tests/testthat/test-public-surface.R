@@ -8,9 +8,14 @@ test_that("the package exports exactly the first-release surface", {
     "create_agents_from_data",
     "create_agents_from_survey",
     "create_conversation_flow",
+    "fg_after_item",
+    "fg_before_turn",
+    "fg_injection",
+    "fg_probe",
     "focus_group_from_transcript",
     "get_default_prompt_templates",
     "run_focus_group",
+    "run_focus_group_arms",
     "run_focus_studio"
   )
   expect_identical(sort(getNamespaceExports("FocusGroup")), sort(expected))
@@ -23,7 +28,8 @@ test_that("public call signatures use the family grammar", {
     c("topic", "config", "n_participants", "guide", "demographics",
       "survey_responses", "flow", "seed", "message_mode", "verbose",
       "max_participant_responses", "max_calls", "confirm",
-      "max_tokens_config", "reasoning_effort", "on_desire_failure", ".runner")
+      "max_tokens_config", "reasoning_effort", "on_desire_failure",
+      "injections", "probes", "moderator_verbatim", ".runner")
   )
 
   analysis_args <- names(formals(analyze_focus_group))
@@ -145,6 +151,7 @@ test_that("default prompt names are all supported contracts", {
     "participant_utterance_subtle_persona",
     "participant_turn_instruction",
     "participant_desire_instruction",
+    "participant_probe_instruction",
     "participant_desire_to_talk_nuanced",
     "moderator_opening",
     "moderator_icebreaker_question",

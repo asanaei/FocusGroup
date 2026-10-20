@@ -38,6 +38,12 @@ flat template and routed through the flat path.
 }
 }
 
+\section{Probe template}{
+
+\code{participant_probe_instruction} closes the messages of a private probe
+(\code{\link[=fg_probe]{fg_probe()}}); \verb{\\\{\\\{probe_question\\\}\\\}} is replaced by the question.
+}
+
 \examples{
 default_prompts <- get_default_prompt_templates()
 names(default_prompts)
