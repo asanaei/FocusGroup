@@ -66,7 +66,8 @@ test_that("the `rows` predicate restricts the eligible pool", {
   ag <- create_agents_from_survey(
     n_participants = 4, survey_path = f,
     demographic_vars = c(age = "AGE"),
-    survey_vars = c("Party identification" = "PARTY"),
+    survey_vars = "PARTY",
+    question_wording = c(PARTY = "Which party do you identify with?"),
     rows = function(df) df$age == "55+",
     config = cfg
   )

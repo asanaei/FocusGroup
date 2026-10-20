@@ -15,6 +15,7 @@ create_agents_from_survey(
   na_strings = .fg_default_na_strings,
   question_wording = NULL,
   value_labels = NULL,
+  scale_template = .fg_default_scale_template,
   .runner = NULL
 )
 }
@@ -57,8 +58,15 @@ values carrying haven value labels are accepted.}
 
 \item{na_strings}{Character vector of value-label substrings, matched as
 regular expressions and ignoring case, that mark an answer as missing.
-Defaults to a small common set; pass your own to match another file's
-missing-data vocabulary.}
+The default covers common terms ("inapplicable", "missing", "refused",
+"don't know", "not asked", "legitimate skip", "no answer", "not
+applicable", "not available") and the labels the ANES 2024 release gives
+its negative missing-data codes, such as "-3. RESTRICTED", "-6. No post
+interview", "-5. Sufficient partial, breakoff", "-4. Error", "-2. DK/RF in
+V241288 or V241289", and "-2. Open-end responses available in separate
+file". "Error" and "RESTRICTED" count only as a whole label. Pass your own
+vector, or extend \code{FocusGroup:::.fg_default_na_strings}, to match another
+file's missing-data vocabulary.}
 
 \item{question_wording}{Optional named character vector giving the question
 as asked for survey items, keyed by variable name, as in
@@ -76,7 +84,20 @@ named list of named vectors in the form of haven value labels, as in
 \code{list(V241386 = c("Make all unauthorized immigrants felons and send them back to their home country" = 1))}. A supplied label replaces the file's
 label for its code, or labels a code the file leaves unlabeled; use it to
 restore labels the file cut short or to label stray codes. Supplied labels
-are matched against \code{na_strings} like the file's own.}
+are matched against \code{na_strings} like the file's own. Entries for
+variables that are not requested are not used, with a warning.}
+
+\item{scale_template}{The sentence that states an answer placed on a scale
+whose endpoints alone are labeled (see Rendering answers). The
+placeholders \code{{lo}} and \code{{hi}} are the endpoint codes, \code{{lo_label}} and
+\code{{hi_label}} their labels, and \code{{value}} the answer, which every template
+must contain; any other placeholder is an error. The default, "On a scale
+of \{lo\} to \{hi\}, where \{lo\} is \{lo_label\} and \{hi\} is
+\{hi_label\}, you place yourself at \{value\}.", fits self-placement
+items. Give one template for every item, or templates named by variable
+with at most one unnamed template as the default for the rest. Items that
+place someone else or rate a group need their own wording, as in
+\code{c(V241240 = "On a scale of {lo} to {hi}, where {lo} is {lo_label} and {hi} is {hi_label}, your placement of the Democratic candidate is {value}.")}. The template used is recorded in the rendering report.}
 
 \item{.runner}{Optional function used instead of live model calls and stored
 on every agent.}
@@ -130,50 +151,58 @@ names the column or the offending rows.
 }
 \section{Rendering answers}{
 
-Each answer is rendered by the first of the following rules that applies,
-and the rule used is recorded in the rendering report described under
-Value.
+An answer in a variable with value labels is rendered by the first of the
+following rules that applies, and the rule used is recorded in the
+rendering report described under Value.
 \itemize{
 \item A code with a value label is shown as its label, without a leading code
-such as "1. ". A label that matches \code{na_strings} marks a missing value,
-and the answer is left out. Two kinds of label from the file are shown
-but flagged, with a warning naming the variable and code: a label
-exactly 80 characters long, since some releases, the ANES 2024 Stata
-file among them, cut longer labels at that length; and the label of a
-negative code, since the ANES and WVS releases use negative codes for
-missing data ("-6. No post interview"). Extend \code{na_strings} to leave
-the latter out.
+of zero or above such as "1. ". A label that matches \code{na_strings} marks
+a missing value, and the answer is left out. Two kinds of label from the
+file are shown but flagged, with a warning naming the variable and code:
+a label exactly 80 characters long, since some releases, the ANES 2024
+Stata file among them, cut longer labels at that length; and the label
+of a negative code that does not match \code{na_strings}, shown with its
+code, since the ANES and WVS releases use negative codes for missing
+data. Extend \code{na_strings} to leave the latter out.
 \item A number without a label that lies between the two labeled endpoints of
-a scale is shown on that scale: "On a scale of 1 to 7, where 1 is
-Government should provide many fewer services and 7 is Government should
-provide many more services, you place yourself at 5." The endpoints are
-the nearest labeled codes on either side of the answer, and they must be
-the only labels of the scale: no other label may lie below the lower
-endpoint, and labels above the upper endpoint must lie at least the
-scale's width beyond it. An off-scale code such as "99. Haven't thought
-much about this" after a 1 to 7 scale is therefore not an endpoint, and
-negative codes below a scale that starts at zero or above are taken for
+a scale is shown on that scale, in the sentence given by
+\code{scale_template}: "On a scale of 1 to 7, where 1 is Government should
+provide many fewer services and 7 is Government should provide many more
+services, you place yourself at 5." The endpoints are the nearest labeled
+codes on either side of the answer, and they must be the only labels of
+the scale: no other label may lie below the lower endpoint, and labels
+above the upper endpoint must lie more than the scale's width beyond it.
+An off-scale code such as "99. Haven't thought much about this" after a
+1 to 7 scale is therefore not an endpoint, while a labeled midpoint, as
+in a 0 to 10 scale labeled at 0, 5, and 10, rules out the scale form.
+Negative codes below a scale that starts at zero or above are taken for
 missing-data codes. Labels matching \code{na_strings} are never endpoints, a
 scale with a negative endpoint must be centered on zero, and top or
 bottom codes such as "89 or older" do not make a scale.
-\item A number without a label in a variable that holds numbers is shown as
-the number, as in "age: 25". A variable holds numbers when the file
-labels at most one of its substantive codes, such as the top code "80.
-Eighty years old or older", or labels only top and bottom codes.
 \item A negative number without a label that is not a point on a scale is
 taken for a missing-data code, as negative codes are in the ANES and WVS
 releases, and left out, with a warning. Label it in \code{value_labels} if it
 is an answer.
+\item A number without a label in a variable that holds numbers is shown as
+the number, as in "age: 25". A variable holds numbers when the file
+labels at most one of its substantive codes of zero or above, such as
+the top code "80. Eighty years old or older", or labels only top and
+bottom codes.
 \item Any other code without a label is shown as the code, with a warning
 naming the variable and code. Supply its label in \code{value_labels}.
-\item A variable without value labels is shown as stored; an empty value or
-one matching \code{na_strings} is left out.
 }
 
+A variable without value labels is shown as stored, with numbers written
+out in full ("100000"); an empty value, or one matching \code{na_strings}, is
+left out.
+
 Answers left out as missing values are announced in a message. Requested
-variables that are not in the file are left out of every persona, with a
-warning. When two variables would be shown under the same text, each is
-shown with its variable name appended, with a warning.
+variables that are not in the file are left out of every persona, and a
+variable requested more than once is rendered once, each with a warning.
+When two variables would be shown under the same text, each is shown with
+its variable name appended, with a warning. A variable label exactly 80
+characters long shown as a question or field name is also named in a
+warning.
 }
 
 \examples{

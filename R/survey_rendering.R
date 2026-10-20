@@ -14,7 +14,7 @@
   for (col in names(row)) {
     v <- row[[col]]
     if (length(v) && !is.na(v) && nzchar(v) && !identical(as.character(v), "NA")) {
-      out[[col]] <- as.character(v)
+      out[[col]] <- .fg_value_text(v)
     }
   }
   out
@@ -46,24 +46,37 @@
 }
 
 # Report rows for one participant whose persona was rendered from a supplied
-# record: every field of the record, its value, and the text the persona shows
-# for it. `fields` is what the persona was rendered from.
+# record: every named field of the record, its value, and the text the persona
+# shows for it. `fields` is what the persona was rendered from. A persona
+# states one value per field: a field holding several values shows the first,
+# and a field whose first element is not a single value is not shown.
 .fg_supplied_rows <- function(id, kind, record, fields) {
   variables <- names(record) %||% character()
-  if (!length(variables)) return(NULL)
+  named <- !is.na(variables) & nzchar(variables)
+  if (!any(named)) return(NULL)
+  record <- record[named]
+  variables <- variables[named]
   shown <- .fg_persona_fields(fields)
-  value <- vapply(record, function(v) {
-    if (length(v)) as.character(v[[1]]) else NA_character_
-  }, character(1), USE.NAMES = FALSE)
+  first <- lapply(record, function(v) if (length(v)) v[[1]])
+  single <- vapply(first, function(v) length(v) == 1L, logical(1))
+  value <- vapply(seq_along(first), function(j) {
+    if (single[j]) .fg_value_text(first[[j]]) else NA_character_
+  }, character(1))
   text <- vapply(variables, function(v) {
     if (v %in% names(shown)) .fg_tidy_value(shown[[v]]) else NA_character_
   }, character(1), USE.NAMES = FALSE)
+  several <- lengths(record) > 1L & !is.na(text)
+  reason <- ifelse(!is.na(text), NA_character_,
+                   ifelse(single | lengths(first) == 0L, "no value",
+                          "the field does not hold a single value"))
+  reason[several] <- sprintf("the field holds %d values; the persona shows the first",
+                             lengths(record)[several])
   data.frame(
     agent_id = id, kind = kind, variable = variables, question = variables,
     question_source = "variable", code = value, text = text,
     rendered_as = ifelse(is.na(text), NA_character_, "value"),
-    status = ifelse(is.na(text), "dropped", "rendered"),
-    reason = ifelse(is.na(text), "no value", NA_character_),
+    status = ifelse(is.na(text), "dropped", ifelse(several, "fallback", "rendered")),
+    reason = reason, template = NA_character_,
     issue = ifelse(is.na(text), "missing", NA_character_), flag = value,
     stringsAsFactors = FALSE
   )
@@ -71,7 +84,7 @@
 
 .fg_report_columns <- c("agent_id", "kind", "variable", "question",
                         "question_source", "code", "text", "rendered_as",
-                        "status", "reason", "issue", "flag")
+                        "status", "reason", "template", "issue", "flag")
 
 .fg_bind_report <- function(pieces) {
   pieces <- Filter(Negate(is.null), pieces)
@@ -89,9 +102,17 @@
 # when whitespace follows the period, so a decimal value ("1.5") is kept. A
 # trailing parenthetical is substantive ("Asian (non-Hispanic)") and kept.
 .fg_tidy_value <- function(x) {
-  x <- as.character(x)
+  x <- .fg_value_text(x)
   x <- gsub("^[0-9]+\\.\\s+", "", x)
   trimws(x)
+}
+
+# A value as text, with numbers written out in full (100000, not 1e+05).
+.fg_value_text <- function(x) {
+  if (is.numeric(x) && !is.factor(x) && !inherits(x, "haven_labelled")) {
+    return(.fg_number_text(as.vector(x)))
+  }
+  as.character(x)
 }
 
 # Strip any leading code, negative codes included, from a label used inside a
@@ -102,8 +123,10 @@
 
 .fg_number_text <- function(x) {
   out <- as.character(x)
-  whole <- !is.na(x) & is.finite(x) & x == round(x) & abs(x) < 1e15
-  out[whole] <- sprintf("%.0f", x[whole])
+  shown <- !is.na(x) & is.finite(x)
+  out[shown] <- vapply(x[shown], function(v) {
+    format(v, scientific = FALSE, digits = 15, trim = TRUE)
+  }, character(1))
   out
 }
 
@@ -138,9 +161,11 @@
 # The endpoints are the nearest labeled codes on either side of `x`; no other
 # substantive label may lie below the lower endpoint, except negative codes
 # below a scale that starts at zero or above (missing-data codes such as
-# "-4. Error"); labels above the upper endpoint must lie at least the width of
+# "-4. Error"); labels above the upper endpoint must lie more than the width of
 # the scale beyond it ("99. Haven't thought much about this" after a 1 to 7
-# scale). A scale with a negative lower endpoint must be centered on zero.
+# scale), so that a labeled midpoint (0, 5, 10) is not taken for the end of a
+# shorter scale. A scale with a negative lower endpoint must be centered on
+# zero.
 .fg_scale_endpoints <- function(x, codes, labels) {
   below <- codes[codes < x]
   above <- codes[codes > x]
@@ -151,19 +176,72 @@
   under <- codes[codes < lo]
   if (length(under) && (lo < 0 || any(under >= 0))) return(NULL)
   beyond <- codes[codes > hi]
-  if (any(beyond < hi + (hi - lo))) return(NULL)
+  if (any(beyond <= hi + (hi - lo))) return(NULL)
   lo_label <- labels[match(lo, codes)]
   hi_label <- labels[match(hi, codes)]
   if (.fg_bound_label(lo_label) || .fg_bound_label(hi_label)) return(NULL)
   list(lo = lo, hi = hi, lo_label = lo_label, hi_label = hi_label)
 }
 
-.fg_scale_text <- function(x, ends) {
-  sprintf("On a scale of %s to %s, where %s is %s and %s is %s, you place yourself at %s.",
-          .fg_number_text(ends$lo), .fg_number_text(ends$hi),
-          .fg_number_text(ends$lo), .fg_label_body(ends$lo_label),
-          .fg_number_text(ends$hi), .fg_label_body(ends$hi_label),
-          .fg_number_text(x))
+.fg_default_scale_template <- paste(
+  "On a scale of {lo} to {hi}, where {lo} is {lo_label} and {hi} is {hi_label},",
+  "you place yourself at {value}.")
+
+.fg_scale_placeholders <- c("lo", "hi", "lo_label", "hi_label", "value")
+
+.fg_scale_text <- function(x, ends, template = .fg_default_scale_template) {
+  values <- c(lo = .fg_number_text(ends$lo), hi = .fg_number_text(ends$hi),
+              lo_label = .fg_label_body(ends$lo_label),
+              hi_label = .fg_label_body(ends$hi_label),
+              value = .fg_number_text(x))
+  # regmatches<- inserts the labels literally; gsub() would read a backslash
+  # in a label as an escape.
+  for (name in names(values)) {
+    at <- gregexpr(paste0("{", name, "}"), template, fixed = TRUE)
+    if (at[[1]][1] > 0) {
+      regmatches(template, at) <- list(rep(values[[name]], length(at[[1]])))
+    }
+  }
+  template
+}
+
+# Validate `scale_template`: one template, or templates named by variable with
+# at most one unnamed default. Every template must show the answer ({value})
+# and use no placeholder other than those `.fg_scale_text()` fills.
+.fg_check_template <- function(scale_template) {
+  ok <- is.character(scale_template) && length(scale_template) > 0L &&
+    !anyNA(scale_template) && all(nzchar(trimws(scale_template)))
+  given <- names(scale_template) %||% rep("", length(scale_template))
+  ok <- ok && !anyNA(given) && sum(!nzchar(given)) <= 1L &&
+    !anyDuplicated(given[nzchar(given)]) &&
+    (length(scale_template) == 1L || !is.null(names(scale_template)))
+  if (!ok) {
+    stop(paste("`scale_template` must be one template, or templates named by",
+               "variable with at most one unnamed default, with no missing,",
+               "empty, or repeated entries."), call. = FALSE)
+  }
+  used <- regmatches(scale_template, gregexpr("\\{[^{}]*\\}", scale_template))
+  unknown <- setdiff(gsub("[{}]", "", unlist(used)), .fg_scale_placeholders)
+  if (length(unknown)) {
+    stop(sprintf("`scale_template` uses unknown placeholder(s) %s; the placeholders are %s.",
+                 paste0("{", unknown, "}", collapse = ", "),
+                 paste0("{", .fg_scale_placeholders, "}", collapse = ", ")), call. = FALSE)
+  }
+  if (!all(grepl("{value}", scale_template, fixed = TRUE))) {
+    stop("Every `scale_template` must contain {value}, the respondent's answer.",
+         call. = FALSE)
+  }
+  names(scale_template) <- given
+  scale_template
+}
+
+# The template for one variable: its own, else the unnamed default given,
+# else the package default.
+.fg_template_for <- function(scale_template, variable) {
+  given <- names(scale_template)
+  if (variable %in% given) return(scale_template[[match(variable, given)]])
+  if ("" %in% given) return(scale_template[[match("", given)]])
+  .fg_default_scale_template
 }
 
 # The value labels of one column as a table (code, label, supplied), with the
@@ -212,25 +290,28 @@
 
 .fg_rendering <- function(code, text = NA_character_, rendered_as = NA_character_,
                           status = "dropped", reason = NA_character_,
-                          issue = NA_character_, flag = code) {
+                          template = NA_character_, issue = NA_character_,
+                          flag = code) {
   list(code = code, text = text, rendered_as = rendered_as, status = status,
-       reason = reason, issue = issue, flag = flag)
+       reason = reason, template = template, issue = issue, flag = flag)
 }
 
 # Render every value of one survey column. Returns a data frame with one row
 # per value: the stored `code` as text, the answer `text` passed to the
 # persona (NA when left out), how it was rendered (`rendered_as`), its
 # `status` ("rendered", "fallback", or "dropped"), and the `reason` for a
-# fallback or a dropped answer. Two further columns drive the warnings and are
+# fallback or a dropped answer, and the `template` of a scale answer. Two
+# further columns drive the warnings and are
 # not part of the report: `issue` is "missing" for answers left out as missing
 # values, "negative" for unlabeled negative codes taken as missing,
 # "negative_label" for labels of negative codes shown as answers, "code" for
 # unlabeled codes shown as codes, and "long" for labels that may have been
 # cut; `flag` is the code a warning names, which for a scale answer is the
 # endpoint whose label may have been cut.
-.fg_render_column <- function(col, variable, na_strings, supplied = NULL) {
+.fg_render_column <- function(col, variable, na_strings, supplied = NULL,
+                              template = .fg_default_scale_template) {
   tab <- .fg_label_table(col, variable, supplied)
-  if (!nrow(tab)) return(.fg_render_plain(col, na_strings))
+  if (!nrow(tab) && !length(attr(tab, "tagged"))) return(.fg_render_plain(col, na_strings))
 
   numeric_codes <- is.numeric(tab$code)
   values <- as.vector(unclass(col))
@@ -277,14 +358,15 @@
     if (!is.null(ends)) {
       at <- match(c(ends$lo, ends$hi), codes)
       long <- codes[at][!substantive$supplied[at] & nchar(labels[at]) == 80L]
+      text <- .fg_scale_text(x, ends, template)
       if (length(long)) {
         long <- .fg_number_text(long)
-        return(.fg_rendering(code, .fg_scale_text(x, ends), "scale", "fallback", sprintf(
+        return(.fg_rendering(code, text, "scale", "fallback", sprintf(
           "the label of scale endpoint %s is 80 characters long and may have been cut",
-          paste(long, collapse = " and ")), issue = "long",
+          paste(long, collapse = " and ")), template = template, issue = "long",
           flag = paste(long, collapse = " and ")))
       }
-      return(.fg_rendering(code, .fg_scale_text(x, ends), "scale", "rendered"))
+      return(.fg_rendering(code, text, "scale", "rendered", template = template))
     }
     if (x < 0) {
       return(.fg_rendering(code, reason = sprintf(paste(
@@ -323,15 +405,18 @@
 .fg_dropped_rows <- function(n, reason = "no value", issue = "missing") {
   data.frame(code = rep(NA_character_, n), text = NA_character_,
              rendered_as = NA_character_, status = "dropped", reason = reason,
-             issue = issue, flag = NA_character_, stringsAsFactors = FALSE)
+             template = NA_character_, issue = issue, flag = NA_character_,
+             stringsAsFactors = FALSE)
 }
 
-# A column without value labels: the stored values, with `na_strings` applied.
+# A column without value labels: the stored values, with numbers written out
+# in full and `na_strings` applied.
 .fg_render_plain <- function(col, na_strings) {
-  values <- as.character(col)
+  values <- .fg_value_text(col)
   out <- data.frame(code = values, text = values, rendered_as = "value",
                     status = "rendered", reason = NA_character_,
-                    issue = NA_character_, flag = values, stringsAsFactors = FALSE)
+                    template = NA_character_, issue = NA_character_, flag = values,
+                    stringsAsFactors = FALSE)
   none <- .fg_no_value(values)
   flagged <- !none & .fg_is_missing_label(values, na_strings)
   out$text[none | flagged] <- NA_character_
@@ -452,33 +537,52 @@
       agent_id = ids[[a]], kind = fields$kind, variable = fields$variable,
       question = fields$question, question_source = fields$question_source,
       code = pick("code"), text = text, rendered_as = pick("rendered_as"),
-      status = status, reason = pick("reason"), issue = pick("issue"),
-      flag = pick("flag"),
+      status = status, reason = pick("reason"), template = pick("template"),
+      issue = pick("issue"), flag = pick("flag"),
       stringsAsFactors = FALSE
     )
   })
   .fg_bind_report(pieces)
 }
 
-# Confirm that every answer the report records as shown appears, under the
-# question it records, in that agent's persona text. A mismatch is an error in
-# the package, and the report would otherwise misdescribe the persona.
+# Confirm the report against each agent's persona text. Every answer recorded
+# as shown must appear as a whole field under the question recorded for it,
+# bounded by the persona's own delimiters, and no field recorded as dropped
+# may appear. The delimiters are those of generate_persona(): demographics
+# read "Background: q: v; q: v." (labeled style) or "Your background: ..."
+# (paragraph style); items read "Question: q\n  Answer: v\n" or
+# "said: q -- v; q -- v.". A mismatch is an error in the package, and the
+# report would otherwise misdescribe the persona.
 .fg_check_report <- function(report, agents) {
-  shown <- report[report$status != "dropped", , drop = FALSE]
-  if (!nrow(shown)) return(invisible(report))
-  found <- vapply(seq_len(nrow(shown)), function(i) {
-    persona <- agents[[shown$agent_id[i]]]$persona_description
-    q <- shown$question[i]
-    v <- shown$text[i]
-    needles <- if (identical(shown$kind[i], "demographic")) {
-      paste0(q, ": ", v)
+  if (!nrow(report)) return(invisible(report))
+  heads <- function(kind, q) {
+    if (identical(kind, "demographic")) {
+      paste0(c("Background: ", "background: ", "; "), q, ": ")
     } else {
-      c(paste0("Question: ", q, "\n  Answer: ", v), paste0(q, " -- ", v))
+      c(paste0("Question: ", q, "\n  Answer: "), paste0(c("said: ", "; "), q, " -- "))
     }
+  }
+  fields <- function(kind, q, v) {
+    if (identical(kind, "demographic")) {
+      as.vector(outer(heads(kind, q), paste0(v, c(";", ".")), paste0))
+    } else {
+      c(paste0("Question: ", q, "\n  Answer: ", v, "\n"),
+        as.vector(outer(paste0(c("said: ", "; "), q, " -- "), paste0(v, c(";", ".")), paste0)))
+    }
+  }
+  has_any <- function(persona, needles) {
     any(vapply(needles, grepl, logical(1), x = persona, fixed = TRUE))
+  }
+  ok <- vapply(seq_len(nrow(report)), function(i) {
+    persona <- agents[[report$agent_id[i]]]$persona_description
+    if (identical(report$status[i], "dropped")) {
+      !has_any(persona, heads(report$kind[i], report$question[i]))
+    } else {
+      has_any(persona, fields(report$kind[i], report$question[i], report$text[i]))
+    }
   }, logical(1))
-  if (!all(found)) {
-    bad <- shown[!found, , drop = FALSE]
+  if (!all(ok)) {
+    bad <- report[!ok, , drop = FALSE]
     stop("The rendering report does not match the persona text for ",
          paste(sprintf("%s %s", bad$agent_id, bad$variable), collapse = ", "),
          ".", call. = FALSE)
@@ -570,15 +674,19 @@
 #' exactly 80 characters long, which some survey releases (the ANES 2024 Stata
 #' file among them) produce by cutting longer labels; or the label of a
 #' negative code that does not match `na_strings`, where the release may use
-#' negative codes for missing data. It is "dropped" when the
-#' persona leaves it out, which happens only for missing values: no value, a
-#' value whose label matches `na_strings`, a negative code without a label, or
-#' a variable that is not in the file.
+#' negative codes for missing data; or a field of a supplied record that
+#' holds several values, of which the persona shows the first. It is
+#' "dropped" when the persona leaves it out, which happens only when there is
+#' no answer to show: no value, a value whose label matches `na_strings` or
+#' is empty, a negative code without a label, a record field that does not
+#' hold a single value, or a variable that is not in the file.
 #'
 #' @param x A roster returned by one of the constructors, a [FocusGroup]
 #'   built from such a roster, or the result of [run_focus_group()].
-#' @return A data frame with one row per participant and requested field or
-#'   item, in the order requested:
+#' @return A data frame with one row per participant and rendered field or
+#'   item, in the order requested. A variable requested more than once has
+#'   one row, and a sampling-weight column, which is never rendered, has
+#'   none. The columns are:
 #'   \describe{
 #'     \item{agent_id}{The participant ID.}
 #'     \item{kind}{`"demographic"` or `"item"`.}
@@ -597,6 +705,8 @@
 #'       dropped.}
 #'     \item{status}{`"rendered"`, `"fallback"`, or `"dropped"`.}
 #'     \item{reason}{Why a field is a fallback or was dropped; `NA` otherwise.}
+#'     \item{template}{For an answer shown on a scale, the `scale_template`
+#'       used; `NA` otherwise.}
 #'   }
 #'   The call stops when `x` carries no report, as for a roster built from
 #'   supplied persona text or a list subset from a roster.

@@ -11,8 +11,10 @@ persona_rendering_report(x)
 built from such a roster, or the result of \code{\link[=run_focus_group]{run_focus_group()}}.}
 }
 \value{
-A data frame with one row per participant and requested field or
-item, in the order requested:
+A data frame with one row per participant and rendered field or
+item, in the order requested. A variable requested more than once has
+one row, and a sampling-weight column, which is never rendered, has
+none. The columns are:
 \describe{
 \item{agent_id}{The participant ID.}
 \item{kind}{\code{"demographic"} or \code{"item"}.}
@@ -31,6 +33,8 @@ dropped.}
 dropped.}
 \item{status}{\code{"rendered"}, \code{"fallback"}, or \code{"dropped"}.}
 \item{reason}{Why a field is a fallback or was dropped; \code{NA} otherwise.}
+\item{template}{For an answer shown on a scale, the \code{scale_template}
+used; \code{NA} otherwise.}
 }
 The call stops when \code{x} carries no report, as for a roster built from
 supplied persona text or a list subset from a roster.
@@ -49,10 +53,12 @@ checking: a code that has no value label, shown as the code; a label
 exactly 80 characters long, which some survey releases (the ANES 2024 Stata
 file among them) produce by cutting longer labels; or the label of a
 negative code that does not match \code{na_strings}, where the release may use
-negative codes for missing data. It is "dropped" when the
-persona leaves it out, which happens only for missing values: no value, a
-value whose label matches \code{na_strings}, a negative code without a label, or
-a variable that is not in the file.
+negative codes for missing data; or a field of a supplied record that
+holds several values, of which the persona shows the first. It is
+"dropped" when the persona leaves it out, which happens only when there is
+no answer to show: no value, a value whose label matches \code{na_strings} or
+is empty, a negative code without a label, a record field that does not
+hold a single value, or a variable that is not in the file.
 }
 \examples{
 toy <- data.frame(

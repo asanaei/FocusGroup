@@ -143,19 +143,57 @@ test_that("unlabeled codes left in a persona or left out are named in warnings",
   expect_false(grepl("Did you vote for governor", agents$P2$persona_description))
 })
 
-test_that("labels of negative codes are shown but flagged unless named missing", {
+test_that("the missing-data labels of ANES negative codes are left out by default", {
   path <- .render_file(); on.exit(unlink(path))
-  w <- testthat::capture_warnings(agents <- suppressMessages(.render_agents(path, rows = 3)))
-  expect_match(w, "Labels of negative codes are shown as answers.*POSTQ code -6 \\(P1\\)",
-               all = FALSE)
-  report <- persona_rendering_report(agents)
-  postq <- report[report$variable == "POSTQ", ]
-  expect_identical(c(postq$text, postq$status), c("-6. No post interview", "fallback"))
-  agents <- suppressWarnings(suppressMessages(.render_agents(
-    path, rows = 3, na_strings = c(.fg_default_na_strings, "no post interview"))))
+  expect_message(agents <- suppressWarnings(.render_agents(path, rows = 3)),
+                 "left out of the personas as missing values \\(POSTQ\\)")
   report <- persona_rendering_report(agents)
   expect_identical(report$reason[report$variable == "POSTQ"], "missing value: -6. No post interview")
   expect_false(grepl("No post interview", agents$P1$persona_description))
+
+  na <- .fg_default_na_strings
+  anes <- c("-9. Refused", "-8. Don't know", "-7. Insufficient partial, interview deleted",
+            "-6. No post interview", "-5. Sufficient partial, breakoff",
+            "-5. Break off, sufficient partial", "-4. Error", "-3. RESTRICTED",
+            "-3. RESTRICTED [STAFF ONLY]", "-2. DK/RF in V241288 or V241289",
+            "-2. Open-end responses available in separate file",
+            "-2. Data will be released separately when available",
+            "-2. Data will be available in the 2024 ANES Methodology file",
+            paste("-2. Due to a technical error variables from the RADPROGS",
+                  "submodule will be relea"),
+            "-2. Insufficent information to code other/specify open-ended response",
+            "-2. Not reported", "-1. Inapplicable", "-1. No answer", "-3. Not applicable",
+            "-5. Missing; Not available")
+  expect_true(all(.fg_is_missing_label(anes, na)))
+  # Answers that merely mention such words are kept.
+  kept <- c("2. There is an error", "1. Abortion should be permitted with restrictions",
+            "3. Terrorism", "1. Restrict immigration", "4. Postpone the vote")
+  expect_false(any(.fg_is_missing_label(kept, na)))
+})
+
+test_that("labels of negative codes outside the missing vocabulary are shown but flagged", {
+  d <- data.frame(
+    AGE = c(30, 40, 50),
+    ISOL = .lab(c(-1, 2, 3), c("-2. DK/RF in V1 or V2" = -2, "-1. Applicable" = -1,
+                               "1. Agree strongly" = 1, "2. Agree somewhat" = 2,
+                               "3. Disagree somewhat" = 3)),
+    AGREE = .lab(c(-3, 0, 2), c("-3. Strongly disagree" = -3, "-2. Disagree" = -2,
+                                "-1. Slightly disagree" = -1, "0. Neither" = 0,
+                                "1. Slightly agree" = 1, "2. Agree" = 2,
+                                "3. Strongly agree" = 3)))
+  path <- tempfile(fileext = ".dta"); on.exit(unlink(path))
+  haven::write_dta(d, path)
+  w <- testthat::capture_warnings(agents <- create_agents_from_survey(
+    3, path, LLMR::llm_config("openai", "example-model"), demographic_vars = c(age = "AGE"),
+    survey_vars = c("ISOL", "AGREE"),
+    question_wording = c(ISOL = "Better off staying home?", AGREE = "Do you agree?")))
+  expect_match(w, "Labels of negative codes are shown as answers.*ISOL code -1 \\(P1\\); AGREE code -3 \\(P1\\)",
+               all = FALSE)
+  report <- persona_rendering_report(agents)
+  p1 <- report[report$agent_id == "P1" & report$kind == "item", ]
+  expect_identical(p1$text, c("-1. Applicable", "-3. Strongly disagree"))
+  expect_identical(p1$status, c("fallback", "fallback"))
+  expect_true(grepl("Answer: -3. Strongly disagree", agents$P1$persona_description, fixed = TRUE))
 })
 
 test_that("question wording is shown, and its absence is warned", {
@@ -276,7 +314,7 @@ test_that("the rendering report records every requested field for every persona"
   report <- persona_rendering_report(agents)
   expect_identical(names(report), c("agent_id", "kind", "variable", "question",
                                     "question_source", "code", "text", "rendered_as",
-                                    "status", "reason"))
+                                    "status", "reason", "template"))
   expect_identical(nrow(report), 2L * 8L)
   expect_identical(unique(report$agent_id), c("P1", "P2"))
   expect_identical(report$variable[1:8],
@@ -371,4 +409,131 @@ test_that("a scale whose endpoint label may have been cut is flagged by its endp
   expect_no_warning(agents <- build(value_labels = full))
   expect_match(persona_rendering_report(agents)$text[2],
                "where 1 is Government should see to it that every person has a job and a good standard of living and 7")
+})
+
+test_that("records in list form keep building, one value per field", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  agents <- create_agents(1, cfg, demographics = list(list(age = 30, kids = list(c(1, 2)))))
+  report <- persona_rendering_report(agents)
+  expect_identical(report$variable, c("age", "kids"))
+  expect_identical(report$status, c("rendered", "dropped"))
+  expect_identical(report$reason[2], "the field does not hold a single value")
+  expect_true(grepl("age: 30", agents$P1$persona_description, fixed = TRUE))
+
+  agents <- create_agents(1, cfg, demographics = list(list(30, gender = "F")))
+  report <- persona_rendering_report(agents)
+  expect_identical(report$variable, "gender")
+  expect_identical(report$text, "F")
+
+  agents <- create_agents(1, cfg, demographics = list(list(
+    languages = c("Persian", "English"), frame = data.frame(a = 1:2))))
+  report <- persona_rendering_report(agents)
+  expect_identical(report$status, c("fallback", "dropped"))
+  expect_identical(report$text, c("Persian", NA))
+  expect_identical(report$reason[1], "the field holds 2 values; the persona shows the first")
+})
+
+test_that("a labeled midpoint rules out the scale form; endpoint-only scales keep it", {
+  na <- .fg_default_na_strings
+  render <- function(values, labels) .fg_render_column(.lab(values, labels), "x", na)
+  expect_identical(render(2, c("0. Dissatisfied" = 0, "5. Neither" = 5,
+                               "10. Satisfied" = 10))$rendered_as, "code")
+  expect_identical(render(2, c("1. Liberal" = 1, "4. Moderate" = 4,
+                               "7. Conservative" = 7))$rendered_as, "code")
+  anchors <- stats::setNames(seq(0, 100, by = 15)[1:7], paste0(seq(0, 90, by = 15), ". Anchor"))
+  anchors <- c(anchors, "100. Very warm" = 100)
+  expect_identical(render(c(10, 20, 92), anchors)$rendered_as, rep("code", 3))
+  expect_identical(render(5, c("1. Fewer" = 1, "7. More" = 7, "99. Haven't thought" = 99))$text,
+                   "On a scale of 1 to 7, where 1 is Fewer and 7 is More, you place yourself at 5.")
+  expect_identical(render(3, c("0. Left" = 0, "10. Right" = 10, "96. Do not know enough" = 96))$rendered_as,
+                   "scale")
+})
+
+test_that("scale_template sets the sentence for each item and is recorded", {
+  path <- .render_file(); on.exit(unlink(path))
+  own <- "From {lo} ({lo_label}) to {hi} ({hi_label}), you chose {value}."
+  agents <- .quiet(.render_agents(path, rows = 1, scale_template = own))
+  report <- persona_rendering_report(agents)
+  serv <- report[report$variable == "SERV", ]
+  expect_identical(serv$text, paste("From 1 (Government should provide many fewer services) to 7",
+                                    "(Government should provide many more services), you chose 5."))
+  expect_identical(serv$template, own)
+  expect_true(all(is.na(report$template[report$variable != "SERV"])))
+
+  per_item <- c("Default {value}.", SERV = "Your placement of the candidate is {value}.")
+  agents <- .quiet(.render_agents(path, rows = 1, scale_template = per_item))
+  report <- persona_rendering_report(agents)
+  expect_identical(report$text[report$variable == "SERV"], "Your placement of the candidate is 5.")
+  agents <- .quiet(.render_agents(path, rows = 1, scale_template = c(THERM = "T {value}.")))
+  report <- persona_rendering_report(agents)
+  expect_identical(report$template[report$variable == "SERV"], .fg_default_scale_template)
+
+  w <- testthat::capture_warnings(.render_agents(path, rows = 1,
+                                                 scale_template = c(NOPE = "N {value}.")))
+  expect_match(w, "`scale_template` names variables that are not requested.*NOPE", all = FALSE)
+  expect_error(.render_agents(path, rows = 1, scale_template = "At {val}."),
+               "unknown placeholder\\(s\\) \\{val\\}")
+  expect_error(.render_agents(path, rows = 1, scale_template = "From {lo} to {hi}."),
+               "must contain \\{value\\}")
+  for (bad in list(c("A {value}", "B {value}"), NA_character_, "", 1,
+                   c(SERV = "A {value}", SERV = "B {value}"))) {
+    expect_error(.render_agents(path, rows = 1, scale_template = bad),
+                 "`scale_template` must be one template")
+  }
+})
+
+test_that("the report check matches whole fields, not substrings", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  agents <- create_agents(1, cfg, demographics = data.frame(age = 25),
+                          survey_responses = data.frame(often = "Yes, always"))
+  report <- persona_rendering_report(agents)
+  report$issue <- NA_character_
+  expect_silent(.fg_check_report(report, agents))
+  short <- report
+  short$text[short$variable == "age"] <- "2"
+  expect_error(.fg_check_report(short, agents), "does not match the persona text for P1 age")
+  partial <- report
+  partial$text[partial$variable == "often"] <- "Yes"
+  expect_error(.fg_check_report(partial, agents), "does not match the persona text for P1 often")
+  hidden <- report
+  hidden$status[hidden$variable == "age"] <- "dropped"
+  expect_error(.fg_check_report(hidden, agents), "does not match the persona text for P1 age")
+  withr::local_options(focusgroup.persona_style = "paragraph")
+  agents <- create_agents(1, cfg, demographics = data.frame(age = 25),
+                          survey_responses = data.frame(often = "Yes, always"))
+  short$agent_id <- "P1"
+  expect_error(.fg_check_report(short, agents), "does not match")
+  expect_silent(.fg_check_report(persona_rendering_report(agents), agents))
+})
+
+test_that("numbers are written out in full, and stray requests are named", {
+  d <- data.frame(AGE = c(30, 40), LOAN = c(100000, 2.5e6),
+                  ANS = .lab(c(1, 2), c("1. Yes" = 1, "2. No" = 2), strrep("Q", 80)))
+  path <- tempfile(fileext = ".dta"); on.exit(unlink(path))
+  haven::write_dta(d, path)
+  cfg <- LLMR::llm_config("openai", "example-model")
+  w <- testthat::capture_warnings(agents <- create_agents_from_survey(
+    2, path, cfg, demographic_vars = c(age = "AGE", years = "AGE", loan = "LOAN"),
+    survey_vars = c("ANS", "ANS"),
+    value_labels = data.frame(variable = c("ANS", "TYPO"), code = 1, label = "Yes")))
+  expect_match(w, "requested more than once and are rendered once, under their first entry: AGE, ANS",
+               all = FALSE)
+  expect_match(w, "`value_labels` names variables that are not requested.*: TYPO\\.", all = FALSE)
+  expect_match(w, "Variable labels exactly 80 characters long.*may have been cut short: ANS", all = FALSE)
+  report <- persona_rendering_report(agents)
+  expect_identical(report$text[report$variable == "LOAN"], c("100000", "2500000"))
+  expect_true(grepl("loan: 100000", agents$P1$persona_description, fixed = TRUE))
+  expect_identical(sum(report$variable == "AGE" & report$agent_id == "P1"), 1L)
+
+  plain <- create_agents(1, cfg, demographics = data.frame(income = 100000))
+  expect_true(grepl("income: 100000", plain$P1$persona_description, fixed = TRUE))
+  expect_identical(persona_rendering_report(plain)$text, "100000")
+})
+
+test_that("a numeric column labeled only at its tagged missing values keeps its numbers", {
+  x <- haven::labelled(c(12, haven::tagged_na("d"), 250000),
+                       c("Don't know" = haven::tagged_na("d")))
+  r <- .fg_render_column(x, "x", .fg_default_na_strings)
+  expect_identical(r$text, c("12", NA, "250000"))
+  expect_identical(r$reason[2], "missing value: Don't know")
 })
