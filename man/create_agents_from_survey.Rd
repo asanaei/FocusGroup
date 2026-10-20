@@ -34,7 +34,10 @@ labels.}
 \item{survey_vars}{Variable names (codes) to render as survey responses. May
 be named; a name is used as the question only for an item with neither a
 \code{question_wording} entry nor a label in the file. If \code{NULL}, labeled
-variables that are not demographics are used.}
+variables that are not demographics are used, except a variable without
+value labels whose values differ in every row, such as a case ID, which
+is left out with a message. Variables named \code{id}, \code{respondent_id}, or
+\code{persona_id} are never rendered.}
 
 \item{rows}{Optional row selector restricting the eligible respondents before
 sampling: integer positions of rows in the file, a logical vector with one

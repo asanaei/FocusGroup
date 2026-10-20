@@ -48,7 +48,11 @@ memory (for example \code{LLMR::anes_2024_personas}). Demographic columns are
 rendered as background; the remaining columns are rendered as survey responses,
 keyed by their question wording when the frame carries a \code{dictionary} attribute
 (see \code{\link[LLMR:llm_persona_split]{LLMR::llm_persona_split()}}), else by their column names. Values are taken
-as-is (decode and clean them first if they are still coded).
+as-is (decode and clean them first if they are still coded). Columns named
+\code{id}, \code{respondent_id}, or \code{persona_id} identify respondents and are not
+rendered: they are kept in the \code{source_ids} attribute and listed in the
+rendering report as dropped. The same holds for those columns in a data
+frame given to \code{\link[=create_agents]{create_agents()}}.
 }
 \details{
 A frame of class \code{silicon_panel}, or a frame with both \code{persona} and

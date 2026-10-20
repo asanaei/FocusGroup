@@ -55,10 +55,16 @@ file among them) produce by cutting longer labels; or the label of a
 negative code that does not match \code{na_strings}, where the release may use
 negative codes for missing data; or a field of a supplied record that
 holds several values, of which the persona shows the first. It is
-"dropped" when the persona leaves it out, which happens only when there is
-no answer to show: no value, a value whose label matches \code{na_strings} or
+"dropped" when the persona leaves it out, which happens when there is no
+answer to show: no value, a value whose label matches \code{na_strings} or
 is empty, a negative code without a label, a record field that does not
-hold a single value, or a variable that is not in the file.
+hold a single value, or a variable that is not in the file. An identifier
+is dropped too, with the reason "identifier column": a column named \code{id},
+\code{respondent_id}, or \code{persona_id}, or, among the items
+\code{\link[=create_agents_from_survey]{create_agents_from_survey()}} chooses when \code{survey_vars} is \code{NULL}, a
+variable without value labels whose values differ in every row. The agents
+would otherwise read the respondent's ID; the roster keeps it in
+\code{source_ids}.
 }
 \examples{
 toy <- data.frame(

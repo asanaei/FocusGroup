@@ -1753,7 +1753,10 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #' @param survey_vars Variable names (codes) to render as survey responses. May
 #'   be named; a name is used as the question only for an item with neither a
 #'   `question_wording` entry nor a label in the file. If `NULL`, labeled
-#'   variables that are not demographics are used.
+#'   variables that are not demographics are used, except a variable without
+#'   value labels whose values differ in every row, such as a case ID, which
+#'   is left out with a message. Variables named `id`, `respondent_id`, or
+#'   `persona_id` are never rendered.
 #' @param rows Optional row selector restricting the eligible respondents before
 #'   sampling: integer positions of rows in the file, a logical vector with one
 #'   value per row in the file, or a predicate `function(df) -> logical` over the
@@ -2228,7 +2231,11 @@ create_agents_from_survey <- function(n_participants,
 #' rendered as background; the remaining columns are rendered as survey responses,
 #' keyed by their question wording when the frame carries a `dictionary` attribute
 #' (see [LLMR::llm_persona_split()]), else by their column names. Values are taken
-#' as-is (decode and clean them first if they are still coded).
+#' as-is (decode and clean them first if they are still coded). Columns named
+#' `id`, `respondent_id`, or `persona_id` identify respondents and are not
+#' rendered: they are kept in the `source_ids` attribute and listed in the
+#' rendering report as dropped. The same holds for those columns in a data
+#' frame given to [create_agents()].
 #'
 #' A frame of class `silicon_panel`, or a frame with both `persona` and
 #' `persona_id` columns, is treated as a pre-rendered persona panel. Its
