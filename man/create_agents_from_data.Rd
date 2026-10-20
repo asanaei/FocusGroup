@@ -37,7 +37,10 @@ on every agent.}
 A named list of \code{FGAgent} objects (participants + moderator), keyed
 by agent ID, with the \code{source_rows} and \code{source_ids} attributes described
 in \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}; here the positions refer to the rows of
-\code{data}.
+\code{data}. Unless the frame is a pre-rendered persona panel, the list also
+carries a \code{rendering_report} attribute recording, for each participant
+and column, the value shown or that it was missing; see
+\code{\link[=persona_rendering_report]{persona_rendering_report()}}.
 }
 \description{
 Like \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} but starting from a data frame already in

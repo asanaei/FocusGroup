@@ -21,9 +21,10 @@ test_that("the survey weight variable is not rendered into personas", {
   f <- tempfile(fileext = ".dta"); on.exit(unlink(f), add = TRUE)
   haven::write_dta(d, f)
   set.seed(110)
-  txt <- personas_of(create_agents_from_survey(
+  expect_warning(txt <- personas_of(create_agents_from_survey(
     n_participants = 3, survey_path = f, config = LLMR::llm_config("openai", "m"),
-    demographic_vars = c(age = "AGE"), weights = "WT"))
+    demographic_vars = c(age = "AGE"), weights = "WT")),
+    "PARTY \\(\"Party identification\"\\)")
   expect_false(any(grepl("Full sample weight|WT", txt)))
   expect_true(all(grepl("Party identification", txt)))
 })

@@ -10,6 +10,7 @@ test_that("the package exports exactly the first-release surface", {
     "create_conversation_flow",
     "focus_group_from_transcript",
     "get_default_prompt_templates",
+    "persona_rendering_report",
     "run_focus_group",
     "run_focus_studio"
   )
