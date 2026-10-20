@@ -19,7 +19,10 @@ test_that("the load default and actual live gate use two responses", {
   expect_identical(count, 0L)
   result <- call(max_calls = 93)
   expect_identical(result$metadata$estimated_calls, 93L)
-  expect_equal(count, 82)
+  # 8 moderator lines, 12 replies, the summary, and 66 desire scores: all
+  # six participants at the first pick of each of the six questions and five
+  # at the second, since only the speaker just before is passed over.
+  expect_equal(count, 87)
   expect_equal(result$focus_group$max_participant_responses, 2)
   count <- 0L
   withr::local_options(list(focusgroup.max_participant_responses = 3L))

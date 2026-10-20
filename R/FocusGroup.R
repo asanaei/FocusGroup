@@ -2010,14 +2010,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
       return(self$question_script[[private$current_phase_index]])
     },
 
-    # Helper to log a message
+    # Log a message. Its id follows the largest id in the log, so that a log
+    # whose ids are not consecutive, as an imported one may be, never gets a
+    # duplicate. After a moderator line the turn-taking flow is told, so that
+    # the participant who spoke before it is no longer the previous speaker.
     log_message = function(speaker_id, text, round, is_moderator = NULL,
                            phase = "unknown", meta = list()) {
       if (is.null(is_moderator)) {
         is_moderator <- (speaker_id == self$moderator_id)
       }
+      ids <- vapply(self$conversation_log, function(m) {
+        as.integer(m$message_id %||% NA_integer_)
+      }, integer(1))
+      next_id <- if (length(ids) && any(!is.na(ids))) max(ids, na.rm = TRUE) + 1L else 1L
       msg <- list(
-        message_id = as.integer(length(self$conversation_log) + 1L),
+        message_id = as.integer(next_id),
         round = as.integer(round),
         speaker_id = speaker_id,
         is_moderator = is_moderator,
@@ -2041,6 +2048,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
         self$records$calls[[id]]$message_id <- msg$message_id
       }
       private$pending_calls <- integer()
+      if (identical(speaker_id, self$moderator_id)) {
+        flow <- self$turn_taking_flow
+        if (is.function(flow$note_moderator_turn)) flow$note_moderator_turn()
+      }
       invisible(msg$message_id)
     },
 

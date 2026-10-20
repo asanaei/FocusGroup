@@ -33,6 +33,11 @@ NULL
 #'     Should return the agent object or `NULL`.}
 #'   \item{`update_state_post_selection(speaker_id, focus_group)`}{Optional. Updates internal state
 #'     after a speaker has spoken. Base implementation updates `self$last_speaker_id`.}
+#'   \item{`note_moderator_turn()`}{Optional. Called after every moderator
+#'     line: a guide item, a call-on line, or an injected moderator message.
+#'     Base implementation clears `self$last_speaker_id`, so that a flow that
+#'     passes over the previous speaker bars only back-to-back participant
+#'     turns.}
 #' }
 #' @return An R6 generator meant for subclassing; instances are built by
 #'   [create_conversation_flow()], which returns a `ConversationFlow`
@@ -88,6 +93,15 @@ ConversationFlow <- R6::R6Class("ConversationFlow",
     #' @param focus_group The `FocusGroup` object.
     update_state_post_selection = function(speaker_id, focus_group) {
       self$last_speaker_id <- speaker_id
+    },
+
+    #' @description Notes that the moderator has just spoken. The participant
+    #'   who spoke before the moderator's line is then no longer the previous
+    #'   speaker: whoever closed one question may open the next.
+    #' @return The flow, invisibly.
+    note_moderator_turn = function() {
+      self$last_speaker_id <- NULL
+      invisible(self)
     }
   ),
   private = list(
