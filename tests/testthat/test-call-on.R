@@ -172,6 +172,10 @@ test_that("call-on points resolve against the guide and are checked before any c
   expect_error(FocusGroup:::.fg_call_on_points(2.5, phases), "whole numbers")
   expect_error(FocusGroup:::.fg_call_on_points("start", phases), "opening")
   expect_error(FocusGroup:::.fg_call_on_points(c("none", "end"), phases), "opening")
+  expect_error(FocusGroup:::.fg_call_on_points(character(), phases), "opening")
+  expect_error(FocusGroup:::.fg_call_on_points(NA, phases), "whole numbers")
+  expect_identical(FocusGroup:::.fg_call_on_points(TRUE, phases),
+                   FocusGroup:::.fg_call_on_points(c("opening", "midpoint", "end"), phases))
 
   stub <- .co_stub()
   run <- function(...) run_focus_group(

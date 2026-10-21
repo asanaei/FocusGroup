@@ -1671,6 +1671,8 @@ run_focus_studio <- function(...) {
 
   rows <- vector("list", length(histories) * runs_per_arm)
   out_index <- 0L
+  claim <- if (inherits(fg, "FocusGroup")) fg$.__enclos_env__$private$claim_handles
+  if (is.function(claim)) claim()
   for (history in histories) {
     # The agent reads the cut log as it read the session: speakers under
     # their handles.

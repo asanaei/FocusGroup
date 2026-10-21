@@ -62,7 +62,7 @@ hold a single value, or a variable that is not in the file. An identifier
 is dropped too, with the reason "identifier column": a column named \code{id},
 \code{respondent_id}, or \code{persona_id}, or, among the items
 \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} chooses when \code{survey_vars} is \code{NULL}, a
-variable without value labels whose values differ in every row. The agents
+variable that looks like a case ID, as described there. The agents
 would otherwise read the respondent's ID; the roster keeps it in
 \code{source_ids}.
 }

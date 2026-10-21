@@ -113,8 +113,9 @@ describes the opening question of a focus group as a round robin; the first
 point gives every participant a turn during the first question. Both kinds of
 turn count as participant turns, for `max_participant_responses` (an
 addressed turn) and for `fg_before_turn()`, and the flow's state is updated
-after them as after its own picks; round robin keeps its place in the
-rotation.
+after them as after its own picks. Round robin keeps its place in the
+rotation, and passes over the participant who has just spoken when the
+rotation comes to them, so that no one speaks twice in a row.
 
 The loop stops when the script is exhausted, `num_rounds` is reached, or the
 last closing entry is processed. It stores a final summary in `final_summary`,

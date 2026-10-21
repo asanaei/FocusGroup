@@ -71,13 +71,20 @@ test_that("no prompt shows the agents' IDs, and the records keep them", {
   expect_true(all(c("moderator", "participant", "desire", "probe", "interim_summary",
                     "summary") %in% calls$call_type))
   ids <- c("teacher_conservative", "V240001", "lead_moderator")
+  # The final summary is written for the researcher and read by no agent,
+  # so it shows each ID beside the handle; no other prompt shows an ID.
   for (i in seq_len(nrow(calls))) {
     prompt <- .hd_prompt(calls$messages[[i]])
+    if (identical(calls$call_type[[i]], "summary")) {
+      expect_match(prompt, "P1 (ID teacher_conservative, Message", fixed = TRUE)
+      next
+    }
     for (id in ids) {
       expect_false(grepl(id, prompt, fixed = TRUE),
                    info = paste(calls$call_type[[i]], "call", i, "shows", id))
     }
   }
+  expect_identical(sum(calls$call_type == "summary"), 1L)
   # The agents see each other as P1, P2, and Moderator.
   participant <- calls[calls$call_type == "participant", ]
   later <- .hd_prompt(participant$messages[[nrow(participant)]])
@@ -131,7 +138,9 @@ test_that("handles = \"ids\" shows the IDs, with a message, and custom handles r
   expect_identical(fg$handles, c(teacher_conservative = "Ana", V240001 = "P2",
                                  lead_moderator = "Moderator"))
   fg$run_simulation()
-  prompts <- vapply(fg$records$calls, function(call) .hd_prompt(call$messages), character(1))
+  agent_facing <- Filter(function(call) !identical(call$call_type, "summary"),
+                         fg$records$calls)
+  prompts <- vapply(agent_facing, function(call) .hd_prompt(call$messages), character(1))
   expect_false(any(grepl("teacher_conservative", prompts, fixed = TRUE)))
   expect_true(any(grepl("In this discussion you are Ana.", prompts, fixed = TRUE)))
   expect_identical(fg$agents$teacher_conservative$handle, "Ana")
@@ -231,6 +240,19 @@ test_that("an automatically chosen survey variable that differs in every row is 
   # A labeled item and an unlabeled number with a repeated value are kept.
   expect_true(all(grepl("Rank", personas, fixed = TRUE)))
   expect_true(all(grepl("Income in dollars", personas, fixed = TRUE)))
+  # Hard negatives: in a small file, distinct ages and distinct written
+  # answers are content, not identifiers; a large file's case numbers are.
+  distinct <- FocusGroup:::.fg_distinct_in_every_row
+  expect_false(distinct(c(23, 31, 45, 52, 67, 70), "AGE"))
+  expect_false(distinct(c("Too few buses", "Rent", "Schools are full"), "MIP"))
+  expect_false(distinct(c(1.5, 2.25, 3.75), "SCORE"))
+  expect_false(distinct(c(101, 102, 102), "CASEID"))
+  expect_false(distinct(c(101, 102, NA), "CASEID"))
+  expect_true(distinct(c(101, 102, 103), "CASEID"))
+  expect_false(distinct(c("R-1", "R-2"), "V1"))
+  expect_true(distinct(structure(c(7, 8, 9), label = "Respondent number"), "V9"))
+  expect_true(distinct(240001:240040, "V240001"))
+  expect_false(distinct(c(30:59, 59), "V9"))
   report <- persona_rendering_report(agents)
   expect_true(all(report$reason[report$variable == "CASEID"] == "identifier column"))
   # Named in `survey_vars`, the variable is rendered.
@@ -277,10 +299,16 @@ test_that("summarize() labels by handle, leaves out the roster, and calls live u
     experiments
   }
   fg$summarize(.hd_config(), .runner = recorder)
-  expect_false(grepl("teacher_conservative|V240001|lead_moderator", seen))
   expect_false(grepl("System", seen, fixed = TRUE))
-  expect_match(seen, "P1 (Message", fixed = TRUE)
-  expect_match(seen, "Moderator (Message", fixed = TRUE)
+  expect_match(seen, "P1 (ID teacher_conservative, Message", fixed = TRUE)
+  expect_match(seen, "Moderator (ID lead_moderator, Message", fixed = TRUE)
+  # Where the handle is the ID, the ID is not repeated.
+  ids_fg <- suppressMessages(.hd_group(.hd_agents(stub$runner), .hd_script(1),
+                                       handles = "ids", call_on_silent = "none"))
+  ids_fg$run_simulation()
+  ids_fg$summarize(.hd_config(), .runner = recorder)
+  expect_match(seen, "teacher_conservative (Message", fixed = TRUE)
+  expect_false(grepl("(ID ", seen, fixed = TRUE))
 
   # Without a runner the call goes to the provider, not to the session's
   # scripted runner.
@@ -294,4 +322,63 @@ test_that("summarize() labels by handle, leaves out the roster, and calls live u
   expect_error(empty$summarize(.hd_config(), .runner = recorder), "no messages to summarize")
   expect_error(fg$summarize(.hd_config(), transcript_override = "  ", .runner = recorder),
                "empty")
+})
+
+test_that("an agent shared by two sessions answers to its handle in the one that runs", {
+  stub <- .hd_stub()
+  agents <- create_agents(3, .hd_config(), direct_persona_descriptions = c("A.", "B.", "C."),
+                          .runner = stub$runner)
+  script <- list(list(phase = "engagement_question", text = "Which hours?"))
+  fg1 <- FocusGroup$new("library hours", "Test.", agents, "MOD",
+                        create_conversation_flow("round_robin", agents, "MOD"),
+                        question_script = script, max_participant_responses = 3,
+                        call_on_silent = "none")
+  # A second session over two of the same agents gives P3 another handle.
+  fg2 <- FocusGroup$new("library hours", "Test.", agents[c("P3", "MOD")], "MOD",
+                        create_conversation_flow("round_robin", agents[c("P3", "MOD")], "MOD"),
+                        question_script = script, handles = c(P3 = "Ana"),
+                        call_on_silent = "none")
+  expect_identical(agents$P3$handle, "Ana")
+  fg1$run_simulation()
+  expect_identical(agents$P3$handle, "P3")
+  calls <- fg1$records$calls
+  p3 <- Filter(function(call) identical(call$agent_id, "P3") &&
+                 identical(call$call_type, "participant"), calls)[[1]]
+  expect_match(p3$messages[[1]]$content, "In this discussion you are P3.", fixed = TRUE)
+})
+
+test_that("participants whose IDs already read as handles keep them", {
+  neutral <- FocusGroup:::.fg_neutral_handles
+  expect_identical(neutral(c("MOD", "P2", "P4", "P6"), "MOD"),
+                   c(MOD = "Moderator", P2 = "P2", P4 = "P4", P6 = "P6"))
+  expect_identical(neutral(c("P2", "P1", "MOD"), "MOD"),
+                   c(P2 = "P2", P1 = "P1", MOD = "Moderator"))
+  expect_identical(neutral(c("P2", "teacher", "nurse", "MOD"), "MOD"),
+                   c(P2 = "P2", teacher = "P1", nurse = "P3", MOD = "Moderator"))
+  # A respondent number is not kept.
+  expect_identical(neutral(c("P240001", "P240002", "MOD"), "MOD"),
+                   c(P240001 = "P1", P240002 = "P2", MOD = "Moderator"))
+  expect_identical(neutral(c("P0", "p3", "MOD"), "MOD"),
+                   c(P0 = "P1", p3 = "P2", MOD = "Moderator"))
+})
+
+test_that("an agent saved by an earlier version keeps its ID as its handle, with a warning", {
+  stub <- .hd_stub()
+  agents <- .hd_agents(stub$runner)
+  Old <- R6::R6Class("FGAgent", public = list(
+    id = "old_timer", persona_description = "Persona.", config = NULL, .runner = NULL,
+    is_moderator = FALSE, role = "participant", demographics = list(),
+    survey_responses = list(), history = list()))
+  agents$old_timer <- Old$new()
+  agents <- agents[c("teacher_conservative", "old_timer", "V240001", "lead_moderator")]
+  expect_warning(fg <- .hd_group(agents, .hd_script(1)), "old_timer.*under their IDs")
+  expect_identical(fg$handles[["old_timer"]], "old_timer")
+  expect_identical(fg$handles[["V240001"]], "P3")
+
+  # Its ID may not clash with a handle another agent has.
+  clash <- agents
+  clash$old_timer$id <- "P3"
+  names(clash)[2] <- "P3"
+  expect_error(.hd_group(clash, .hd_script(1), handles = c(V240001 = "P3")),
+               "own handle|would be shared")
 })

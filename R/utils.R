@@ -327,6 +327,26 @@ format_conversation_history <- function(conversation_log,
 # handles. By default participants are "P1", "P2", ... in roster order and the
 # moderator is "Moderator".
 
+# The neutral handles: the moderator is "Moderator"; a participant whose ID is
+# already of the form "P1" to "P99" keeps it, so that "P2" never stands for
+# another agent, and the others are numbered "P1", "P2", ... in roster order,
+# skipping the numbers already taken.
+.fg_neutral_handles <- function(ids, moderator_id) {
+  participants <- setdiff(ids, moderator_id)
+  out <- stats::setNames(rep("Moderator", length(ids)), ids)
+  kept <- participants[grepl("^P[1-9][0-9]?$", participants)]
+  out[kept] <- kept
+  k <- 0L
+  for (id in setdiff(participants, kept)) {
+    repeat {
+      k <- k + 1L
+      if (!paste0("P", k) %in% kept) break
+    }
+    out[[id]] <- paste0("P", k)
+  }
+  out
+}
+
 # The handle of every agent, named by agent ID, from the `handles` argument of
 # FocusGroup$new(): NULL for the neutral handles, "ids" for the agent IDs, or
 # a character vector naming some agents by ID with the handle each is to have;
@@ -334,9 +354,7 @@ format_conversation_history <- function(conversation_log,
 # "System", or contain a standalone number from 0 to 10, which the desire-score
 # parser would read as a score.
 .fg_resolve_handles <- function(handles, ids, moderator_id) {
-  participants <- setdiff(ids, moderator_id)
-  neutral <- stats::setNames(rep("Moderator", length(ids)), ids)
-  neutral[participants] <- paste0("P", seq_along(participants))
+  neutral <- .fg_neutral_handles(ids, moderator_id)
   if (is.null(handles)) return(neutral)
   if (identical(handles, "ids")) return(stats::setNames(ids, ids))
   if (!is.character(handles) || !length(handles)) {
@@ -425,31 +443,50 @@ format_conversation_history <- function(conversation_log,
 }
 
 # The participant a moderator line gives the floor to, or NA. The line's last
-# question, the last sentence ending in "?", must name exactly one
-# participant handle, either opening with it ("P3, do you agree?") or closing
-# with it ("Could you say more, P3?"), and must not also put the question to
-# the group ("What does everyone think?"). `handles` are the participants'
+# question, the last sentence ending in "?", must open with one participant's
+# handle and a comma ("P3, do you agree with P2?") or close with a comma and
+# one handle ("Could you say more, P3?"), and must not also put the question
+# to the group ("What does everyone think?", "P3, who else agrees?"). A
+# handle in a list of handles ("P2, P3, what do you think?", "What do you
+# think, P2 and P3?") addresses no one, nor does a question that opens with
+# one handle and closes with another. `handles` are the participants'
 # handles named by agent ID; the agent ID is returned.
 .fg_addressee <- function(text, handles) {
   if (!length(handles) || !is.character(text) || length(text) != 1L || is.na(text)) {
     return(NA_character_)
   }
-  plain <- gsub("[*_]", "", text)
+  # Markdown emphasis is not part of the words; an underscore inside a word,
+  # as in a handle such as "nurse_lib", is.
+  plain <- gsub("\\*+", "", text)
+  plain <- gsub("(?<![[:alnum:]])_+|_+(?![[:alnum:]])", "", plain, perl = TRUE)
   sentences <- trimws(strsplit(plain, "(?<=[.!?])\\s+", perl = TRUE)[[1]])
   sentences <- sub("[\"')\\]\\s]+$", "", sentences, perl = TRUE)
   questions <- sentences[grepl("\\?$", sentences)]
   if (!length(questions)) return(NA_character_)
   question <- questions[[length(questions)]]
-  group <- paste0("(?i)\\b(everyone|everybody|anyone|anybody|others|the rest of you|",
-                  "all of you|you all|the group|the whole group)\\b")
+  group <- paste0("(?i)\\b(everyone|everybody|anyone|anybody|someone|somebody|",
+                  "others|other participants|other people|the rest of you|",
+                  "all of you|any of you|each of you|both|you all|who else|",
+                  "the group|the whole group)\\b")
   if (grepl(group, question, perl = TRUE)) return(NA_character_)
-  bounded <- function(h) paste0("(?<![[:alnum:]_])", .fg_regex_escape(h), "(?![[:alnum:]_])")
-  named <- vapply(handles, function(h) grepl(bounded(h), question, perl = TRUE), logical(1))
-  if (sum(named) != 1L) return(NA_character_)
-  h <- .fg_regex_escape(handles[named])
-  opens <- grepl(paste0("^[\\s\"'(\\[]*", h, "\\s*,"), question, perl = TRUE)
-  closes <- grepl(paste0(",\\s*", h, "\\s*\\?$"), question, perl = TRUE)
-  if (opens || closes) names(handles)[named] else NA_character_
+  escaped <- vapply(handles, .fg_regex_escape, character(1))
+  any_handle <- paste0("(?:", paste(escaped, collapse = "|"), ")(?![[:alnum:]_])")
+  start <- "^[\\s\"'(\\[]*"
+  opener <- closer <- character()
+  for (i in seq_along(handles)) {
+    h <- paste0(escaped[[i]], "(?![[:alnum:]_])")
+    if (grepl(paste0(start, h, "\\s*,"), question, perl = TRUE) &&
+        !grepl(paste0(start, h, "\\s*,\\s*", any_handle), question, perl = TRUE)) {
+      opener <- c(opener, names(handles)[[i]])
+    }
+    if (grepl(paste0(",\\s*(?<![[:alnum:]_])", escaped[[i]], "\\s*\\?$"), question, perl = TRUE) &&
+        !grepl(paste0("(?<![[:alnum:]_])", any_handle, "\\s*(?:,|and|or|&)\\s*",
+                      escaped[[i]], "\\s*\\?$"), question, perl = TRUE)) {
+      closer <- c(closer, names(handles)[[i]])
+    }
+  }
+  named <- unique(c(opener, closer))
+  if (length(named) == 1L) named else NA_character_
 }
 
 # Remove a label the speaker wrote for itself at the start of its reply, such
@@ -506,8 +543,9 @@ format_conversation_history <- function(conversation_log,
 # not spoken: `call_on_silent` resolved against the phases of the guide.
 # "opening" is the first discussion item, "midpoint" discussion item
 # ceiling(D / 2) of D, and "end" the last; item numbers count every guide
-# item and must name discussion items. Returns the items in order, each
-# once, with the name of each point ("item:<k>" for a number).
+# item and must name discussion items. TRUE means the three named points;
+# "none", FALSE, and NULL mean none. Returns the items in order, each once,
+# with the name of each point ("item:<k>" for a number).
 .fg_call_on_points <- function(call_on_silent, phases) {
   none <- list(points = character(), items = integer())
   if (is.null(call_on_silent) || isFALSE(call_on_silent) ||
@@ -517,9 +555,10 @@ format_conversation_history <- function(conversation_log,
   if (isTRUE(call_on_silent)) call_on_silent <- .fg_call_on_names
   discussion <- which(phases %in% .fg_response_phases)
   if (is.character(call_on_silent)) {
-    if (anyNA(call_on_silent) || !all(call_on_silent %in% .fg_call_on_names)) {
-      stop("`call_on_silent` must be \"none\", FALSE, any of \"opening\", \"midpoint\", ",
-           "and \"end\", or guide item numbers.", call. = FALSE)
+    if (!length(call_on_silent) || anyNA(call_on_silent) ||
+        !all(call_on_silent %in% .fg_call_on_names)) {
+      stop("`call_on_silent` must be \"none\", FALSE, TRUE, any of \"opening\", ",
+           "\"midpoint\", and \"end\", or guide item numbers.", call. = FALSE)
     }
     if (!length(discussion)) return(none)
     d <- length(discussion)

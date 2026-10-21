@@ -104,7 +104,12 @@ test_that("the addressee is the one participant the last question opens or close
     "P10, what would you change first?" = "id10",
     "Thanks, P10. What do you think, P1?" = "id1",
     "**P5**, could you give an example?" = "id5",
-    "That is a strong point.\n\nP6, how does it look from where you sit?" = "id6")
+    "That is a strong point.\n\nP6, how does it look from where you sit?" = "id6",
+    # Another participant may be named inside the question.
+    "Thanks, P2. P4, what are your thoughts on what P2 just shared?" = "id4",
+    "P4, do you agree with P2?" = "id4",
+    "What do you make of P2's point, P4?" = "id4",
+    "__P7__, could you say more?" = "id7")
   for (text in names(positives)) {
     expect_identical(addressee(text), positives[[text]], info = text)
   }
@@ -122,6 +127,14 @@ test_that("the addressee is the one participant the last question opens or close
     "What do you think, P30?",
     "P1, P2, what do you both think?",
     "Welcome, everyone. P4, what do all of you think?",
+    "P2, who else shares that view?",
+    "P2, does someone else want to respond?",
+    "P2, could any of you build on that?",
+    "P2, what do the other participants think?",
+    "P2, what do each of you think?",
+    "P2, do you both agree?",
+    "What do you think, P2, P3?",
+    "P4, what do you make of P2's point, P3?",
     "")
   for (text in negatives) {
     expect_identical(addressee(text), NA_character_, info = text)
@@ -129,7 +142,10 @@ test_that("the addressee is the one participant the last question opens or close
   expect_identical(FocusGroup:::.fg_addressee("P3, do you agree?", character()), NA_character_)
   expect_identical(FocusGroup:::.fg_addressee(NA_character_, handles), NA_character_)
   # Handles of any form match only themselves.
-  named <- c(a = "Ana", b = "Anabel", c = "J.R.")
+  named <- c(a = "Ana", b = "Anabel", c = "J.R.", d = "nurse_lib")
+  expect_identical(FocusGroup:::.fg_addressee("nurse_lib, could you say more?", named), "d")
+  expect_identical(FocusGroup:::.fg_addressee("What do you think, nurse_lib?", named), "d")
+  expect_identical(FocusGroup:::.fg_addressee("nurselib, could you say more?", named), NA_character_)
   expect_identical(FocusGroup:::.fg_addressee("Anabel, do you agree?", named), "b")
   expect_identical(FocusGroup:::.fg_addressee("Could you say more, J.R.?", named), "c")
   expect_identical(FocusGroup:::.fg_addressee("Could you say more, JxR.?", named), NA_character_)
@@ -191,4 +207,29 @@ test_that("the moderator prompts no longer name a participant by roster order", 
                      fixed = TRUE))
   expect_match(templates$moderator_probing_focused, "another participant", fixed = TRUE)
   expect_false(grepl("participant ID", templates$moderator_opening, fixed = TRUE))
+})
+
+test_that("round robin passes over a participant who has just answered the moderator", {
+  stub <- .rt_runner(moderator = "Thank you. What led you there, P1?")
+  fg <- .rt_group(stub$runner, list(
+    list(phase = "engagement_question", text = "Which hours matter?"),
+    list(phase = "engagement_question", text = "Who is left out?")),
+    flow = "round_robin", responses = 2L, call_on_silent = "none")
+  fg$run_simulation()
+  routing <- fg$records$routing
+  expect_identical(vapply(routing, `[[`, character(1), "selected_id"),
+                   c("P1", "P2", "P1", "P3"))
+  expect_identical(vapply(routing, `[[`, character(1), "rule"),
+                   c("addressed", "rotation", "addressed", "rotation"))
+  expect_identical(routing[[2]]$excluded, c(P1 = "previous_speaker"))
+  expect_length(routing[[4]]$excluded, 0L)
+  # Without turns given by the moderator, the rotation is unchanged.
+  stub <- .rt_runner()
+  fg <- .rt_group(stub$runner, list(
+    list(phase = "engagement_question", text = "Which hours matter?"),
+    list(phase = "engagement_question", text = "Who is left out?")),
+    flow = "round_robin", responses = 2L, call_on_silent = "none")
+  fg$run_simulation()
+  expect_identical(vapply(fg$records$routing, `[[`, character(1), "selected_id"),
+                   c("P1", "P2", "P3", "P1"))
 })

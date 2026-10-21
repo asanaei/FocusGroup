@@ -199,7 +199,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param handles The labels under which the agents see each other.
     #'   `NULL` (the default) shows the participants as `"P1"`, `"P2"`, ...
     #'   in roster order and the moderator as `"Moderator"`, so the IDs given
-    #'   to the agents never reach a prompt. `"ids"` shows the agent IDs, with
+    #'   to the agents never reach a prompt; a participant whose ID is already
+    #'   `"P1"` to `"P99"` keeps it, and the others take the numbers left
+    #'   free, so that a handle never names a different agent's ID. `"ids"` shows the agent IDs, with
     #'   a message listing them. A character vector named by agent ID sets
     #'   handles of your own, such as invented first names, and the agents it
     #'   does not name keep their neutral handles. A handle must be non-empty
@@ -212,8 +214,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'   item `ceiling(D / 2)` of `D`), and `"end"` (the last discussion
     #'   item), or guide item numbers, which count every item, as
     #'   [fg_after_item()] does, and must be items participants answer.
-    #'   `"none"` or `FALSE` turns call-ons off. Points falling on the same
-    #'   item count once.
+    #'   `TRUE` gives the three named points; `"none"`, `FALSE`, or `NULL`
+    #'   turns call-ons off. Points falling on the same item count once.
     #' @param call_on_text The call-on line, delivered as written with no
     #'   model call. It must contain `{participant}`, which is replaced by the
     #'   participant's handle. `NULL` uses "\{participant\}, I'd like to hear
@@ -256,14 +258,27 @@ FocusGroup <- R6::R6Class("FocusGroup",
         self$agents[[moderator_id]]$role <- "moderator"
       }
       # An agent saved by FocusGroup 0.5.4 or earlier has no handle field and
-      # matches its own turns by ID, so it keeps its ID as its handle.
-      for (id in agent_ids) {
-        if ("handle" %in% names(self$agents[[id]])) {
-          self$agents[[id]]$handle <- self$handles[[id]]
-        } else {
-          self$handles[[id]] <- id
+      # matches its own turns by ID, so it keeps its ID as its handle, and
+      # the other agents see that ID.
+      legacy <- agent_ids[!vapply(self$agents, function(a) "handle" %in% names(a),
+                                  logical(1))]
+      legacy <- legacy[self$handles[legacy] != legacy]
+      if (length(legacy)) {
+        self$handles[legacy] <- legacy
+        shared <- self$handles[duplicated(tolower(self$handles)) |
+                                 duplicated(tolower(self$handles), fromLast = TRUE)]
+        if (length(shared)) {
+          stop("Agent(s) ", paste(legacy, collapse = ", "), " come from an earlier ",
+               "version of FocusGroup and keep their IDs as handles, which then ",
+               "would be shared: ", paste(unique(shared), collapse = ", "), ".",
+               call. = FALSE)
         }
+        warning("Agent(s) ", paste(legacy, collapse = ", "), " come from an earlier ",
+                "version of FocusGroup and recognize their own turns by ID, so the ",
+                "other agents see them under their IDs. Build them anew to use ",
+                "handles.", call. = FALSE)
       }
+      private$claim_handles()
       self$turn_taking_flow <- turn_taking_flow
       self$conversation_log <- list()
       self$final_summary <- NULL
@@ -495,8 +510,11 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'   returns the rows with at least `response_text`. `NULL` makes a live
     #'   call through `config`, also on a session that ran with a runner.
     #' @return Character string containing the generated summary. The
-    #'   transcript shows the speakers under their handles, without the
-    #'   roster row. A log or transcript with nothing to summarize is an
+    #'   transcript made from the log shows each speaker under its handle,
+    #'   with the agent ID beside it when the two differ, and leaves out the
+    #'   roster row; such a summary is for the researcher. The interim summary
+    #'   the agents read is made from a `transcript_override` that shows
+    #'   handles only. A log or transcript with nothing to summarize is an
     #'   error, as is an empty reply; its usage is recorded first.
     summarize = function(config, summary_level = 1, max_tokens = NULL,
                          internal_call = FALSE, transcript_override = NULL,
@@ -513,13 +531,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
       transcript_to_use <- transcript_override
       if (is.null(transcript_to_use)) {
+          # Labeled by handle, the label the speakers' own text refers to,
+          # with the agent ID beside it when they differ. This transcript is
+          # for the researcher; the interim summary the agents read is
+          # given as `transcript_override` and shows handles only.
           shown <- Filter(function(msg) !identical(msg$speaker_id, "System"),
-                          private$agent_view())
+                          self$conversation_log)
           if (!length(shown)) {
             stop("The conversation log has no messages to summarize.", call. = FALSE)
           }
           transcript_to_use <- paste(vapply(shown, function(msg) {
-            paste0(msg$speaker_id, " (Message ", msg$message_id,
+            handle <- private$handle_of(msg$speaker_id)
+            id <- if (!identical(handle, msg$speaker_id)) {
+              paste0("ID ", msg$speaker_id, ", ")
+            } else ""
+            paste0(handle, " (", id, "Message ", msg$message_id,
                    ", Round ", msg$round, ", Phase: ", msg$phase, "): ",
                    msg$text)
           }, character(1)), collapse = "\n\n")
@@ -1575,6 +1601,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       private$current_round <- 0L
       private$last_summary_round <- -Inf
       private$fired <- character()
+      private$claim_handles()
       # `call_on` holds the call-on stage in progress; `call_on_mark` is the
       # last message before the previous call-on point, so that a participant
       # is silent when no message of theirs follows it; `addressed` is the
@@ -1596,6 +1623,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     # Run stages until the session is done ("done") or pauses at the planned
     # branch point ("paused").
     session_continue = function(verbose) {
+      private$claim_handles()
       repeat {
         stage <- private$state$stage
         if (identical(stage, "done")) return("done")
@@ -2270,6 +2298,17 @@ FocusGroup <- R6::R6Class("FocusGroup",
         if (isTRUE(m$metadata$roster)) m$text <- roster
         m
       })
+    },
+
+    # Give every agent its handle in this session. An agent object can belong
+    # to more than one session, each with its own handles, so the session
+    # sets them again whenever it runs.
+    claim_handles = function() {
+      for (id in names(self$agents)) {
+        agent <- self$agents[[id]]
+        if ("handle" %in% names(agent)) agent$handle <- unname(self$handles[[id]])
+      }
+      invisible(NULL)
     },
 
     # The handle of a speaker: an agent's handle, or the speaker's own label

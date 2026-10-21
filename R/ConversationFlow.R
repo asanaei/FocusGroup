@@ -129,7 +129,11 @@ RoundRobinFlow <- R6::R6Class("RoundRobinFlow",
       private$current_participant_index <- 0
     },
 
-    #' @description Selects the next participant in round-robin order.
+    #' @description Selects the next participant in round-robin order. A
+    #'   turn the moderator gave outside the rotation (an addressed or
+    #'   called-on turn) leaves the rotation where it was; when the next in
+    #'   the rotation is the participant who has just spoken, the rotation
+    #'   passes on to the one after, so no one speaks twice in a row.
     #' @param focus_group The `FocusGroup` object.
     #' @return The selected `FGAgent` (a participant), or `NULL` if no participants.
     select_next_speaker = function(focus_group) {
@@ -138,11 +142,19 @@ RoundRobinFlow <- R6::R6Class("RoundRobinFlow",
         return(NULL) # No participants to select
       }
 
-      private$current_participant_index <-
-        (private$current_participant_index %% length(self$participant_ids)) + 1
+      n <- length(self$participant_ids)
+      private$current_participant_index <- (private$current_participant_index %% n) + 1
+      excluded <- character()
+      just_spoke <- self$last_speaker_id
+      if (n > 1L && !is.null(just_spoke) &&
+          identical(self$participant_ids[private$current_participant_index], just_spoke)) {
+        excluded[[just_spoke]] <- "previous_speaker"
+        private$current_participant_index <- (private$current_participant_index %% n) + 1
+      }
       next_speaker_id <- self$participant_ids[private$current_participant_index]
       self$routing_record <- .fg_routing_record(
         "round_robin", "rotation", self$participant_ids, next_speaker_id,
+        excluded = excluded,
         position = as.integer(private$current_participant_index))
 
       return(self$agents[[next_speaker_id]])

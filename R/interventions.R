@@ -119,7 +119,8 @@ print.fg_point <- function(x, ...) {
 #' written; it may not be a participant id, a participant's handle, or
 #' `"System"`. A moderator message that puts its last question to one
 #' participant by handle ("P2, what do you make of that?") gives that
-#' participant the next turn.
+#' participant the next turn, except at a turn that answers the moderator's
+#' call-on line, which stays with the participant called on.
 #'
 #' With `visibility = "shared"` the message enters the shared log and every
 #' agent sees it from then on. With `visibility = "participants"` it is kept

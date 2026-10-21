@@ -123,7 +123,7 @@ calls.
 
 | Mode | Speaker selection | Research use and cost |
 |---|---|---|
-| `"round_robin"` | It cycles through participant IDs in a fixed order. | Use it when equal speaking opportunity and predictable exposure are design requirements. It adds no speaker-selection model calls. |
+| `"round_robin"` | It cycles through participant IDs in a fixed order, passing over a participant who has just spoken in a turn the moderator gave. | Use it when equal speaking opportunity and predictable exposure are design requirements. It adds no speaker-selection model calls. |
 | `"probabilistic"` | It samples from speaking propensities. The selected participant's propensity falls to zero, while the other propensities recover toward their baselines by `recovery_increment`, which defaults to `0.1`. | Use it when unequal, stochastic participation is part of the design but speaker choice should not depend on model-rated content. |
 | `"desire_based"` | It asks eligible personas to rate their desire to speak from the current question and transcript. It passes over the participant who spoke just before, unless the moderator has spoken since, uses `min_desire_threshold = 3`, may relax the threshold after discussion begins, selects the highest score, and breaks ties at random. A score that cannot be obtained stops the session, unless `on_desire_failure = "random"`, which chooses among the valid scores. | Use it when content-responsive speaker emergence is the object of study. It adds model calls and makes speaker assignment model-dependent. |
 

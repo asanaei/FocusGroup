@@ -1753,9 +1753,11 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #' @param survey_vars Variable names (codes) to render as survey responses. May
 #'   be named; a name is used as the question only for an item with neither a
 #'   `question_wording` entry nor a label in the file. If `NULL`, labeled
-#'   variables that are not demographics are used, except a variable without
-#'   value labels whose values differ in every row, such as a case ID, which
-#'   is left out with a message. Variables named `id`, `respondent_id`, or
+#'   variables that are not demographics are used, except a case ID, which
+#'   is left out with a message: a variable without value labels whose values
+#'   are whole numbers or codes without spaces and differ in every row, in a
+#'   file of at least 30 rows or under a name or label that reads as an
+#'   identifier ("id", "case", "respondent", "serial"). Variables named `id`, `respondent_id`, or
 #'   `persona_id` are never rendered.
 #' @param rows Optional row selector restricting the eligible respondents before
 #'   sampling: integer positions of rows in the file, a logical vector with one
@@ -2006,12 +2008,11 @@ create_agents_from_survey <- function(n_participants,
   }
   requested <- c(unname(demographic_vars), unname(survey_vars))
   # Identifiers never enter a persona: the columns named as identifiers and,
-  # among automatically chosen items, variables without value labels whose
-  # values differ in every row of the file, as a case ID's do.
+  # among automatically chosen items, variables that look like a case ID.
   identifier_vars <- intersect(requested, .fg_identifier_columns)
   if (auto_survey) {
     distinct <- Filter(function(v) {
-      v %in% names(raw_lab) && .fg_distinct_in_every_row(raw_lab[[v]])
+      v %in% names(raw_lab) && .fg_distinct_in_every_row(raw_lab[[v]], v)
     }, setdiff(unname(survey_vars), identifier_vars))
     if (length(distinct)) {
       message("Left out of the personas as respondent identifiers, since their ",
@@ -2191,13 +2192,23 @@ create_agents_from_survey <- function(n_participants,
 # `source_ids` and never rendered into a persona.
 .fg_identifier_columns <- c("id", "respondent_id", "persona_id")
 
-# Whether a survey variable looks like a case identifier: no value labels,
-# no missing value, and a different value in every row.
-.fg_distinct_in_every_row <- function(x) {
+# Whether a survey variable looks like a case identifier: no value labels, no
+# missing value, a different value in every row, and values that are codes
+# (whole numbers, or text without spaces, which leaves out open-ended
+# answers). In a small file, where ages or amounts can differ in every row by
+# chance, the variable's name or label must also read as an identifier.
+.fg_distinct_in_every_row <- function(x, name = "") {
   labels <- attr(x, "labels", exact = TRUE)
   if (length(labels)) return(FALSE)
   v <- as.vector(unclass(x))
-  length(v) >= 2L && !anyNA(v) && !anyDuplicated(v)
+  if (length(v) < 2L || anyNA(v) || anyDuplicated(v)) return(FALSE)
+  codes <- if (is.numeric(v)) all(is.finite(v) & v == floor(v)) else
+    is.character(v) && !any(grepl("\\s", v))
+  if (!codes) return(FALSE)
+  label <- attr(x, "label", exact = TRUE)
+  words <- tolower(paste(c(name, if (is.character(label)) label), collapse = " "))
+  id_like <- grepl("(^|[^a-z])(id|ids|caseid|case|respondent|serial|uuid)([^a-z]|$)", words)
+  length(v) >= 30L || id_like
 }
 
 # Report rows for identifier columns left out of the personas.

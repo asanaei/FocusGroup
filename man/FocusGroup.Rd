@@ -258,7 +258,9 @@ for the \code{reasoning_effort} field.}
 \item{\code{handles}}{The labels under which the agents see each other.
 \code{NULL} (the default) shows the participants as \code{"P1"}, \code{"P2"}, ...
 in roster order and the moderator as \code{"Moderator"}, so the IDs given
-to the agents never reach a prompt. \code{"ids"} shows the agent IDs, with
+to the agents never reach a prompt; a participant whose ID is already
+\code{"P1"} to \code{"P99"} keeps it, and the others take the numbers left
+free, so that a handle never names a different agent's ID. \code{"ids"} shows the agent IDs, with
 a message listing them. A character vector named by agent ID sets
 handles of your own, such as invented first names, and the agents it
 does not name keep their neutral handles. A handle must be non-empty
@@ -272,8 +274,8 @@ who have not spoken since the previous such point: any of
 item \code{ceiling(D / 2)} of \code{D}), and \code{"end"} (the last discussion
 item), or guide item numbers, which count every item, as
 \code{\link[=fg_after_item]{fg_after_item()}} does, and must be items participants answer.
-\code{"none"} or \code{FALSE} turns call-ons off. Points falling on the same
-item count once.}
+\code{TRUE} gives the three named points; \code{"none"}, \code{FALSE}, or \code{NULL}
+turns call-ons off. Points falling on the same item count once.}
 
 \item{\code{call_on_text}}{The call-on line, delivered as written with no
 model call. It must contain \code{{participant}}, which is replaced by the
@@ -419,8 +421,11 @@ call through \code{config}, also on a session that ran with a runner.}
 }
 \subsection{Returns}{
 Character string containing the generated summary. The
-transcript shows the speakers under their handles, without the
-roster row. A log or transcript with nothing to summarize is an
+transcript made from the log shows each speaker under its handle,
+with the agent ID beside it when the two differ, and leaves out the
+roster row; such a summary is for the researcher. The interim summary
+the agents read is made from a \code{transcript_override} that shows
+handles only. A log or transcript with nothing to summarize is an
 error, as is an empty reply; its usage is recorded first.
 }
 }

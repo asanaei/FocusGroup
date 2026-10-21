@@ -683,7 +683,7 @@
 #' is dropped too, with the reason "identifier column": a column named `id`,
 #' `respondent_id`, or `persona_id`, or, among the items
 #' [create_agents_from_survey()] chooses when `survey_vars` is `NULL`, a
-#' variable without value labels whose values differ in every row. The agents
+#' variable that looks like a case ID, as described there. The agents
 #' would otherwise read the respondent's ID; the roster keeps it in
 #' `source_ids`.
 #'
