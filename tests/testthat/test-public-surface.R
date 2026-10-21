@@ -14,12 +14,14 @@ test_that("the package exports exactly the first-release surface", {
     "fg_injection",
     "fg_player",
     "fg_probe",
+    "fg_turns",
     "focus_group_from_transcript",
     "get_default_prompt_templates",
     "persona_rendering_report",
     "run_focus_group",
     "run_focus_group_arms",
-    "run_focus_studio"
+    "run_focus_studio",
+    "summarize_focus_group"
   )
   expect_identical(sort(getNamespaceExports("FocusGroup")), sort(expected))
 })
@@ -168,6 +170,13 @@ test_that("default prompt names are all supported contracts", {
     "moderator_ending_question",
     "moderator_closing",
     "moderator_generic_utterance",
-    "thematic_analysis_prompt"
+    "thematic_analysis_prompt",
+    "summary_participant",
+    "summary_item",
+    "summary_disagreements",
+    "summary_trajectory",
+    "summary_turn",
+    "summary_session",
+    "summary_reask"
   ), ignore.order = FALSE)
 })

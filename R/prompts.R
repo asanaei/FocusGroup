@@ -30,6 +30,20 @@
 #' `participant_probe_instruction` closes the messages of a private probe
 #' ([fg_probe()]); `\{\{probe_question\}\}` is replaced by the question.
 #'
+#' @section Summary templates:
+#' `summary_participant`, `summary_item`, `summary_disagreements`,
+#' `summary_trajectory`, `summary_turn`, and `summary_session` are the prompts
+#' of [summarize_focus_group()], one per unit, and `summary_reask` is the
+#' message that returns a failing reply with its failures. Their placeholders
+#' are `\{\{topic\}\}`, `\{\{unit\}\}`, `\{\{roster\}\}` (speakers and
+#' message counts, computed in code), `\{\{transcript\}\}`,
+#' `\{\{probes\}\}` (empty unless probe answers are included),
+#' `\{\{stages\}\}` (trajectory only), `\{\{format\}\}` (the JSON shape the
+#' reply must take), and, in `summary_reask`, `\{\{failures\}\}`. They are
+#' read by [summarize_focus_group()] alone; changing them in a session's
+#' `prompt_templates` has no effect, and the `templates` argument of
+#' [summarize_focus_group()] replaces them.
+#'
 #' @return A named list where each element is a character string representing a prompt template.
 #'         Placeholders like `\{\{topic\}\}`, `\{\{persona_description\}\}`, etc., are used within
 #'         the templates and will be filled dynamically during the simulation.
@@ -332,6 +346,150 @@ Theme 2: [Name of Theme 2]
   Quote: ...
 etc.
 
-Focus on capturing the essence of the participants' perspectives and experiences as represented in the text. Be objective in your interpretation."
+Focus on capturing the essence of the participants' perspectives and experiences as represented in the text. Be objective in your interpretation.",
+
+    # --- Summary Prompts (summarize_focus_group()) ---
+    # Each unit template must keep {{transcript}} and {{format}}; the package
+    # fills {{format}} with the JSON shape it checks. summary_reask must keep
+    # {{failures}}.
+    summary_participant =
+"You are helping a researcher summarize a focus group discussion. Summarize the contributions of one participant, {{unit}}.
+
+Topic: {{topic}}
+{{roster}}
+
+Each message in the transcript begins with its id in brackets, such as [#12], and the label of its speaker. Lines such as \"-- Item 3 --\" mark the items of the moderator's guide. A message marked \"injected\" was placed into the discussion by the researcher; one marked \"shown to participants only\" was not seen by the moderator.
+
+Transcript:
+{{transcript}}
+{{probes}}
+Report {{unit}}'s positions and the reasons given for them; any change of position, citing the earlier message and the later one; how {{unit}} responded to other participants, named by label; and the guide items {{unit}} did not address. Report where {{unit}} disagreed with others, or held a position alone, as fully as where {{unit}} agreed.
+
+Rules:
+- Base every claim on the transcript. When it does not show something, such as a reason or a view on an item, give the claim the status \"not_stated\" rather than inferring it from silence or absence.
+- Report dissent, silence, and unanswered questions as fully as agreement.
+- Write \"everyone\", \"all\", \"consensus\", or \"unanimous\" only when the claim cites a message from every participant who spoke on that item.
+- Quote only words that appear in the cited message, copied exactly. Never invent, repair, or merge quotes.
+- Refer to speakers only by their labels.
+
+{{format}}",
+
+    summary_item =
+"You are helping a researcher summarize a focus group discussion one guide item at a time. Summarize guide item {{unit}}.
+
+Topic: {{topic}}
+{{roster}}
+
+Each message in the transcript begins with its id in brackets, such as [#12], and the label of its speaker. Lines such as \"-- Item 3 --\" mark the items of the moderator's guide. A message marked \"injected\" was placed into the discussion by the researcher; one marked \"shown to participants only\" was not seen by the moderator.
+
+Transcript of this item:
+{{transcript}}
+{{probes}}
+Report the question the moderator asked, each position taken and who held it, where participants agreed and where they disagreed, positions held by one participant alone, and questions that went unanswered. A participant listed as not speaking on this item gave no view on it: report that as silence, not as agreement.
+
+Rules:
+- Base every claim on the transcript. When it does not show something, such as a reason or a view on an item, give the claim the status \"not_stated\" rather than inferring it from silence or absence.
+- Report dissent, silence, and unanswered questions as fully as agreement.
+- Write \"everyone\", \"all\", \"consensus\", or \"unanimous\" only when the claim cites a message from every participant who spoke on that item.
+- Quote only words that appear in the cited message, copied exactly. Never invent, repair, or merge quotes.
+- Refer to speakers only by their labels.
+
+{{format}}",
+
+    summary_disagreements =
+"You are helping a researcher find where a focus group discussion divided. Read {{unit}}.
+
+Topic: {{topic}}
+{{roster}}
+
+Each message in the transcript begins with its id in brackets, such as [#12], and the label of its speaker. Lines such as \"-- Item 3 --\" mark the items of the moderator's guide. A message marked \"injected\" was placed into the discussion by the researcher; one marked \"shown to participants only\" was not seen by the moderator.
+
+Transcript:
+{{transcript}}
+{{probes}}
+List every disagreement among the participants and every position held by one participant alone. For each, give the holders, the messages in which they stated their positions, and how it ended: with a concession (the message in which a holder gave ground), with the moderator moving on (the moderator's message), or unresolved. A participant who said nothing did not agree. If there is no disagreement and no position held alone, return an empty list of claims.
+
+Rules:
+- Base every claim on the transcript. When it does not show something, such as a reason or a view on an item, give the claim the status \"not_stated\" rather than inferring it from silence or absence.
+- Report dissent, silence, and unanswered questions as fully as agreement.
+- Write \"everyone\", \"all\", \"consensus\", or \"unanimous\" only when the claim cites a message from every participant who spoke on that item.
+- Quote only words that appear in the cited message, copied exactly. Never invent, repair, or merge quotes.
+- Refer to speakers only by their labels.
+
+{{format}}",
+
+    summary_trajectory =
+"You are helping a researcher see how a focus group discussion developed over time. Trace {{unit}} stage by stage.
+
+Topic: {{topic}}
+{{roster}}
+The stages are fixed in advance:
+{{stages}}
+
+Each message in the transcript begins with its id in brackets, such as [#12], and the label of its speaker. Lines such as \"-- Item 3 --\" mark the items of the moderator's guide. A message marked \"injected\" was placed into the discussion by the researcher; one marked \"shown to participants only\" was not seen by the moderator.
+
+Transcript:
+{{transcript}}
+{{probes}}
+For each stage, report what was discussed, the positions taken and who held them, and what changed from the stage before: positions that shifted, disagreements that opened or closed, participants who joined in or fell silent, and questions that went unanswered.
+
+Rules:
+- Base every claim on the transcript. When it does not show something, such as a reason or a view on an item, give the claim the status \"not_stated\" rather than inferring it from silence or absence.
+- Report dissent, silence, and unanswered questions as fully as agreement.
+- Write \"everyone\", \"all\", \"consensus\", or \"unanimous\" only when the claim cites a message from every participant who spoke on that item.
+- Quote only words that appear in the cited message, copied exactly. Never invent, repair, or merge quotes.
+- Refer to speakers only by their labels.
+
+{{format}}",
+
+    summary_turn =
+"You are helping a researcher summarize a focus group discussion turn by turn. Give the gist of each message in {{unit}}.
+
+Topic: {{topic}}
+{{roster}}
+
+Each message in the transcript begins with its id in brackets, such as [#12], and the label of its speaker. Lines such as \"-- Item 3 --\" mark the items of the moderator's guide. A message marked \"injected\" was placed into the discussion by the researcher; one marked \"shown to participants only\" was not seen by the moderator.
+
+Transcript:
+{{transcript}}
+{{probes}}
+For each message, state what its speaker said in it: the position taken, the reason or example given, the question asked, or the step the moderator took. Keep disagreement, hedging, and unanswered questions visible; do not turn a hedge into agreement or add what the speaker did not say.
+
+Rules:
+- Base every claim on the transcript. When it does not show something, such as a reason or a view on an item, give the claim the status \"not_stated\" rather than inferring it from silence or absence.
+- Report dissent, silence, and unanswered questions as fully as agreement.
+- Write \"everyone\", \"all\", \"consensus\", or \"unanimous\" only when the claim cites a message from every participant who spoke on that item.
+- Quote only words that appear in the cited message, copied exactly. Never invent, repair, or merge quotes.
+- Refer to speakers only by their labels.
+
+{{format}}",
+
+    summary_session =
+"You are helping a researcher summarize a whole focus group discussion. Summarize {{unit}}.
+
+Topic: {{topic}}
+{{roster}}
+
+Each message in the transcript begins with its id in brackets, such as [#12], and the label of its speaker. Lines such as \"-- Item 3 --\" mark the items of the moderator's guide. A message marked \"injected\" was placed into the discussion by the researcher; one marked \"shown to participants only\" was not seen by the moderator.
+
+Transcript:
+{{transcript}}
+{{probes}}
+Report the main positions and who held them, where the group agreed and where it divided, positions held by one participant alone, changes of position, participants who said little or nothing, and questions the moderator asked that went unanswered.
+
+Rules:
+- Base every claim on the transcript. When it does not show something, such as a reason or a view on an item, give the claim the status \"not_stated\" rather than inferring it from silence or absence.
+- Report dissent, silence, and unanswered questions as fully as agreement.
+- Write \"everyone\", \"all\", \"consensus\", or \"unanimous\" only when the claim cites a message from every participant who spoke on that item.
+- Quote only words that appear in the cited message, copied exactly. Never invent, repair, or merge quotes.
+- Refer to speakers only by their labels.
+
+{{format}}",
+
+    summary_reask =
+"Your reply did not pass these checks:
+{{failures}}
+
+Reply again with the complete JSON object in the same format, with every point above corrected. Cite only messages shown in the transcript, copy each quote exactly from the message it cites, and give the status \"not_stated\" to anything the transcript does not show."
   )
 }

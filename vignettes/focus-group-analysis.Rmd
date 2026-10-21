@@ -157,6 +157,140 @@ imported_analysis <- analyze_focus_group(imported, include_plots = FALSE)
 print(imported_analysis)
 ```
 
+## Summarize a discussion
+
+`summarize_focus_group()` summarizes a session, a set of arms, or an
+imported transcript by participant, guide item, disagreement, trajectory,
+turn, or the whole session, at one or more of three lengths: `"headline"`,
+`"brief"`, and `"detailed"`. The model returns claims as JSON. Each claim
+gives its status (`"stated"`, `"implied"`, `"contradictory"`, or
+`"not_stated"`), the ids of the messages it rests on, and any words it
+quotes. Every claim is checked against the transcript before prose is
+rendered from it: the cited messages must exist and be by the speakers the
+claim names, each quote must appear in the message it cites, and a claim for
+the whole group must cite every participant who spoke.
+
+The chunks below run offline. The scripted runner stands in for the model:
+it reads the transcript from the prompt and answers with one claim per
+participant, quoting the first five words of that participant's first
+message. A live call passes `config` and no runner.
+
+```{r summarize}
+transcript <- data.frame(
+  speaker = c("Facilitator", "Ana", "Ben", "Ana", "Facilitator", "Ben"),
+  text = c(
+    "What should change about the library hours?",
+    "Evening hours help working parents like me.",
+    "I see it differently. Mornings are too crowded now.",
+    "Crowded mornings still beat being locked out after work.",
+    "What would you give up to pay for longer hours?",
+    "I would give up the Sunday story hour before anything else."
+  )
+)
+imported <- focus_group_from_transcript(
+  transcript,
+  topic = "Library hours",
+  moderator_id = "Facilitator"
+)
+
+scripted <- function(experiments, ...) {
+  prompt <- experiments$messages[[1]][[1]]$content
+  unit <- sub(".*one participant, (P[0-9]+)\\..*", "\\1", prompt)
+  lines <- regmatches(prompt, gregexpr("\\[#[0-9]+\\] P[0-9]+: [^\n]*", prompt))[[1]]
+  own <- lines[grepl(paste0("^\\[#[0-9]+\\] ", unit, ": "), lines)][1]
+  id <- as.integer(sub("^\\[#([0-9]+)\\].*", "\\1", own))
+  words <- strsplit(sub("^[^:]*: ", "", own), " ")[[1]]
+  claim <- list(
+    id = 1, unit = unit, kind = "position", status = "stated",
+    text = paste(unit, "gave a view on the hours."),
+    speakers = list(unit), evidence = list(id), context = list(),
+    quotes = list(list(message_id = id, speaker = unit,
+                       text = paste(words[1:5], collapse = " ")))
+  )
+  reply <- list(claims = list(claim),
+                levels = list(headline = list(1), brief = list(1)))
+  experiments$response_text <- as.character(jsonlite::toJSON(reply, auto_unbox = TRUE))
+  experiments
+}
+
+summary_config <- LLMR::llm_config("openai", "gpt-4o-mini")
+by_person <- summarize_focus_group(
+  imported, summary_config,
+  compression = c("headline", "brief"),
+  .runner = scripted
+)
+by_person
+```
+
+The summarizing model never sees the speakers' names: Ana and Ben reach it as
+P1 and P2, and the facilitator as Moderator, in the speaker labels and inside
+the messages alike. The researcher's columns keep the names, and each quote
+is cut from the message as recorded.
+
+```{r summarize_records}
+by_person$metadata$handles
+by_person$claims[, c("unit", "status", "text")]
+by_person$quotes[, c("unit", "message_id", "speaker_id", "verbatim", "start", "end")]
+```
+
+A quote passes when it occurs in the cited message once case, whitespace, and
+quotation marks are set aside; `verbatim`, `start`, and `end` give it as it
+stands in the source. A reply that fails a check is sent back once, with each
+failure stated. Here the first reply about P2 misquotes the message:
+
+```{r summarize_reask}
+calls <- 0L
+misquote_once <- function(experiments, ...) {
+  calls <<- calls + 1L
+  out <- scripted(experiments, ...)
+  if (calls == 2L) {
+    out$response_text <- sub("I see it differently.", "I see it quite differently.",
+                             out$response_text, fixed = TRUE)
+  }
+  out
+}
+reasked <- summarize_focus_group(
+  imported, summary_config,
+  compression = "headline",
+  .runner = misquote_once
+)
+reasked$calls[, c("call_id", "unit", "attempt")]
+cat(reasked$calls$messages[[3]][[3]]$content)
+```
+
+When the second reply fails as well, the run stops with an error of class
+`focusgroup_summary_check_failure`; its `partial` field holds the units
+completed before it, and its `checks` and `replies` fields show what failed.
+With `on_fail = "drop"` the failing claims move to `rejected` instead, except
+claims of a disagreement, of a position held by one participant alone, or of
+a change, which still stop the run.
+
+`by = "item"` sends one guide item at a time, which also keeps a long session
+within the prompt window. `by = "turn"` gives the gist of every message.
+`by = "trajectory"` follows the discussion through stages fixed in advance:
+thirds of the participant turns for the headline, one stage per guide item
+for the longer lengths. `by = "disagreements"` lists each disagreement, and
+each position held by one participant alone, with how it ended. Private probe
+answers reach the model only with `include_probes = TRUE`.
+
+```{r summarize_live, eval = FALSE}
+by_item <- summarize_focus_group(
+  result, config,
+  by = "item",
+  compression = c("headline", "detailed")
+)
+by_item$summaries
+```
+
+`fg_turns()` gives the turn table the summaries read, with no model call:
+each message's guide item, handle, and length, and how the speaker came to
+have the floor. An imported transcript has no routing record, so every link
+is `"sequence"`.
+
+```{r turns}
+fg_turns(imported)[, c("message_id", "item", "speaker_id", "handle", "words", "link")]
+```
+
 ## Replay a session
 
 `fg_player()` writes a session to a self-contained HTML file that steps

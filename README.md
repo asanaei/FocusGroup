@@ -291,6 +291,48 @@ install.packages(c(
 FocusGroup does not export specialized report constructors. `LLMR::report()`
 is the ecosystem reporting entry point.
 
+## Summarize a discussion
+
+`summarize_focus_group()` asks a model to summarize a session, a set of arms,
+or an imported transcript by participant, guide item, disagreement,
+trajectory, turn, or the whole session. The lengths `"headline"`, `"brief"`,
+and `"detailed"` that you request come back from one call per unit, so they
+agree with each other.
+
+```r
+summaries <- summarize_focus_group(
+  result, config,
+  by = "participant",
+  compression = c("headline", "brief")
+)
+summaries$summaries  # one row per unit and length
+summaries$claims     # each claim kept, with its status and evidence
+summaries$quotes     # each quote, cut from the message it cites
+```
+
+The model returns claims as JSON, not prose. Each claim has a status
+(`"stated"`, `"implied"`, `"contradictory"`, or `"not_stated"`), the messages
+it rests on, and any words it quotes, and each is checked in code before
+prose is rendered from it. A cited message must exist and lie within the
+unit, and its speaker must be the one the claim names. A quote must appear in
+the cited message, allowing only for differences of case, whitespace, and
+quotation marks. A claim for the whole group must cite every participant who
+spoke on the item, and a silent participant can only be reported as silent.
+A reply that fails is sent back once with each failure stated. A second
+failure stops with an error of class `focusgroup_summary_check_failure` that
+carries the units already completed; `on_fail = "drop"` sets the failing
+claims aside instead, unless they report a disagreement, a position held
+alone, or a change.
+
+The summarizing model sees handles, never user IDs: the speakers of an
+imported transcript reach it as P1, P2, and so on, in the speaker labels and
+inside the messages. It never sees personas or
+the System row, and it sees private probe answers only with
+`include_probes = TRUE`. Calls are recorded in the summary's `calls` table,
+apart from the session's records, and an estimate above `max_calls` stops the
+run before any call unless `confirm = TRUE`. `fg_turns()` returns the turn
+table the summaries read, with no model call.
+
 ## Replay a session in the browser
 
 `fg_player()` writes a finished session to one HTML file that replays it
