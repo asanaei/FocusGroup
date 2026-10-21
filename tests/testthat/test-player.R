@@ -277,8 +277,13 @@ test_that("round robin, probabilistic, and desire-based sessions build", {
   page <- .player_build(prob)
   .player_check_steps(prob, page$payload)
   panels <- .player_check_scores(prob, page$payload)
-  expect_true(length(panels) > 0L)
-  expect_identical(unique(vapply(panels, `[[`, character(1), "scale")), "chance")
+  scales <- vapply(panels, `[[`, character(1), "scale")
+  expect_identical(sum(scales == "chance"), sum(prob$routing$rule == "propensity_draw"))
+  expect_true(sum(scales == "chance") > 0L)
+  # Turns given by the moderator (call-ons, addressed turns) carry no chances.
+  expect_identical(sum(scales == "none"),
+                   sum(prob$routing$rule %in% c("called_on", "addressed")))
+  expect_true(all(scales %in% c("chance", "none")))
 
   desire <- .player_run("desire_based")
   page <- .player_build(desire)

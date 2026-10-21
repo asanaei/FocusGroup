@@ -1,3 +1,140 @@
+# FocusGroup 0.5.5
+
+## Calling on silent participants
+
+* The moderator now calls on participants who have not spoken. The new
+  argument `call_on_silent` of `run_focus_group()`, `run_focus_group_arms()`,
+  and `FocusGroup$new()` defaults to `c("opening", "midpoint", "end")`: after
+  the discussion of the first, the middle, and the last discussion item
+  (items 2, 4, and 7 of the default guide), each participant who has not
+  spoken since the previous such point is asked by name, one at a time, with a
+  fixed line (`call_on_text`) and no model call, and answers next. The first
+  point follows the round-robin opening question of Krueger (2002),
+  *Designing and Conducting Focus Group Interviews*. `"none"` turns call-ons
+  off; guide item numbers choose other points. Called-on replies need no
+  desire score and are recorded with the routing rule `"called_on"` and the
+  `trigger_message_id` of the call-on line. Sessions under the default
+  settings therefore contain more turns than under 0.5.4.
+
+* The call estimate counts one reply per participant at each call-on point.
+  The default session plans 111 model outputs (93 without call-ons), and the
+  default `max_calls` rises from 100 to 120. The Studio's plan counts the same
+  reserve.
+
+## Neutral handles
+
+* Agents no longer see the IDs a user gives them. Every prompt shows
+  participants as P1, P2, ... and the moderator as "Moderator", and each
+  participant is told its own handle ("In this discussion you are P3."). This
+  covers history lines, the roster line, moderator placeholders, desire and
+  probe prompts, and the interim summary that agents read. The records keep
+  the IDs; the transcript and `participants` gain a `handle` column and the
+  metadata a `handles` table. `handles = "ids"` shows the IDs, with a message;
+  a named vector sets handles of your own. `focus_group_from_transcript()`
+  keeps the speakers' own labels.
+
+* `FocusGroup$new()` now requires the names of `agents` to equal the agents'
+  IDs.
+
+* Identifier columns (`id`, `respondent_id`, `persona_id`) are no longer
+  rendered into persona text; they stay in `source_ids` and are reported as
+  dropped. `create_agents_from_survey(survey_vars = NULL)` leaves out a
+  variable that looks like a case ID, with a message.
+
+* `moderator_opening` no longer asks participants for their participant ID,
+  and `moderator_probing_focused` no longer names the first participant in
+  the roster.
+
+## Speaker selection
+
+* Under `"desire_based"` turn-taking, the participant who closed one question
+  could not open the next, because the previous-speaker exclusion outlived the
+  moderator's line. The new `ConversationFlow$note_moderator_turn()` clears
+  it whenever the moderator speaks, so the exclusion bars only back-to-back
+  participant turns.
+
+* A moderator line whose last question opens or closes with one participant's
+  handle ("P3, do you agree?", "Could you say more, P4?") gives that
+  participant the next turn, recorded with the rule `"addressed"`. The flow
+  used to choose, so someone else could answer. A line that names several
+  participants or asks the whole group addresses no one.
+
+* Round robin passes over a participant who has just answered the moderator,
+  so no one speaks twice in a row.
+
+## Session player
+
+* New `fg_player()` writes a finished session to one self-contained HTML file
+  that replays it step by step, for a talk or a check by eye: a title page,
+  one page per participant with the persona as sent, then every logged
+  message in order. Before each turn it shows the speaker-selection record:
+  desire scores with the previous speaker marked as not asked and tie draws
+  stated, probabilistic chances, call-ons, and addressed turns. Private
+  answers appear where they were asked, and an end page gives turns per
+  participant and the final summary. `mode = "static"` shows every step at
+  once, and the result of `run_focus_group_arms()` gives one file per arm.
+  The page is built from the records alone, calls no model, and makes no
+  network request; a missing record stops with an error naming it.
+
+* The package includes `inst/extdata/player-session.rds`, a synthetic session
+  made with a scripted runner, for trying `fg_player()` offline.
+
+## Summaries at several levels
+
+* New `summarize_focus_group()` summarizes a session, branched arms, or an
+  imported transcript by participant, guide item, disagreement, trajectory,
+  turn, or whole session, at the lengths `"headline"`, `"brief"`, and
+  `"detailed"`, which come back together from one call per unit. The model
+  returns claims as JSON, and prose is rendered only from claims that pass
+  checks run in code: cited messages exist, lie in the unit, and come from the
+  speakers named; quotes are verbatim up to case, whitespace, and quotation
+  marks; wording that speaks for the whole group must cite every participant
+  who spoke; silent participants can be reported only as silent; private
+  probe wording may not appear unless `include_probes = TRUE`. A reply that
+  fails is sent back once with each failure stated; a second failure raises
+  `focusgroup_summary_check_failure` with the checks, the raw replies, and the
+  partial summary. `on_fail = "drop"` sets failing claims aside unless they
+  report dissent or change. The summarizing model sees handles, never user
+  IDs or personas. Calls are recorded in the summary's own `calls` table and
+  checked against `max_calls`.
+
+* New `fg_turns()` returns the turn table of a session without a model call:
+  each message's guide item, handle, injection status and visibility,
+  routing rule, and whether the speaker was addressed, called on, or followed
+  the previous message.
+
+* `get_default_prompt_templates()` gains `summary_participant`,
+  `summary_item`, `summary_disagreements`, `summary_trajectory`,
+  `summary_turn`, `summary_session`, and `summary_reask`.
+
+## Other changes
+
+* `final_summary = FALSE` in `run_focus_group()`, `run_focus_group_arms()`,
+  and `run_simulation()` skips the final summary call and lowers the estimate
+  by one per arm.
+
+* A new point `"before_closing"` for `fg_probe()` and `fg_injection()` comes
+  after the last discussion item and before the closing line; `"end"` comes
+  after the closing line.
+
+* A label a speaker writes for itself at the start of a reply (`**MOD:**`,
+  `P3:`) is removed, and the message is flagged with `self_label_removed`; the
+  raw reply stays in `calls`.
+
+* Every message records its guide item (`item`); routing gains
+  `trigger_message_id`; `analyze_participation_balance()` gains `called_on`.
+
+* `summarize()` labels speakers by handle, with the ID beside it in the final
+  summary when the two differ, and leaves out the roster line; it stops when
+  there is nothing to summarize instead of returning a sentence that reads as
+  a summary; and it calls the provider unless given a `.runner`, instead of
+  reusing the runner of the session.
+
+* Message ids follow the largest id in the log, so an imported log with gaps
+  never gets a duplicate id.
+
+* `jsonlite` is now imported, by `fg_player()` and `summarize_focus_group()`.
+
 # FocusGroup 0.5.4
 
 ## Personas from survey records

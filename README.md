@@ -367,9 +367,11 @@ session <- readRDS(system.file("extdata", "player-session.rds",
 fg_player(session)
 ```
 
-![A step of the replayed bundled session: an injected comment from a guest
-expert, two panels of desire scores, one with a tie drawn at random, and the
-reply of the participant chosen.](man/figures/player.png)
+![A step of the replayed bundled session: at the end of the first question
+the moderator calls on P2 and then P4, who had not spoken; each call-on line
+is followed by a panel saying that the participant was called on by name and
+no desire scores were asked, and then by that participant's
+reply.](man/figures/player.png)
 
 ## Use Focus Studio
 

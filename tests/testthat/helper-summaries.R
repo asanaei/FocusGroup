@@ -6,9 +6,12 @@
 .sum_config <- function() LLMR::llm_config("openai", "example-model")
 
 # A session whose participants give distinct replies, so that quotes can be
-# told apart.
+# told apart. By default it has no call-ons and none of the 0.5.5 record
+# fields, as a result made by FocusGroup 0.5.4 would; `.sum_contract()` adds
+# the fields where a test needs them. `engine_fields = TRUE` keeps the result
+# exactly as the current engine made it.
 .sum_session <- function(n = 3, guide = c(Opening = 1, Engagement = 2, Closing = 1),
-                         ...) {
+                         ..., engine_fields = FALSE) {
   count <- 0L
   lines <- c("Evening hours matter most to working parents like me.",
              "I disagree, the mornings are when retirees can come in.",
@@ -33,9 +36,23 @@
     }
     experiments
   }
-  run_focus_group("library hours", .sum_config(), n_participants = n, guide = guide,
-                  flow = "round_robin", max_participant_responses = 2,
-                  verbose = FALSE, .runner = runner, ...)
+  args <- list(...)
+  if (!engine_fields && is.null(args$call_on_silent)) args$call_on_silent <- "none"
+  result <- do.call(run_focus_group, c(
+    list("library hours", .sum_config(), n_participants = n, guide = guide,
+         flow = "round_robin", max_participant_responses = 2,
+         verbose = FALSE, .runner = runner), args))
+  if (engine_fields) result else .sum_strip_fields(result)
+}
+
+# A result without the 0.5.5 record fields.
+.sum_strip_fields <- function(result) {
+  result$transcript$handle <- NULL
+  result$transcript$item <- NULL
+  result$routing$trigger_message_id <- NULL
+  result$participants$handle <- NULL
+  result$metadata$handles <- NULL
+  result
 }
 
 # The 0.5.5 record fields of the contract, added to a result made by the

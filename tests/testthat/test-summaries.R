@@ -947,3 +947,21 @@ test_that("the summary records its calls apart from the session", {
   expect_match(printed[1], "<focus_group_summary>", fixed = TRUE)
   expect_true(any(grepl("^P1: P1 spoke about the hours", printed)))
 })
+
+test_that("a session from the current engine is summarized with its own handles, items, and call-ons", {
+  result <- .sum_session(n = 4, engine_fields = TRUE)
+  expect_true(all(c("handle", "item") %in% names(result$transcript)))
+  expect_true(any(result$routing$rule == "called_on"))
+  turns <- fg_turns(result)
+  called <- turns[turns$link == "called_on", ]
+  expect_identical(nrow(called), sum(result$routing$rule == "called_on"))
+  # Each called turn links to the moderator line that named the participant.
+  trigger <- result$transcript[match(called$trigger_message_id, result$transcript$message_id), ]
+  expect_true(all(trigger$is_moderator))
+  expect_true(all(mapply(grepl, called$handle, trigger$text, fixed = TRUE)))
+  stub <- .sum_runner()
+  out <- summarize_focus_group(result, .sum_config(), by = "participant", .runner = stub$runner)
+  expect_true(all(out$checks$passed))
+  expect_identical(nrow(out$calls), 4L)
+  expect_false(any(grepl("\\bMOD\\b", stub$prompts)))
+})
