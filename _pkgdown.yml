@@ -58,6 +58,10 @@ reference:
       - focus_group_from_transcript
       - analyze_focus_group
 
+  - title: Replay a session
+    contents:
+      - fg_player
+
   - title: Graphical study interface
     contents:
       - run_focus_studio

@@ -291,6 +291,44 @@ install.packages(c(
 FocusGroup does not export specialized report constructors. `LLMR::report()`
 is the ecosystem reporting entry point.
 
+## Replay a session in the browser
+
+`fg_player()` writes a finished session to one HTML file that replays it
+step by step, for showing a session in a talk or checking a run by eye. The
+page opens with the design of the session and each participant's persona as
+sent, then shows the messages in order. Under desire-based selection, a
+panel before each turn gives the desire score of every participant asked and
+names the one who took the floor, and under probabilistic selection it gives
+each participant's chance in the draw. A turn that the moderator gave by
+calling on or addressing a participant is marked as such, private answers
+appear where they were asked, and injected comments carry their source. The
+page is built from the session's records and calls no model. Its styles,
+script, and data are inline, so it opens from disk without a network
+connection.
+
+```r
+fg_player(result)
+fg_player(result, file = "session.html", mode = "static", open = FALSE)
+```
+
+The right arrow, the space bar, or a presentation clicker moves forward and
+the left arrow moves back; S shows or hides the selection panels, and F
+fills the screen. `mode = "static"` shows every step at once, for printing
+and archives. For the result of `run_focus_group_arms()`, the function writes
+one file per arm, each holding the shared messages and that arm's
+continuation. The package includes a synthetic session, made with a scripted
+runner, on which the page can be tried without a provider key:
+
+```r
+session <- readRDS(system.file("extdata", "player-session.rds",
+                               package = "FocusGroup"))
+fg_player(session)
+```
+
+![A step of the replayed bundled session: an injected comment from a guest
+expert, two panels of desire scores, one with a tie drawn at random, and the
+reply of the participant chosen.](man/figures/player.png)
+
 ## Use Focus Studio
 
 `run_focus_studio()` starts the optional Shiny interface. Its Run tab starts
