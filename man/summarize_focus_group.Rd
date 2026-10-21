@@ -153,34 +153,58 @@ The transcript, with each message's id and its speaker's handle, the label
 the agents saw. User IDs never reach the model: a speaker whose handle is
 its user ID (an imported transcript, \code{handles = "ids"}, or a session made
 before handles existed) is shown as \code{P1}, \code{P2}, ... in roster order, unless
-that ID already has this form, and the moderator as \code{Moderator}. Names
-inside the messages are left as spoken. Personas are never sent, nor is the
-System roster row. Injected messages are marked as injected, and those
-shown to participants only are marked as such. Private probe answers are
-sent only with \code{include_probes = TRUE}, as a separate block with ids \code{Q1},
-\code{Q2}, ...
+that ID already has this form or another voice uses it, and the moderator
+as \code{Moderator}. Inside the messages, too, each user ID or name with such a
+label is replaced by the label wherever it stands as a whole word with the
+same case ("Ana, why evenings?" reaches the model as "P1, why
+evenings?"); names without a letter or shorter than 2 characters are left
+as written. Personas are never sent, nor is the System roster row.
+Injected messages are marked as injected, and those shown to participants
+only are marked as such. Private probe answers are sent only with
+\code{include_probes = TRUE}, as a separate block with ids \code{Q1}, \code{Q2}, ...
 }
 
 \section{Checks}{
 
 Each reply is checked in code, with no model involved. The JSON must parse
-(code fences are removed, and only the final answer counts, so reasoning
-a model writes into its reply is ignored) and the reply must not have been
+(the reply is the first complete JSON object with a \code{claims} field, in a
+code block or in the text; only the final answer counts, so reasoning a
+model writes into its reply is ignored) and the reply must not have been
 cut off at the token limit. Every message a claim cites must exist, lie
 within the unit, and not be the System row. The messages given as evidence
 must be by the speakers the claim names, and a claim other than
-\code{"not_stated"} must cite at least one message by each speaker it names. A
-quote must appear in the cited message, ignoring only differences of case,
-whitespace, and quotation marks; it must have at least 3 words and start
-and end on word boundaries, and the parts of a quote joined by \code{"..."} must
-appear in order in the same message. A claim of change must cite two
-messages of one speaker, earlier first. Every participant, every guide
-item, or every message must be covered, as the unit requires. Every handle
-of the form \code{P} and a number in a claim must be on the roster. A claim that
-speaks for the whole group ("everyone", "all of them", "consensus",
-"unanimous", and similar wording) must cite a message from every
-participant who spoke on each item it cites. Unless \code{include_probes = TRUE}, no claim may share a run of 6 words with a probe answer that does
-not also occur in the transcript.
+\code{"not_stated"} must cite at least one message by each speaker it names.
+
+A quote must appear in the text the model saw of the cited message,
+ignoring only differences of case, whitespace, and quotation marks (and,
+for Persian, the zero-width non-joiner and the Arabic forms of yeh and
+kaf). It must have at least 3 words and start and end on word boundaries,
+an apostrophe or hyphen between letters counting as part of a word. The
+parts of a quote joined by \code{"..."} must appear in order in the same
+message, each with at least 2 words, and the words left out between them
+may not include a negation such as "not" or "n't". Words a claim puts in
+double quotation marks in its text must likewise appear in a message it
+cites as evidence.
+
+A claim of change must cite two messages of one speaker, earlier first.
+Every handle of the form \code{P} and a number in a claim must be on the
+roster; a participant the text names must be among the claim's speakers
+or the speaker of a message it cites as context; a claim that is not
+\code{"not_stated"} may not name a participant with no message in the unit; a
+claim that a participant said nothing fails when that participant spoke;
+and a user ID or name the model was not shown may not appear. A claim that
+speaks for the whole group ("everyone", "all of them", "no one",
+"consensus", "unanimous", "the whole group", and similar wording) must cite
+a message from every participant who spoke on each item it cites. Unless
+\code{include_probes = TRUE}, no claim may share a run of 6 words with a probe
+answer that does not also occur in the transcript.
+
+Coverage is counted over the claims that pass: every participant, every
+participant who spoke on the item, every message, or every stage, as the
+unit requires, and every length asked for. A participant counts as covered
+only by a claim that reports what they said, with a message of theirs as
+evidence. The prose shows the status of a claim that is not \code{"stated"} at
+every length.
 
 A reply that fails is sent back once, with each failure stated (for
 instance, that a quote is not in message 14, followed by the text of
@@ -192,25 +216,30 @@ completed before it). \code{on_fail = "drop"} instead moves the failing claims
 to \code{rejected} and renders the summary from the rest, but still raises the
 error when a dropped claim reports a disagreement, a position held by one
 participant alone, or a change, or when the reply as a whole fails
-(invalid JSON, a cut-off reply, missing lengths, or missing coverage).
+(invalid JSON, a cut-off reply, missing lengths, or coverage that the
+claims kept do not give).
 }
 
 \section{Calls and structured output}{
 
 Calls are made one at a time, with call types \code{"summary_<by>"}, and are
 recorded in the \code{calls} component of the result, never in the session's
-records. The estimate checked against \code{max_calls} counts one re-ask per
-unit, an upper bound. A unit whose prompt is longer than the prompt window
-(64,000 estimated tokens) stops the run before any call, with an error of
-class \code{focusgroup_summary_input_too_long}; \code{by = "item"} sends one guide
-item at a time. When the installed LLMR provides
-\code{\link[LLMR:enable_structured_output]{LLMR::enable_structured_output()}}, the request also carries the JSON
-schema of the reply, unless the configuration already sets a response
-format; set \code{options(focusgroup.summary_structured_output = FALSE)} for a
-model that rejects a schema. Without it, the format is stated in the
-prompt alone. Either way every reply is validated locally. The schema and
-the mode are recorded in \code{metadata$structured_output}. No temperature or
-seed is set.
+records; the random-number state is the same after the call as before.
+The estimate checked against \code{max_calls} counts one re-ask per unit, an
+upper bound. A unit whose prompt is longer than the prompt window (64,000
+estimated tokens, counting bytes for text outside ASCII) stops the run
+before any call, with an error of class
+\code{focusgroup_summary_input_too_long}; \code{by = "item"} sends one guide item at
+a time. The token limit is written into the field the configuration uses
+(\code{max_completion_tokens}, \code{max_output_tokens}, or \code{max_tokens}). When the
+installed LLMR provides \code{\link[LLMR:enable_structured_output]{LLMR::enable_structured_output()}}, the request
+also carries the JSON schema of the reply, unless the configuration already
+sets a response format or is an Anthropic configuration with thinking
+enabled, which cannot take a forced tool call; set
+\code{options(focusgroup.summary_structured_output = FALSE)} for a model that
+rejects a schema. Otherwise the format is stated in the prompt alone.
+Either way every reply is validated locally. The schema and the mode are
+recorded in \code{metadata$structured_output}. No temperature or seed is set.
 }
 
 \examples{

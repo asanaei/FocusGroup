@@ -86,33 +86,56 @@
 #' the agents saw. User IDs never reach the model: a speaker whose handle is
 #' its user ID (an imported transcript, `handles = "ids"`, or a session made
 #' before handles existed) is shown as `P1`, `P2`, ... in roster order, unless
-#' that ID already has this form, and the moderator as `Moderator`. Names
-#' inside the messages are left as spoken. Personas are never sent, nor is the
-#' System roster row. Injected messages are marked as injected, and those
-#' shown to participants only are marked as such. Private probe answers are
-#' sent only with `include_probes = TRUE`, as a separate block with ids `Q1`,
-#' `Q2`, ...
+#' that ID already has this form or another voice uses it, and the moderator
+#' as `Moderator`. Inside the messages, too, each user ID or name with such a
+#' label is replaced by the label wherever it stands as a whole word with the
+#' same case ("Ana, why evenings?" reaches the model as "P1, why
+#' evenings?"); names without a letter or shorter than 2 characters are left
+#' as written. Personas are never sent, nor is the System roster row.
+#' Injected messages are marked as injected, and those shown to participants
+#' only are marked as such. Private probe answers are sent only with
+#' `include_probes = TRUE`, as a separate block with ids `Q1`, `Q2`, ...
 #'
 #' @section Checks:
 #' Each reply is checked in code, with no model involved. The JSON must parse
-#' (code fences are removed, and only the final answer counts, so reasoning
-#' a model writes into its reply is ignored) and the reply must not have been
+#' (the reply is the first complete JSON object with a `claims` field, in a
+#' code block or in the text; only the final answer counts, so reasoning a
+#' model writes into its reply is ignored) and the reply must not have been
 #' cut off at the token limit. Every message a claim cites must exist, lie
 #' within the unit, and not be the System row. The messages given as evidence
 #' must be by the speakers the claim names, and a claim other than
-#' `"not_stated"` must cite at least one message by each speaker it names. A
-#' quote must appear in the cited message, ignoring only differences of case,
-#' whitespace, and quotation marks; it must have at least 3 words and start
-#' and end on word boundaries, and the parts of a quote joined by `"..."` must
-#' appear in order in the same message. A claim of change must cite two
-#' messages of one speaker, earlier first. Every participant, every guide
-#' item, or every message must be covered, as the unit requires. Every handle
-#' of the form `P` and a number in a claim must be on the roster. A claim that
-#' speaks for the whole group ("everyone", "all of them", "consensus",
-#' "unanimous", and similar wording) must cite a message from every
-#' participant who spoke on each item it cites. Unless `include_probes =
-#' TRUE`, no claim may share a run of 6 words with a probe answer that does
-#' not also occur in the transcript.
+#' `"not_stated"` must cite at least one message by each speaker it names.
+#'
+#' A quote must appear in the text the model saw of the cited message,
+#' ignoring only differences of case, whitespace, and quotation marks (and,
+#' for Persian, the zero-width non-joiner and the Arabic forms of yeh and
+#' kaf). It must have at least 3 words and start and end on word boundaries,
+#' an apostrophe or hyphen between letters counting as part of a word. The
+#' parts of a quote joined by `"..."` must appear in order in the same
+#' message, each with at least 2 words, and the words left out between them
+#' may not include a negation such as "not" or "n't". Words a claim puts in
+#' double quotation marks in its text must likewise appear in a message it
+#' cites as evidence.
+#'
+#' A claim of change must cite two messages of one speaker, earlier first.
+#' Every handle of the form `P` and a number in a claim must be on the
+#' roster; a participant the text names must be among the claim's speakers
+#' or the speaker of a message it cites as context; a claim that is not
+#' `"not_stated"` may not name a participant with no message in the unit; a
+#' claim that a participant said nothing fails when that participant spoke;
+#' and a user ID or name the model was not shown may not appear. A claim that
+#' speaks for the whole group ("everyone", "all of them", "no one",
+#' "consensus", "unanimous", "the whole group", and similar wording) must cite
+#' a message from every participant who spoke on each item it cites. Unless
+#' `include_probes = TRUE`, no claim may share a run of 6 words with a probe
+#' answer that does not also occur in the transcript.
+#'
+#' Coverage is counted over the claims that pass: every participant, every
+#' participant who spoke on the item, every message, or every stage, as the
+#' unit requires, and every length asked for. A participant counts as covered
+#' only by a claim that reports what they said, with a message of theirs as
+#' evidence. The prose shows the status of a claim that is not `"stated"` at
+#' every length.
 #'
 #' A reply that fails is sent back once, with each failure stated (for
 #' instance, that a quote is not in message 14, followed by the text of
@@ -125,23 +148,28 @@
 #' to `rejected` and renders the summary from the rest, but still raises the
 #' error when a dropped claim reports a disagreement, a position held by one
 #' participant alone, or a change, or when the reply as a whole fails
-#' (invalid JSON, a cut-off reply, missing lengths, or missing coverage).
+#' (invalid JSON, a cut-off reply, missing lengths, or coverage that the
+#' claims kept do not give).
 #'
 #' @section Calls and structured output:
 #' Calls are made one at a time, with call types `"summary_<by>"`, and are
 #' recorded in the `calls` component of the result, never in the session's
-#' records. The estimate checked against `max_calls` counts one re-ask per
-#' unit, an upper bound. A unit whose prompt is longer than the prompt window
-#' (64,000 estimated tokens) stops the run before any call, with an error of
-#' class `focusgroup_summary_input_too_long`; `by = "item"` sends one guide
-#' item at a time. When the installed LLMR provides
-#' [LLMR::enable_structured_output()], the request also carries the JSON
-#' schema of the reply, unless the configuration already sets a response
-#' format; set `options(focusgroup.summary_structured_output = FALSE)` for a
-#' model that rejects a schema. Without it, the format is stated in the
-#' prompt alone. Either way every reply is validated locally. The schema and
-#' the mode are recorded in `metadata$structured_output`. No temperature or
-#' seed is set.
+#' records; the random-number state is the same after the call as before.
+#' The estimate checked against `max_calls` counts one re-ask per unit, an
+#' upper bound. A unit whose prompt is longer than the prompt window (64,000
+#' estimated tokens, counting bytes for text outside ASCII) stops the run
+#' before any call, with an error of class
+#' `focusgroup_summary_input_too_long`; `by = "item"` sends one guide item at
+#' a time. The token limit is written into the field the configuration uses
+#' (`max_completion_tokens`, `max_output_tokens`, or `max_tokens`). When the
+#' installed LLMR provides [LLMR::enable_structured_output()], the request
+#' also carries the JSON schema of the reply, unless the configuration already
+#' sets a response format or is an Anthropic configuration with thinking
+#' enabled, which cannot take a forced tool call; set
+#' `options(focusgroup.summary_structured_output = FALSE)` for a model that
+#' rejects a schema. Otherwise the format is stated in the prompt alone.
+#' Either way every reply is validated locally. The schema and the mode are
+#' recorded in `metadata$structured_output`. No temperature or seed is set.
 #'
 #' @param x A `focus_group_result` from [run_focus_group()], a
 #'   `focus_group_arms` object from [run_focus_group_arms()], or a
@@ -299,7 +327,8 @@ summarize_focus_group <- function(x, config, by = "participant",
 
   # The prompt window and the budget are checked before any call.
   for (unit in called) {
-    tokens <- estimate_tokens(unit$prompt)
+    # Characters outside ASCII take more tokens; bytes bound them better.
+    tokens <- max(estimate_tokens(unit$prompt), ceiling(nchar(unit$prompt, "bytes") / 4))
     if (tokens > .fg_prompt_window_tokens) {
       advice <- if (by %in% c("item", "turn")) {
         "A single guide item is too long to send; shorten the transcript before summarizing it."
@@ -409,7 +438,12 @@ summarize_focus_group <- function(x, config, by = "participant",
     }
     outcomes[[i]] <- run
   }
-  build()
+  tryCatch(build(), error = function(e) {
+    rlang::abort(paste("The summary could not be assembled from its replies:",
+                       conditionMessage(e)),
+                 class = "focusgroup_summary_build_failure",
+                 calls = .fg_calls_data(store$calls), parent = e)
+  })
 }
 
 #' Turn Table of a Discussion
@@ -639,9 +673,10 @@ fg_turns <- function(x) {
 # speaker's user ID is what the agents saw and is kept. Where the handle is
 # the user ID itself, the moderator is "Moderator" and a participant keeps an
 # ID of the form P1, P2, ... and is otherwise given the next free one, in
-# roster order, so that no user ID reaches the model. Injection voices keep
-# their label.
-.fg_summary_labels <- function(roster) {
+# roster order, so that no user ID reaches the model. `reserved` holds the
+# names of other voices, such as an injection's sender, which keep their
+# label and which no new label may take.
+.fg_summary_labels <- function(roster, reserved = character()) {
   label <- roster$handle
   own <- is.na(label) | label == roster$id
   label[roster$is_moderator & own] <- "Moderator"
@@ -649,7 +684,7 @@ fg_turns <- function(x) {
   neutral <- grepl("^P[0-9]+$", roster$id)
   keep <- participants[own[participants] & neutral[participants]]
   label[keep] <- roster$id[keep]
-  taken <- label[!is.na(label) & !(own & !roster$is_moderator & !neutral)]
+  taken <- c(label[!is.na(label) & !(own & !roster$is_moderator & !neutral)], reserved)
   k <- 0L
   for (i in participants[own[participants] & !neutral[participants]]) {
     repeat {
@@ -660,19 +695,76 @@ fg_turns <- function(x) {
     label[i] <- candidate
     taken <- c(taken, candidate)
   }
-  if (anyDuplicated(label)) {
-    stop("Two speakers share the label ", label[duplicated(label)][1],
+  clash <- c(label[duplicated(label)], intersect(label, reserved))
+  if (length(clash)) {
+    stop("Two speakers would share the label ", clash[1],
          "; give them distinct handles.", call. = FALSE)
   }
   label
 }
 
+# The text the model sees: every whole-word occurrence, matching case, of a
+# speaker's user ID or handle that differs from the label the model sees is
+# replaced by that label. `start` and `end` give, for each character of the
+# new text, the span of the original text it stands for, so that a quote
+# found in the new text can be cut from the original. Names without a letter
+# or shorter than 2 characters are left alone.
+.fg_relabel_text <- function(text, map) {
+  n <- nchar(text)
+  same <- list(text = text, start = seq_len(n), end = seq_len(n))
+  if (!length(map) || !n) return(same)
+  keys <- names(map)[order(-nchar(names(map)))]
+  pattern <- paste0("(?<![\\p{L}\\p{N}_])(?:",
+                    paste0("\\Q", keys, "\\E", collapse = "|"),
+                    ")(?![\\p{L}\\p{N}_])")
+  hits <- gregexpr(pattern, text, perl = TRUE)[[1]]
+  if (hits[1] == -1L) return(same)
+  lengths <- attr(hits, "match.length")
+  pieces <- character()
+  start <- integer()
+  end <- integer()
+  position <- 1L
+  for (i in seq_along(hits)) {
+    h <- as.integer(hits[i])
+    e <- h + lengths[i] - 1L
+    if (h > position) {
+      pieces <- c(pieces, substr(text, position, h - 1L))
+      start <- c(start, position:(h - 1L))
+      end <- c(end, position:(h - 1L))
+    }
+    label <- map[[substr(text, h, e)]]
+    pieces <- c(pieces, label)
+    start <- c(start, rep(h, nchar(label)))
+    end <- c(end, rep(e, nchar(label)))
+    position <- e + 1L
+  }
+  if (position <= n) {
+    pieces <- c(pieces, substr(text, position, n))
+    start <- c(start, position:n)
+    end <- c(end, position:n)
+  }
+  list(text = paste(pieces, collapse = ""), start = start, end = end)
+}
+
+# The names to replace in text: user IDs and handles that differ from the
+# label the model sees.
+.fg_relabel_map <- function(handles) {
+  names <- c(handles$speaker_id, handles$handle)
+  labels <- c(handles$label, handles$label)
+  keep <- !is.na(names) & names != labels & names != "System" & nchar(names) >= 2L &
+    grepl("\\p{L}", names, perl = TRUE)
+  map <- labels[keep]
+  names(map) <- names[keep]
+  map[!duplicated(names(map))]
+}
+
 # One segment: the rows of a session in it, with the labels, roster, routing,
-# and probes for those rows.
+# and probes for those rows, and the text the model sees.
 .fg_source_segment <- function(session, name, arm, rows, probes, note = NULL) {
   roster <- session$roster
-  roster$label <- .fg_summary_labels(roster)
   transcript <- session$transcript
+  others_all <- setdiff(unique(transcript$speaker_id[!transcript$system]), roster$id)
+  roster$label <- .fg_summary_labels(roster, reserved = others_all)
   label <- roster$label[match(transcript$speaker_id, roster$id)]
   label[is.na(label)] <- transcript$handle[is.na(label)]
   label[transcript$system] <- "System"
@@ -681,6 +773,19 @@ fg_turns <- function(x) {
     ifelse(transcript$speaker_id %in% roster$id[!roster$is_moderator] &
              !transcript$is_moderator, "participant",
            ifelse(transcript$is_moderator, "moderator", "other")))
+  kept_rows <- rows
+  others <- unique(transcript$speaker_id[kept_rows][transcript$role[kept_rows] == "other"])
+  handles <- data.frame(
+    speaker_id = c(roster$id, others),
+    handle = c(ifelse(is.na(roster$handle), roster$id, roster$handle),
+               transcript$handle[match(others, transcript$speaker_id)]),
+    label = c(roster$label, transcript$label[match(others, transcript$speaker_id)]),
+    role = c(ifelse(roster$is_moderator, "moderator", "participant"),
+             rep("other", length(others))),
+    stringsAsFactors = FALSE)
+  map <- .fg_relabel_map(handles)
+  shown <- lapply(transcript$text, .fg_relabel_text, map = map)
+  transcript$shown <- vapply(shown, `[[`, character(1), "text")
   kept <- transcript[rows, , drop = FALSE]
   routing <- session$routing
   routing <- routing[!is.na(routing$message_id) &
@@ -689,18 +794,13 @@ fg_turns <- function(x) {
   probes$label <- roster$label[match(probes$agent_id, roster$id)]
   probes$label[is.na(probes$label)] <- probes$agent_id[is.na(probes$label)]
   probes$key <- if (nrow(probes)) paste0("Q", seq_len(nrow(probes))) else character()
-  others <- unique(kept$speaker_id[kept$role == "other"])
-  handles <- data.frame(
-    speaker_id = c(roster$id, others),
-    handle = c(ifelse(is.na(roster$handle), roster$id, roster$handle),
-               kept$handle[match(others, kept$speaker_id)]),
-    label = c(roster$label, kept$label[match(others, kept$speaker_id)]),
-    role = c(ifelse(roster$is_moderator, "moderator", "participant"),
-             rep("other", length(others))),
-    stringsAsFactors = FALSE)
+  probe_shown <- lapply(as.character(probes$answer), .fg_relabel_text, map = map)
+  probes$shown <- vapply(probe_shown, `[[`, character(1), "text")
   list(name = name, arm = arm, all = transcript, transcript = kept,
        roster = roster, routing = routing, probes = probes,
-       topic = session$topic, note = note, handles = handles)
+       topic = session$topic, note = note, handles = handles, relabel = map,
+       maps = stats::setNames(shown, as.character(transcript$message_id)),
+       probe_maps = stats::setNames(probe_shown, probes$key))
 }
 
 # The turn table of one segment.
@@ -732,35 +832,37 @@ fg_turns <- function(x) {
   out
 }
 
-.fg_word_count <- function(text) {
-  vapply(text, function(t) {
-    length(regmatches(t, gregexpr("[\\p{L}\\p{N}]+", t, perl = TRUE))[[1]])
-  }, integer(1), USE.NAMES = FALSE)
-}
-
 # ---- The units and their prompts ------------------------------------------------
 
-# What the checks of a segment need: the messages with their labels, the ids
-# that exist, and the probe answers.
+# What the checks of a segment need: the messages with their labels and the
+# text the model sees, the ids that exist, and the probe answers.
 .fg_summary_context <- function(segment, source, include_probes) {
   all <- segment$all
   msgs <- segment$transcript[!segment$transcript$system, , drop = FALSE]
+  msgs$original <- msgs$text
+  msgs$text <- msgs$shown
   ids <- as.character(all$message_id)
+  probes <- segment$probes
   list(
     msgs = msgs,
     all_ids = all$message_id,
     system_ids = all$message_id[all$system],
     label_of = stats::setNames(all$label, ids),
-    text_of = stats::setNames(all$text, ids),
+    text_of = stats::setNames(all$shown, ids),
+    original_of = stats::setNames(all$text, ids),
+    maps = segment$maps,
     item_of = stats::setNames(all$item, ids),
     role_of = stats::setNames(all$role, ids),
     participant_labels = segment$roster$label[!segment$roster$is_moderator],
     speaker_labels = unique(c(segment$roster$label, msgs$label)),
     label_to_id = stats::setNames(segment$handles$speaker_id, segment$handles$label),
-    probes = segment$probes,
+    relabel = segment$relabel,
+    probes = probes,
+    probe_maps = segment$probe_maps,
     include_probes = include_probes,
-    transcript_ngrams = source$transcript_ngrams,
-    probe_ngrams = source$probe_ngrams)
+    transcript_ngrams = unique(c(source$transcript_ngrams,
+                                 unlist(lapply(all$shown[!all$system], .fg_ngrams)))),
+    probe_ngrams = unique(c(source$probe_ngrams, unlist(lapply(probes$shown, .fg_ngrams)))))
 }
 
 # Every unit of the summary, with its prompt; units that need no call (a
@@ -886,14 +988,29 @@ fg_turns <- function(x) {
   if (identical(level, "headline")) stages$thirds else stages$items
 }
 
-# The default token limit of a unit's reply.
+# The token-limit fields a configuration may carry, in the order a provider
+# reads them; the summary writes its limit into those the configuration
+# uses, or into `max_tokens`.
+.fg_token_keys <- c("max_completion_tokens", "max_output_tokens", "max_tokens")
+
+.fg_token_key <- function(config) {
+  keys <- intersect(.fg_token_keys, names(config$model_params %||% list()))
+  if (length(keys)) keys else "max_tokens"
+}
+
+# The default token limit of a unit's reply. A thinking budget the
+# configuration sets is added, since the reply must fit after it.
 .fg_summary_max_tokens <- function(unit, max_tokens, config) {
   if (!is.null(max_tokens)) return(as.integer(max_tokens))
-  configured <- config$model_params$max_tokens
+  configured <- config$model_params[[.fg_token_key(config)[1]]]
   if (is.numeric(configured) && length(configured) == 1L && !is.na(configured)) {
     return(as.integer(configured))
   }
   base <- c(headline = 1000L, brief = 2000L, detailed = 3000L)[[unit$levels[length(unit$levels)]]]
+  budget <- config$model_params$thinking_budget
+  if (is.numeric(budget) && length(budget) == 1L && !is.na(budget) && budget > 0) {
+    base <- base + as.integer(budget)
+  }
   if (identical(unit$by, "turn")) base <- base + 120L * length(unit$chunk)
   if (identical(unit$by, "trajectory")) {
     base <- base + 300L * (length(unit$stages$thirds) + length(unit$stages$items))
@@ -966,7 +1083,7 @@ fg_turns <- function(x) {
     after <- probes$after_message_id[i]
     sprintf("[%s] %s, asked %s: \"%s\" Answer: %s", probes$key[i], probes$label[i],
             if (is.na(after)) "before the discussion" else sprintf("after message #%d", after),
-            probes$question[i], probes$answer[i])
+            probes$question[i], probes$shown[i])
   }, character(1))
   paste0("\nPrivate probe answers. Each participant answered these questions alone: ",
          "neither the other participants nor the moderator saw the answers, and they ",
@@ -1250,7 +1367,11 @@ fg_turns <- function(x) {
             "response_json_schema", "tools") %in% params)) {
     return(list(config = config, mode = "config"))
   }
-  if (!isTRUE(getOption("focusgroup.summary_structured_output", TRUE)) ||
+  # Anthropic's schema mode forces a tool call, which its API refuses while
+  # extended thinking is on.
+  thinking <- identical(config$provider, "anthropic") &&
+    any(c("thinking", "thinking_budget", "reasoning_effort", "include_thoughts") %in% params)
+  if (!isTRUE(getOption("focusgroup.summary_structured_output", TRUE)) || thinking ||
       !"enable_structured_output" %in% getNamespaceExports("LLMR")) {
     return(list(config = config, mode = "prompt"))
   }
@@ -1289,13 +1410,15 @@ fg_turns <- function(x) {
                  arm = unit$arm, segment = unit$segment, unit = unit$key)
   for (attempt in 1:2) {
     cfg <- config
-    cfg$model_params$max_tokens <- tokens
+    for (key in .fg_token_key(config)) cfg$model_params[[key]] <- tokens
     reply <- .fg_collect_calls({
-      response <- .fg_call_llm(
+      # Retries draw random waits; the caller's random-number stream is left
+      # as it was.
+      response <- withr::with_preserve_seed(.fg_call_llm(
         config = cfg, messages = messages, .runner = .runner,
         tries = 5, wait_seconds = 2, backoff_factor = 3,
         .call = list(type = paste0("summary_", unit$by), agent_id = NA_character_,
-                     attempt = attempt))
+                     attempt = attempt)))
       text <- .fg_response_text(response)
       .fg_note_call(response, cleaned_text = text)
       list(text = text, raw = .fg_raw_text(response),
@@ -1316,27 +1439,70 @@ fg_turns <- function(x) {
 
 # ---- The checks -----------------------------------------------------------------
 
-# Parse a reply's final answer as one JSON object, after removing code
-# fences and any text around the object.
+# The complete JSON objects in a text, outermost first, found by matching
+# braces outside strings. Text around them, and an object cut off before its
+# closing brace, are left out.
+.fg_json_objects <- function(text) {
+  chars <- strsplit(text, "")[[1]]
+  n <- length(chars)
+  out <- character()
+  i <- 1L
+  while (i <= n) {
+    if (chars[i] != "{") {
+      i <- i + 1L
+      next
+    }
+    depth <- 0L
+    in_string <- FALSE
+    escaped <- FALSE
+    j <- i
+    while (j <= n) {
+      ch <- chars[j]
+      if (in_string) {
+        if (escaped) escaped <- FALSE
+        else if (ch == "\\") escaped <- TRUE
+        else if (ch == "\"") in_string <- FALSE
+      } else if (ch == "\"") {
+        in_string <- TRUE
+      } else if (ch == "{") {
+        depth <- depth + 1L
+      } else if (ch == "}") {
+        depth <- depth - 1L
+        if (depth == 0L) break
+      }
+      j <- j + 1L
+    }
+    if (j > n) break
+    out <- c(out, paste(chars[i:j], collapse = ""))
+    i <- j + 1L
+  }
+  out
+}
+
+# Parse a reply's final answer as one JSON object. Fenced code blocks are
+# read first, then the whole text; within each, every complete object in
+# turn, and the first with a "claims" field is the reply.
 .fg_summary_parse <- function(text) {
   value <- trimws(text %||% "")
-  fence <- regmatches(value, regexec("(?s)```[A-Za-z]*\\s*(.*?)```", value, perl = TRUE))[[1]]
-  if (length(fence)) value <- fence[2]
-  start <- regexpr("{", value, fixed = TRUE)
-  ends <- gregexpr("}", value, fixed = TRUE)[[1]]
-  if (start < 0 || ends[1] < 0) {
-    return(list(ok = FALSE, error = "no JSON object was found"))
+  fences <- regmatches(value, gregexpr("(?s)```[A-Za-z]*\\s*(.*?)```", value, perl = TRUE))[[1]]
+  fences <- sub("(?s)^```[A-Za-z]*\\s*(.*?)```$", "\\1", fences, perl = TRUE)
+  first_error <- NULL
+  fallback <- NULL
+  for (candidate in c(fences, value)) {
+    for (object in .fg_json_objects(candidate)) {
+      parsed <- tryCatch(jsonlite::fromJSON(object, simplifyVector = FALSE),
+                         error = function(e) e)
+      if (inherits(parsed, "error")) {
+        first_error <- first_error %||% trimws(gsub("\\s+", " ", conditionMessage(parsed)))
+        next
+      }
+      if (!is.list(parsed) || is.null(names(parsed))) next
+      if ("claims" %in% names(parsed)) return(list(ok = TRUE, value = parsed))
+      fallback <- fallback %||% parsed
+    }
   }
-  value <- substr(value, start, max(ends))
-  parsed <- tryCatch(jsonlite::fromJSON(value, simplifyVector = FALSE),
-                     error = function(e) e)
-  if (inherits(parsed, "error")) {
-    return(list(ok = FALSE, error = trimws(gsub("\\s+", " ", conditionMessage(parsed)))))
-  }
-  if (!is.list(parsed) || is.null(names(parsed))) {
-    return(list(ok = FALSE, error = "the reply is not a JSON object"))
-  }
-  list(ok = TRUE, value = parsed)
+  if (!is.null(fallback)) return(list(ok = TRUE, value = fallback))
+  list(ok = FALSE, error = first_error %||% "no complete JSON object was found")
 }
 
 # A list of message ids, as whole numbers or strings such as "14" or "#14".
@@ -1421,7 +1587,7 @@ fg_turns <- function(x) {
     if (is.list(raw$ending)) {
       mid <- .fg_summary_ids(if (is.null(raw$ending$message_id)) NULL else
         list(raw$ending$message_id), "ending")
-      ending <- list(how = .fg_summary_string(raw$ending$how),
+      ending <- list(how = tolower(.fg_summary_string(raw$ending$how)),
                      message_id = if (length(mid$ids)) mid$ids[1] else NA_integer_)
     } else {
       errors <- c(errors, "`ending` must be an object")
@@ -1467,6 +1633,7 @@ fg_turns <- function(x) {
          failures = unique(failures))
   }
 
+  # A reply cut off at the token limit is incomplete as a whole.
   truncated <- !is.na(finish_reason) && tolower(finish_reason) %in% .fg_finish_truncated
   add(NA, "complete", !truncated, paste(
     "The reply was cut off at the token limit. Give the whole JSON object, with",
@@ -1483,11 +1650,18 @@ fg_turns <- function(x) {
   add(NA, "claims", shape_ok, "`claims` must be a list of claim objects.")
   if (!shape_ok) return(done(TRUE))
   claims <- lapply(seq_along(raw_claims), function(i) .fg_summary_claim(raw_claims[[i]], i))
+  # How a disagreement ended belongs to the disagreements register alone.
+  if (!identical(unit$by, "disagreements")) {
+    claims <- lapply(claims, function(cl) {
+      cl$ending <- NULL
+      cl
+    })
+  }
   claim_ids <- vapply(claims, `[[`, integer(1), "id")
   dup <- unique(claim_ids[!is.na(claim_ids) & duplicated(claim_ids)])
   add(NA, "claim_ids", !length(dup), sprintf(
     "Claim ids must be distinct; %s is used more than once.", paste(dup, collapse = ", ")))
-  fatal <- length(dup) > 0L
+  fatal <- truncated || length(dup) > 0L
 
   quotes <- list()
   for (i in seq_along(claims)) {
@@ -1520,12 +1694,22 @@ fg_turns <- function(x) {
   } else {
     fatal <- TRUE
   }
+  # Coverage counts only the claims that pass, so a gap left by a failing
+  # claim is a failure of the reply as a whole.
   if (!fatal) {
-    covered <- .fg_check_coverage(claims, parsed_levels, unit)
+    passing <- Filter(function(cl) !length(cl$failures), claims)
+    passing_ids <- vapply(passing, `[[`, integer(1), "id")
+    passing_levels <- lapply(parsed_levels, function(ids) ids[ids %in% passing_ids])
+    covered <- .fg_check_coverage(passing, passing_levels, unit)
     for (r in covered) add(NA, r$check, r$passed, r$detail)
     if (!all(vapply(covered, function(r) isTRUE(r$passed), logical(1)))) fatal <- TRUE
   }
   done(fatal, claims, parsed_levels, quotes)
+}
+
+# A pattern matching `label` as a whole word.
+.fg_label_pattern <- function(label) {
+  paste0("(?<![\\p{L}\\p{N}_])\\Q", label, "\\E(?![\\p{L}\\p{N}_])")
 }
 
 # The checks of one claim. Returns the check rows, the failures, and the
@@ -1588,8 +1772,7 @@ fg_turns <- function(x) {
     label, paste(system, collapse = ", ")))
   scope <- unit$scope
   if (identical(by, "trajectory") && unit_ok) {
-    stage <- c(unit$stages$thirds, unit$stages$items)[[claim$unit]]
-    scope <- stage
+    scope <- c(unit$stages$thirds, unit$stages$items)[[claim$unit]]
   }
   outside <- setdiff(cited, c(scope, unknown, system))
   if (identical(by, "trajectory") && length(outside)) {
@@ -1607,6 +1790,10 @@ fg_turns <- function(x) {
     if (identical(by, "trajectory")) paste("stage", claim$unit) else "this unit",
     min(scope), max(scope)))
   valid <- function(ids) ids[ids %in% ctx$all_ids & !ids %in% ctx$system_ids]
+  in_unit <- function(ids) ids[ids %in% unit$scope]
+  # Participants with a message in the unit.
+  spoke_here <- unique(ctx$msgs$label[ctx$msgs$role == "participant" &
+                                        ctx$msgs$message_id %in% unit$scope])
 
   # Speakers: known labels, matched by the evidence.
   unknown_speakers <- setdiff(claim$speakers, ctx$speaker_labels)
@@ -1614,7 +1801,8 @@ fg_turns <- function(x) {
     "%s names %s, who is not a speaker in this discussion; the speakers are %s.", label,
     paste(unknown_speakers, collapse = ", "), paste(ctx$speaker_labels, collapse = ", ")))
   has_probe <- isTRUE(ctx$include_probes) && length(claim$probe_evidence) > 0L
-  if (!identical(claim$status, "not_stated")) {
+  stated <- !identical(claim$status, "not_stated")
+  if (stated) {
     check("evidence", length(claim$evidence) > 0L || has_probe, sprintf(
       "%s is \"%s\" but cites no message as evidence; cite the messages, or mark it \"not_stated\".",
       label, claim$status))
@@ -1639,11 +1827,10 @@ fg_turns <- function(x) {
       "%s cites a probe answer by %s, who is not among its speakers.", label,
       paste(wrong_probes, collapse = ", ")))
   }
-  if (!identical(claim$status, "not_stated") && length(claim$speakers)) {
+  if (stated && length(claim$speakers)) {
     lacking <- setdiff(intersect(claim$speakers, ctx$speaker_labels), c(by_whom, probe_by))
     check("speaker_evidence", !length(lacking), paste(vapply(lacking, function(s) {
-      spoke <- any(ctx$msgs$label == s & ctx$msgs$message_id %in% unit$scope)
-      if (spoke) sprintf("%s reports what %s said but cites no message by %s.", label, s, s)
+      if (s %in% spoke_here) sprintf("%s reports what %s said but cites no message by %s.", label, s, s)
       else sprintf(paste0("%s reports what %s said, but %s has no message here; ",
                           "describe silence with the status \"not_stated\"."), label, s, s)
     }, character(1)), collapse = " "))
@@ -1677,8 +1864,11 @@ fg_turns <- function(x) {
     if (!is.na(q$message_id)) {
       id <- q$message_id
       if (!id %in% valid(id)) next
-      source_text <- ctx$text_of[[as.character(id)]]
-      source_label <- ctx$label_of[[as.character(id)]]
+      key <- as.character(id)
+      source_text <- ctx$text_of[[key]]
+      original <- ctx$original_of[[key]]
+      map <- ctx$maps[[key]]
+      source_label <- ctx$label_of[[key]]
       check("quote_source", id %in% allowed_sources, sprintf(
         "%s is from message %d, which the claim does not cite in \"evidence\" or \"context\".",
         what, id))
@@ -1688,24 +1878,56 @@ fg_turns <- function(x) {
       if (!check("quote_source", !is.na(p) && q$probe %in% claim$probe_evidence, sprintf(
         "%s is from probe answer %s, which the claim does not cite in \"probe_evidence\".",
         what, q$probe))) next
-      source_text <- ctx$probes$answer[[p]]
+      source_text <- ctx$probes$shown[[p]]
+      original <- as.character(ctx$probes$answer[[p]])
+      map <- ctx$probe_maps[[q$probe]]
       source_label <- ctx$probes$label[[p]]
       where <- sprintf("probe answer %s", q$probe)
     }
     check("quote_speaker", identical(q$speaker, source_label), sprintf(
       "%s is attributed to %s, but %s is by %s.", what, q$speaker, where, source_label))
-    match <- .fg_match_quote(q$text, source_text)
+    match <- .fg_match_quote(q$text, source_text, original, map)
     check("quote_length", match$words >= 3L, sprintf(
       "%s has %d word(s); a quote needs at least 3.", what, match$words))
     found <- check("quote_text", match$found, sprintf(
       "%s is not in %s. %s reads: \"%s\"", what, where,
       paste0(toupper(substr(where, 1, 1)), substring(where, 2)), source_text))
-    if (found && match$words >= 3L) {
+    whole <- !found || check("quote_omission", is.na(match$problem), sprintf(
+      "%s %s; quote the words as they stand.", what, match$problem))
+    if (found && whole && match$words >= 3L) {
       quotes[[length(quotes) + 1L]] <- list(
         quote = k, message_id = q$message_id, probe = q$probe, speaker = q$speaker,
         text = q$text, verbatim = match$verbatim, start = match$start, end = match$end,
         spans = match$spans)
     }
+  }
+
+  # Words in quotation marks inside the text must come from a message the
+  # claim cites as evidence, by one of its speakers.
+  normalized <- .fg_normalize_span(claim$text)$text
+  marked <- regmatches(normalized, gregexpr("\"[^\"]+\"", normalized))[[1]]
+  marked <- gsub("^\"|\"$", "", marked)
+  marked <- marked[grepl("[\\p{L}\\p{N}]", marked, perl = TRUE)]
+  sources <- lapply(as.character(evidence), function(key) {
+    list(text = ctx$text_of[[key]], original = ctx$original_of[[key]], map = ctx$maps[[key]])
+  })
+  if (isTRUE(ctx$include_probes)) {
+    for (key in intersect(claim$probe_evidence, ctx$probes$key)) {
+      p <- match(key, ctx$probes$key)
+      sources[[length(sources) + 1L]] <- list(text = ctx$probes$shown[[p]],
+                                             original = as.character(ctx$probes$answer[[p]]),
+                                             map = ctx$probe_maps[[key]])
+    }
+  }
+  for (words in marked) {
+    found <- any(vapply(sources, function(src) {
+      m <- .fg_match_quote(words, src$text, src$original, src$map)
+      isTRUE(m$found) && is.na(m$problem)
+    }, logical(1)))
+    check("text_quote", found, sprintf(paste0(
+      "%s puts \"%s\" in quotation marks, but those words are not in a message it cites ",
+      "as evidence by %s. Give quotes in \"quotes\", each with its message."), label, words,
+      if (length(claim$speakers)) paste(claim$speakers, collapse = " or ") else "its speakers"))
   }
 
   # A change cites two messages of one speaker, earlier first.
@@ -1729,19 +1951,60 @@ fg_turns <- function(x) {
     .fg_check_ending(claim, ctx, scope, check)
   }
 
-  # Handles in the text must be on the roster.
+  # Handles in the text: every P-number on the roster; every participant
+  # named among the claim's speakers or the speakers of the messages it cites
+  # as context; a view given only to a participant who spoke; no user ID or
+  # name the model was not shown.
   named <- unique(regmatches(claim$text, gregexpr("\\bP[0-9]+\\b", claim$text, perl = TRUE))[[1]])
   off <- setdiff(named, ctx$participant_labels)
   check("roster", !length(off), sprintf(
     "%s names %s, who is not in this discussion; the participants are %s.", label,
     paste(off, collapse = ", "), paste(ctx$participant_labels, collapse = ", ")))
+  mentioned <- ctx$participant_labels[vapply(ctx$participant_labels, function(l) {
+    grepl(.fg_label_pattern(l), claim$text, perl = TRUE)
+  }, logical(1))]
+  context_by <- unname(ctx$label_of[as.character(valid(claim$context))])
+  loose <- setdiff(mentioned, c(claim$speakers, context_by))
+  check("text_speakers", !length(loose), sprintf(paste0(
+    "%s names %s in its text but neither lists %s among its speakers nor cites a ",
+    "message by %s."), label, paste(loose, collapse = " and "),
+    if (length(loose) > 1L) "them" else "that participant",
+    if (length(loose) > 1L) "them" else "that participant"))
+  if (stated) {
+    silent <- setdiff(mentioned, spoke_here)
+    check("silent", !length(silent), sprintf(paste0(
+      "%s gives a view to %s, who has no message here; report silence in a separate ",
+      "claim with the status \"not_stated\"."), label, paste(silent, collapse = " and ")))
+  } else {
+    # A claim of silence about a participant who spoke is false.
+    silence <- paste0("\\b(silent|silence|did not speak|didn't speak|never spoke|",
+                      "said nothing|did not say anything|didn't say anything|stayed quiet|",
+                      "remained quiet|did not take part|didn't take part|no messages?)\\b",
+                      "(?!\\s+(about|on|regarding|concerning|of|to)\\b)")
+    if (grepl(silence, tolower(normalized), perl = TRUE)) {
+      spoke <- intersect(unique(c(mentioned, claim$speakers)), spoke_here)
+      check("silence", !length(spoke), paste(vapply(spoke, function(s) sprintf(
+        "%s says %s did not speak, but %s spoke in message %s.", label, s, s,
+        paste0("#", ctx$msgs$message_id[ctx$msgs$label == s &
+                                          ctx$msgs$message_id %in% unit$scope],
+               collapse = ", ")), character(1)), collapse = " "))
+    }
+  }
+  if (length(ctx$relabel)) {
+    hidden <- names(ctx$relabel)[vapply(names(ctx$relabel), function(n) {
+      grepl(.fg_label_pattern(n), claim$text, perl = TRUE)
+    }, logical(1))]
+    check("labels", !length(hidden), sprintf(
+      "%s uses the name %s; refer to that speaker as %s.", label, paste(hidden, collapse = ", "),
+      paste(unname(ctx$relabel[hidden]), collapse = ", ")))
+  }
 
   # A claim for the whole group cites every participant who spoke on each
-  # item it cites. A claim about the moderator or another voice alone, such
-  # as an invitation to everyone, reports no participant's position.
-  about_others <- length(claim$speakers) > 0L &&
+  # item it cites. When the claim is about the moderator or another voice
+  # alone, an invitation such as "asked everyone" does not count.
+  others_only <- length(claim$speakers) > 0L &&
     !any(claim$speakers %in% ctx$participant_labels)
-  if (!about_others && .fg_universal_claim(claim$text)) {
+  if (.fg_universal_claim(claim$text, invitations = others_only)) {
     cited_ok <- valid(c(claim$evidence, claim$context))
     items <- unique(unname(ctx$item_of[as.character(cited_ok)]))
     msgs <- ctx$msgs[ctx$msgs$message_id %in% unit$scope, , drop = FALSE]
@@ -1757,10 +2020,12 @@ fg_turns <- function(x) {
     }
     check("universal", length(items) > 0L && !length(missing), if (!length(items)) {
       sprintf(paste0("%s speaks for the whole group but cites no message; cite a message ",
-                     "by every participant who spoke, or describe who did."), label)
+                     "by every participant who spoke, say who held the view, or reword it ",
+                     "if it is not about the participants."), label)
     } else {
-      sprintf(paste0("%s speaks for the whole group but cites no message by %s; cite ",
-                     "them, or say who held the view."), label, paste(missing, collapse = "; "))
+      sprintf(paste0("%s speaks for the whole group but cites no message by %s; cite them, ",
+                     "say who held the view, or reword it if it is not about the ",
+                     "participants."), label, paste(missing, collapse = "; "))
     })
   }
 
@@ -1801,14 +2066,17 @@ fg_turns <- function(x) {
   invisible()
 }
 
-# Coverage of a reply: every participant, item speaker, message, or stage
-# the unit requires, in every length asked for.
+# Coverage of a reply, counted over the claims that pass: every participant,
+# item speaker, message, or stage the unit requires, in every length asked
+# for. A participant counts as covered only by a claim that reports what
+# they said, with a message of theirs as evidence.
 .fg_check_coverage <- function(claims, levels, unit) {
   rows <- list()
   add <- function(check, passed, detail) {
     rows[[length(rows) + 1L]] <<- list(check = check, passed = isTRUE(passed),
                                        detail = if (isTRUE(passed)) NA_character_ else detail)
   }
+  ctx <- unit$ctx
   ids <- vapply(claims, `[[`, integer(1), "id")
   unit_of <- vapply(claims, function(cl) {
     u <- cl$unit %|NA|% NA_character_
@@ -1816,34 +2084,37 @@ fg_turns <- function(x) {
       if (identical(unit$by, "trajectory")) tolower(u) else u
   }, character(1))
   in_level <- function(level) unit_of[match(levels[[level]], ids)]
+  reports <- function(cl, s) {
+    own <- intersect(cl$evidence, unit$scope)
+    !identical(cl$status, "not_stated") && s %in% cl$speakers &&
+      any(unname(ctx$label_of[as.character(own)]) == s)
+  }
   by <- unit$by
   if (identical(by, "participant")) {
-    about <- vapply(claims, function(cl) identical(cl$unit, unit$key) &&
-                      unit$key %in% cl$speakers, logical(1))
-    add("coverage", any(about), sprintf(
-      "The reply has no claim about %s; every claim must have \"unit\": \"%s\" and name %s among its speakers.",
-      unit$key, unit$key, unit$key))
+    ok <- any(vapply(claims, function(cl) identical(cl$unit, unit$key) && reports(cl, unit$key),
+                     logical(1)))
+    add("coverage", ok, sprintf(paste0(
+      "The reply has no claim that reports what %s said; give at least one claim with ",
+      "\"unit\": \"%s\", %s among its speakers, and a message by %s as evidence."),
+      unit$key, unit$key, unit$key, unit$key))
   }
   if (identical(by, "item")) {
-    named <- unique(unlist(lapply(claims, `[[`, "speakers")))
-    for (s in setdiff(unit$item_speakers, named)) {
-      own <- unit$ctx$msgs$message_id[unit$ctx$msgs$label == s &
-                                        unit$ctx$msgs$message_id %in% unit$scope]
-      add("coverage", FALSE, sprintf(
-        "The reply does not report %s, who spoke on this item (message %s).", s,
-        paste0("#", own, collapse = ", ")))
+    for (s in unit$item_speakers) {
+      own <- ctx$msgs$message_id[ctx$msgs$label == s & ctx$msgs$message_id %in% unit$scope]
+      add("coverage", any(vapply(claims, reports, logical(1), s = s)), sprintf(paste0(
+        "The reply does not report %s, who spoke on this item (message %s); give a claim ",
+        "with %s among its speakers and a message by %s as evidence."), s,
+        paste0("#", own, collapse = ", "), s, s))
     }
   }
   if (identical(by, "turn")) {
-    for (id in setdiff(as.character(unit$chunk), unit_of)) {
-      add("coverage", FALSE, sprintf("Message %s has no claim.", id))
-    }
+    lacking <- setdiff(as.character(unit$chunk), unit_of)
+    add("coverage", !length(lacking), sprintf("Message %s has no claim.",
+                                              paste(lacking, collapse = ", ")))
     for (level in unit$levels) {
       lacking <- setdiff(as.character(unit$chunk), in_level(level))
-      if (length(lacking)) {
-        add("coverage", FALSE, sprintf("The \"%s\" list has no claim for message %s.", level,
-                                       paste(lacking, collapse = ", ")))
-      }
+      add("coverage", !length(lacking), sprintf(
+        "The \"%s\" list has no claim for message %s.", level, paste(lacking, collapse = ", ")))
     }
   }
   if (identical(by, "trajectory")) {
@@ -1852,25 +2123,19 @@ fg_turns <- function(x) {
       listed <- in_level(level)
       lacking <- setdiff(stages, listed)
       foreign <- setdiff(listed, stages)
-      if (length(lacking)) {
-        add("coverage", FALSE, sprintf("The \"%s\" list has no claim for stage %s.", level,
-                                       paste(lacking, collapse = ", ")))
-      }
-      if (length(foreign)) {
-        add("coverage", FALSE, sprintf(
-          "The \"%s\" list includes claims for stage %s; it uses the stages %s.", level,
-          paste(foreign, collapse = ", "), paste(stages, collapse = ", ")))
-      }
+      add("coverage", !length(lacking), sprintf(
+        "The \"%s\" list has no claim for stage %s.", level, paste(lacking, collapse = ", ")))
+      add("coverage", !length(foreign), sprintf(
+        "The \"%s\" list includes claims for stage %s; it uses the stages %s.", level,
+        paste(foreign, collapse = ", "), paste(stages, collapse = ", ")))
     }
   }
   if (!identical(by, "disagreements")) {
     for (level in unit$levels) {
-      if (!length(levels[[level]])) {
-        add("coverage", FALSE, sprintf("The \"%s\" list is empty.", level))
-      }
+      add("coverage", length(levels[[level]]) > 0L,
+          sprintf("The \"%s\" list has no claim that passed the checks.", level))
     }
   }
-  if (!length(rows)) add("coverage", TRUE, NA_character_)
   rows
 }
 
@@ -1880,15 +2145,22 @@ fg_turns <- function(x) {
 .fg_quote_doubles <- c("\u201c", "\u201d", "\u201e", "\u201f", "\u2033", "\u00ab", "\u00bb")
 .fg_space_marks <- c("\u00a0", "\u1680", "\u2000", "\u2001", "\u2002", "\u2003", "\u2004",
                      "\u2005", "\u2006", "\u2007", "\u2008", "\u2009", "\u200a", "\u2028",
-                     "\u2029", "\u202f", "\u205f", "\u3000")
+                     "\u2029", "\u202f", "\u205f", "\u3000", "\u200c")
+# Arabic letter forms written for their Persian counterparts: yeh, alef
+# maksura, and kaf.
+.fg_letter_forms <- c("\u064a" = "\u06cc", "\u0649" = "\u06cc", "\u0643" = "\u06a9")
 
 # Text with case, whitespace, and quotation marks normalized, and nothing
-# else; `pos` gives the position in the original text of each character.
+# else beyond the Arabic and Persian forms of yeh and kaf (the zero-width
+# non-joiner counts as a space); `pos` gives the position in the original
+# text of each character.
 .fg_normalize_span <- function(text) {
   chars <- strsplit(enc2utf8(as.character(text %|NA|% "")), "")[[1]]
   if (!length(chars)) return(list(text = "", pos = integer()))
   chars[chars %in% .fg_quote_singles] <- "'"
   chars[chars %in% .fg_quote_doubles] <- "\""
+  forms <- chars %in% names(.fg_letter_forms)
+  chars[forms] <- .fg_letter_forms[chars[forms]]
   space <- chars %in% .fg_space_marks | grepl("^\\s$", chars, perl = TRUE)
   chars[space] <- " "
   chars <- tolower(chars)
@@ -1917,27 +2189,67 @@ fg_turns <- function(x) {
   }, character(1))
 }
 
-# Whether a claim speaks for the whole group. Words inside double quotation
-# marks are the speaker's and are not read.
-.fg_universal_claim <- function(text) {
-  value <- tolower(.fg_normalize_span(text)$text)
+.fg_group_verbs <- paste0(
+  "(agreed|agree|agrees|said|say|says|felt|feel|feels|thought|think|thinks|",
+  "favored|favor|favors|favoured|favour|supported|support|supports|opposed|oppose|",
+  "opposes|wanted|want|wants|shared|share|shares|accepted|accept|accepts|endorsed|",
+  "liked|like|disliked|preferred|prefer|prefers|rejected|reject|backed|objected|",
+  "object|disagreed|disagree|in favou?r|in agreement)")
+
+# Whether a claim speaks for the whole group: "everyone", "all of them",
+# "consensus", "unanimous", "no one", "the whole group", and the like. Words
+# inside double quotation marks are the speaker's, and are checked as quotes.
+# With `invitations = TRUE`, a phrase such as "asked everyone" or "thanked
+# all" is not read as a claim about the group.
+.fg_universal_claim <- function(text, invitations = FALSE) {
+  value <- .fg_normalize_span(text)$text
   value <- gsub("\"[^\"]*\"", " ", value)
+  if (invitations) {
+    value <- gsub(paste0(
+      "\\b(asks?|asked|asking|invites?|invited|inviting|welcomes?|welcomed|welcoming|",
+      "thanks?|thanked|thanking|greets?|greeted|greeting|tells?|told|telling|reminds?|",
+      "reminded|encourages?|encouraged|addresses|addressed|calls? on|called on)\\b",
+      "(\\s+[\\p{L}']+){0,3}?\\s+(everyone|everybody|all)\\b"), " ", value, perl = TRUE)
+  }
+  people <- paste0("(participants|members|speakers|respondents|people|group|others|",
+                   "them|us|[0-9]+|two|three|four|five|six|seven|eight|nine|ten|",
+                   "eleven|twelve)")
   patterns <- c(
-    "\\b(everyone|everybody|consensus|unanimous|unanimously)\\b",
-    "\\b(every|each) (participant|member|speaker|respondent|person)\\b",
-    "\\b(they|we|you) all\\b",
+    "\\b(everyone|everybody|consensus|unanimous|unanimously|nobody)\\b",
+    "\\bno one\\b",
+    "\\bnone of (them|us|the)\\b",
+    "\\b(every|each) (participant|member|speaker|respondent|person)s?\\b",
+    "\\b(each|every one|any) of (them|us|the participants|the group)\\b",
+    "\\b(whole|entire) group\\b",
+    paste0("\\b(the group|the participants|participants|the others|both)( all| both)? ",
+           .fg_group_verbs, "\\b"),
+    "\\bboth (of them|of us|participants|speakers)\\b",
+    "\\b(broad|general|wide|widespread|shared|common) (agreement|support|consensus|opposition)\\b",
+    "\\b(they|we|you) (all|both)\\b",
     "\\ball (but|except)\\b",
-    "\\ball (of )?(the )?(them|us|participants|members|speakers|respondents|group|others|[0-9]+|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\\b",
-    "\\ball (agreed|agree|agrees|said|say|felt|feel|thought|think|favored|favor|favour|supported|support|opposed|oppose|wanted|want|shared|share|accepted|accept|endorsed|liked|disliked|preferred|prefer|rejected|backed|in favou?r|in agreement)\\b")
+    paste0("\\ball (of )?(the )?", people, "\\b"),
+    paste0("\\ball ", .fg_group_verbs, "\\b"))
   any(vapply(patterns, grepl, logical(1), x = value, perl = TRUE))
 }
 
 # The position at or after `from` where `needle` occurs in `haystack` on word
-# boundaries, or NA.
+# boundaries, or NA. An apostrophe or hyphen between letters is part of a
+# word, so a match cannot start or end inside "don't" or "well-known".
 .fg_find_span <- function(haystack, needle, from = 1L) {
   n <- nchar(needle)
   size <- nchar(haystack)
   word <- function(ch) grepl("[\\p{L}\\p{N}]", ch, perl = TRUE)
+  joins <- c("'", "-")
+  inside_left <- function(p) {
+    if (p == 1L) return(FALSE)
+    before <- substr(haystack, p - 1L, p - 1L)
+    word(before) || (before %in% joins && p >= 3L && word(substr(haystack, p - 2L, p - 2L)))
+  }
+  inside_right <- function(e) {
+    if (e >= size) return(FALSE)
+    after <- substr(haystack, e + 1L, e + 1L)
+    word(after) || (after %in% joins && e + 2L <= size && word(substr(haystack, e + 2L, e + 2L)))
+  }
   first_word <- word(substr(needle, 1L, 1L))
   last_word <- word(substr(needle, n, n))
   start <- from
@@ -1945,44 +2257,66 @@ fg_turns <- function(x) {
     hit <- regexpr(needle, substring(haystack, start), fixed = TRUE)
     if (hit < 0L) return(NA_integer_)
     p <- start + as.integer(hit) - 1L
-    left <- !first_word || p == 1L || !word(substr(haystack, p - 1L, p - 1L))
-    right <- !last_word || p + n - 1L == size || !word(substr(haystack, p + n, p + n))
-    if (left && right) return(p)
+    e <- p + n - 1L
+    if ((!first_word || !inside_left(p)) && (!last_word || !inside_right(e))) return(p)
     start <- p + 1L
   }
   NA_integer_
 }
 
+.fg_count_words <- function(text) {
+  length(regmatches(text, gregexpr("[\\p{L}\\p{N}]+(?:['-][\\p{L}\\p{N}]+)*", text,
+                                   perl = TRUE))[[1]])
+}
+
 # Match a quote against its source: the parts of the quote joined by "..."
 # must occur in order, each on word boundaries, after normalizing case,
-# whitespace, and quotation marks. Returns whether it was found, its word
-# count, and the span cut from the source.
-.fg_match_quote <- function(quote, source) {
+# whitespace, and quotation marks. A quote of several parts is not whole when
+# a part has fewer than 2 words or when the words it leaves out include a
+# negation. `source` is the text the model saw; `original` and `map` (from
+# .fg_relabel_text()) give the text as recorded, from which the span is cut.
+# Returns whether it was found, the problem if it is not whole, its word
+# count, and the span cut from the original.
+.fg_match_quote <- function(quote, source, original = source, map = NULL) {
   q <- .fg_normalize_span(quote)$text
   q <- gsub("^[\"']+|[\"']+$", "", q)
   parts <- strsplit(q, "\\s*[\\[(]?\\s*(\\.\\s?\\.\\s?\\.|\u2026)\\s*[\\])]?\\s*", perl = TRUE)[[1]]
   parts <- trimws(parts)
   parts <- parts[nzchar(parts)]
-  words <- sum(vapply(parts, function(p) {
-    length(regmatches(p, gregexpr("[\\p{L}\\p{N}]+(?:['-][\\p{L}\\p{N}]+)*", p, perl = TRUE))[[1]])
-  }, integer(1)))
-  none <- list(found = FALSE, words = as.integer(words), verbatim = NA_character_,
-               start = NA_integer_, end = NA_integer_, spans = NULL)
+  counts <- vapply(parts, .fg_count_words, integer(1), USE.NAMES = FALSE)
+  none <- list(found = FALSE, problem = NA_character_, words = as.integer(sum(counts)),
+               verbatim = NA_character_, start = NA_integer_, end = NA_integer_, spans = NULL)
   if (!length(parts)) return(none)
   src <- .fg_normalize_span(source)
-  original <- enc2utf8(as.character(source))
+  original <- enc2utf8(as.character(original))
+  if (is.null(map)) {
+    size <- nchar(source)
+    map <- list(start = seq_len(size), end = seq_len(size))
+  }
   from <- 1L
-  starts <- integer()
-  ends <- integer()
+  first <- integer()
+  last <- integer()
+  gaps <- character()
   for (part in parts) {
     p <- .fg_find_span(src$text, part, from)
     if (is.na(p)) return(none)
     e <- p + nchar(part) - 1L
-    starts <- c(starts, src$pos[p])
-    ends <- c(ends, src$pos[e])
+    if (length(last)) gaps <- c(gaps, substr(src$text, from, p - 1L))
+    first <- c(first, p)
+    last <- c(last, e)
     from <- e + 1L
   }
-  list(found = TRUE, words = as.integer(words),
+  problem <- NA_character_
+  negation <- "(?<![\\p{L}])(not|no|never|nor|neither|none|without|cannot)(?![\\p{L}])|n't\\b"
+  dropped <- gaps[grepl(negation, gaps, perl = TRUE)]
+  if (length(parts) > 1L && any(counts < 2L)) {
+    problem <- "has a part with fewer than 2 words between its \"...\" marks"
+  } else if (length(dropped)) {
+    problem <- sprintf("leaves out \"%s\", which changes its sense", trimws(dropped[1]))
+  }
+  starts <- map$start[src$pos[first]]
+  ends <- map$end[src$pos[last]]
+  list(found = TRUE, problem = problem, words = as.integer(sum(counts)),
        verbatim = paste(substring(original, starts, ends), collapse = " ... "),
        start = starts[1], end = ends[length(ends)],
        spans = data.frame(start = starts, end = ends))
@@ -2201,9 +2535,9 @@ fg_turns <- function(x) {
   do.call(rbind, rows)
 }
 
-# One claim as prose at a length: its text; at "brief" and "detailed" the
-# ending of a disagreement; at "detailed" its status when not "stated", its
-# quotes, and a turn's act code.
+# One claim as prose at a length: its text, with its status when it is not
+# "stated" at every length; at "brief" and "detailed" the ending of a
+# disagreement; at "detailed" its quotes and a turn's act code.
 .fg_render_claim <- function(cl, level, by) {
   text <- cl$text
   if (identical(level, "detailed") && identical(by, "turn") && !is.na(cl$act)) {
@@ -2213,14 +2547,17 @@ fg_turns <- function(x) {
     ending <- switch(cl$ending$how,
       concession = sprintf("ended with a concession at #%d", cl$ending$message_id),
       moved_on = sprintf("ended when the moderator moved on at #%d", cl$ending$message_id),
-      unresolved = "unresolved")
-    text <- sprintf("%s (%s)", sub("[.]$", "", text), ending)
-    if (!grepl("[.!?]$", text)) text <- paste0(text, ".")
+      unresolved = "unresolved",
+      NULL)
+    if (!is.null(ending)) {
+      text <- sprintf("%s (%s)", sub("[.]$", "", text), ending)
+      if (!grepl("[.!?]$", text)) text <- paste0(text, ".")
+    }
+  }
+  if (!identical(cl$status, "stated")) {
+    text <- sprintf("%s [%s]", text, gsub("_", " ", cl$status, fixed = TRUE))
   }
   if (identical(level, "detailed")) {
-    if (!identical(cl$status, "stated")) {
-      text <- sprintf("%s [%s]", text, gsub("_", " ", cl$status, fixed = TRUE))
-    }
     for (q in cl$quotes) {
       if (is.na(q$text)) next
       where <- if (!is.na(q$message_id)) sprintf("#%d", q$message_id) else q$probe

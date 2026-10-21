@@ -306,7 +306,8 @@ claims aside instead, unless they report a disagreement, a position held
 alone, or a change.
 
 The summarizing model sees handles, never user IDs: the speakers of an
-imported transcript reach it as P1, P2, and so on. It never sees personas or
+imported transcript reach it as P1, P2, and so on, in the speaker labels and
+inside the messages. It never sees personas or
 the System row, and it sees private probe answers only with
 `include_probes = TRUE`. Calls are recorded in the summary's `calls` table,
 apart from the session's records, and an estimate above `max_calls` stops the

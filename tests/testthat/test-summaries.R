@@ -100,7 +100,13 @@ test_that("the verifier admits every positive and rejects every hard negative", 
       text = "P1 rejected P2's proposal to cut Sundays."),
     idiom_is_not_universal = p1(text = "P1 does not want the evening hours cut at all."),
     moderator_invites_everyone = .sum_reply(speakers = list("Moderator"), evidence = list(2),
-      text = "The moderator welcomed everyone and asked what should change."))
+      text = "The moderator welcomed everyone and asked what should change."),
+    own_words_marked_in_text = p1(text = "P1 said \"Working parents rely on them.\""),
+    one_marked_word_in_text = p1(text = "P1 does not want the evening hours \"cut\"."),
+    silent_about_a_topic = .sum_reply(status = "not_stated", speakers = list("P2"),
+      context = list(2), text = "P2 said nothing about fees."),
+    possessive_kept_whole = .sum_reply(speakers = list("P1"), evidence = list(8),
+      quotes = list(.q(8, "P1", "so I'm against that"))))
   negatives <- list(
     one_word_changed = c("quote_text", p1(quotes = list(.q(3, "P1", "Working parents depend on them")))),
     dropped_not = c("quote_text", .sum_reply(speakers = list("P3"), evidence = list(5),
@@ -138,7 +144,30 @@ test_that("the verifier admits every positive and rejects every hard negative", 
     change_two_speakers = c("change", .sum_reply(kind = "change", speakers = list("P1", "P2"),
       evidence = list(3, 7))),
     quote_from_uncited_message = c("quote_source", p1(quotes = list(.q(5, "P3", "weekends need more staff")))),
-    unknown_speaker = c("speakers", .sum_reply(speakers = list("Ana"), evidence = list(3))))
+    unknown_speaker = c("speakers", .sum_reply(speakers = list("Ana"), evidence = list(3))),
+    other_speakers_words_marked_in_text = c("text_quote",
+      p1(text = "P1 said \"I would cut the Sunday hours before anything else.\"")),
+    text_names_unlisted_participant = c("text_speakers", p1(text = "P3 wants the evening hours kept.")),
+    text_gives_view_to_silent = c("silent", .sum_reply(speakers = list("P1", "P4"),
+      evidence = list(3), text = "P1 and P4 want the evening hours kept.")),
+    not_stated_silence_of_a_speaker = c("silence", .sum_reply(status = "not_stated",
+      speakers = list("P2"), context = list(2), text = "P2 said nothing in the discussion.")),
+    moderator_speaker_everyone_agreed = c("universal", .sum_reply(speakers = list("Moderator"),
+      evidence = list(2), text = "Everyone agreed that the hours should change.")),
+    nobody_disagreed = c("universal", p1(text = "Nobody disagreed with P1.")),
+    no_one_objected = c("universal", p1(text = "No one objected to keeping evening hours.")),
+    whole_group = c("universal", p1(text = "The whole group wanted evening hours.")),
+    participants_agreed = c("universal", p1(text = "The participants agreed that evening hours matter.")),
+    each_of_them = c("universal", p1(text = "Each of them valued the evening hours.")),
+    broad_agreement = c("universal", p1(text = "There was broad agreement on evening hours.")),
+    ellipsis_drops_not = c("quote_omission", .sum_reply(speakers = list("P3"), evidence = list(5),
+      quotes = list(.q(5, "P3", "We should ... raise fees")))),
+    ellipsis_drops_contraction = c("quote_omission", p1(quotes = list(
+      .q(3, "P1", "I ... think the evening hours should be cut")))),
+    ellipsis_single_words = c("quote_omission", p2(quotes = list(.q(4, "P2", "I ... cannot ... drive")))),
+    starts_inside_contraction = c("quote_text", p1(quotes = list(.q(3, "P1", "t think the evening hours")))),
+    ends_inside_contraction = c("quote_text", .sum_reply(speakers = list("P1"), evidence = list(8),
+      quotes = list(.q(8, "P1", "hurt students, so I")))))
 
   admitted <- function(reply, unit = session) {
     verdict <- FocusGroup:::.fg_verify_unit(reply, "stop", unit)
@@ -199,6 +228,43 @@ test_that("a reply that does not parse, or was cut off, fails as a whole", {
   expect_true(FocusGroup:::.fg_verify_unit(fenced, "stop", unit)$passed)
   no_level <- '{"claims": [], "levels": {}}'
   expect_true(FocusGroup:::.fg_verify_unit(no_level, "stop", unit)$fatal)
+})
+
+test_that("coverage counts only claims that report what a speaker said", {
+  x <- .sum_fixture()
+  p2 <- .sum_unit(x, "participant", key = "P2")
+  only_not_stated <- .sum_reply(unit = "P2", status = "not_stated", speakers = list("P2"),
+                                text = "P2 did not take a position.")
+  verdict <- FocusGroup:::.fg_verify_unit(only_not_stated, "stop", p2)
+  expect_true(verdict$fatal)
+  expect_true(any(grepl("no claim that reports what P2 said", verdict$failures)))
+  item1 <- .sum_unit(x, "item", key = "1")
+  reply <- as.character(jsonlite::toJSON(list(claims = list(
+    list(id = 1, unit = "1", kind = "position", text = "P1 wants evening hours.",
+         status = "stated", speakers = list("P1"), evidence = list(3), context = list(),
+         quotes = list()),
+    list(id = 2, unit = "1", kind = "other", text = "P2 and P3 said nothing.",
+         status = "not_stated", speakers = list("P2", "P3"), evidence = list(),
+         context = list(2), quotes = list())), levels = list(brief = list(1, 2))),
+    auto_unbox = TRUE))
+  verdict <- FocusGroup:::.fg_verify_unit(reply, "stop", item1)
+  expect_true(verdict$fatal)
+  expect_true(any(grepl("P2 says P2 did not speak", verdict$failures, fixed = TRUE) |
+                    grepl("does not report P2", verdict$failures, fixed = TRUE)))
+  expect_true(any(grepl("does not report P3", verdict$failures, fixed = TRUE)))
+})
+
+test_that("the reply is found among prose, braces, and other code blocks", {
+  unit <- .sum_unit(.sum_fixture(), "session")
+  reply <- .sum_reply(speakers = list("P1"), evidence = list(3))
+  wrapped <- c(
+    paste("Here is my answer, with {P1} noted:", reply, "Note: {P1} spoke first."),
+    paste0("```text\nnot json\n```\n```json\n", reply, "\n```"),
+    paste0("{\"draft\": true}\n", reply))
+  for (w in wrapped) expect_true(FocusGroup:::.fg_verify_unit(w, "stop", unit)$passed, info = w)
+  cut <- substr(reply, 1, nchar(reply) - 5L)
+  expect_match(FocusGroup:::.fg_verify_unit(cut, "stop", unit)$failures[1],
+               "no complete JSON object")
 })
 
 # ---- Happy paths ----------------------------------------------------------------
@@ -354,7 +420,7 @@ test_that("a missing participant triggers a re-ask that names them", {
   })
   out <- summarize_focus_group(result, .sum_config(), by = "item", .runner = stub$runner)
   expect_match(stub$messages[[2]][[3]]$content,
-               "The reply does not report P2, who spoke on this item (message #5).", fixed = TRUE)
+               "The reply does not report P2, who spoke on this item (message #5)", fixed = TRUE)
   expect_true(out$metadata$complete)
 })
 
@@ -431,6 +497,99 @@ test_that("on_fail = \"drop\" keeps the rest but never drops dissent or change",
   expect_match(conditionMessage(err), "reports change")
 })
 
+test_that("on_fail = \"drop\" still stops on a cut-off reply or a coverage gap", {
+  result <- .sum_session()
+  stub <- .sum_runner(finish = function(n) "length")
+  err <- tryCatch(summarize_focus_group(result, .sum_config(), on_fail = "drop",
+                                        .runner = stub$runner),
+                  focusgroup_summary_check_failure = function(e) e)
+  expect_s3_class(err, "focusgroup_summary_check_failure")
+  expect_identical(stub$n, 2L)
+  # P2's only claim on item 2 misquotes every time; dropping it would leave
+  # P2, who spoke, out of the item's summary.
+  misquote <- function(prompt, n, messages) {
+    sub("I disagree, the mornings", "I disagree, mornings", .sum_honest_reply(prompt), fixed = TRUE)
+  }
+  stub <- .sum_runner(misquote)
+  err <- tryCatch(summarize_focus_group(result, .sum_config(), by = "item", on_fail = "drop",
+                                        .runner = stub$runner),
+                  focusgroup_summary_check_failure = function(e) e)
+  expect_s3_class(err, "focusgroup_summary_check_failure")
+  expect_match(conditionMessage(err), "does not report P2")
+})
+
+test_that("an ending is read only in the disagreements register", {
+  result <- .sum_session()
+  with_ending <- function(prompt, n, messages) {
+    reply <- jsonlite::fromJSON(.sum_honest_reply(prompt), simplifyVector = FALSE)
+    reply$claims[[1]]$ending <- list(how = "Concession", message_id = 5)
+    as.character(jsonlite::toJSON(reply, auto_unbox = TRUE, null = "null"))
+  }
+  out <- summarize_focus_group(result, .sum_config(), compression = c("brief", "detailed"),
+                               .runner = .sum_runner(with_ending)$runner)
+  expect_false(any(grepl("concession", out$summaries$text)))
+  expect_true(all(is.na(out$claims$ending)))
+  register <- function(prompt, n, messages) {
+    claim <- list(id = 1, unit = "D1", kind = "disagreement", status = "stated",
+                  text = "P1 and P2 disagree on evening and morning hours.",
+                  speakers = list("P1", "P2"), evidence = list(4, 5), context = list(3),
+                  quotes = list(), ending = list(how = "Moved_On", message_id = 6))
+    as.character(jsonlite::toJSON(list(claims = list(claim), levels = list(brief = list(1))),
+                                  auto_unbox = TRUE, null = "null"))
+  }
+  out <- summarize_focus_group(result, .sum_config(), by = "disagreements",
+                               .runner = .sum_runner(register)$runner)
+  expect_identical(out$claims$ending, "moved_on")
+  expect_match(out$summaries$text, "ended when the moderator moved on at #6", fixed = TRUE)
+})
+
+test_that("a claim that is not stated carries its status at every length", {
+  result <- .sum_session()
+  add_gap <- function(prompt, n, messages) {
+    reply <- jsonlite::fromJSON(.sum_honest_reply(prompt), simplifyVector = FALSE)
+    unit <- reply$claims[[1]]$unit
+    reply$claims[[length(reply$claims) + 1L]] <- list(
+      id = 9, unit = unit, kind = "not_addressed", status = "not_stated",
+      text = paste(unit, "gave no reason for the view."), speakers = list(unit),
+      evidence = list(), context = list(), quotes = list())
+    reply$levels <- list(headline = list(9), brief = list(1, 9))
+    as.character(jsonlite::toJSON(reply, auto_unbox = TRUE, null = "null"))
+  }
+  out <- summarize_focus_group(result, .sum_config(), compression = c("headline", "brief"),
+                               .runner = .sum_runner(add_gap)$runner)
+  expect_true(all(grepl("gave no reason for the view. [not stated]", out$summaries$text,
+                        fixed = TRUE)))
+})
+
+test_that("retries on the live path leave the random-number state as it was", {
+  result <- .sum_session()
+  testthat::local_mocked_bindings(call_llm_robust = function(config, messages, ...) {
+    stats::runif(1)
+    data.frame(response_text = .sum_honest_reply(messages[[1]]$content), finish_reason = "stop")
+  }, .package = "LLMR")
+  set.seed(110)
+  before <- .Random.seed
+  out <- summarize_focus_group(result, .sum_config())
+  expect_identical(nrow(out$calls), 3L)
+  expect_identical(.Random.seed, before)
+})
+
+test_that("the summary writes its token limit into the field the configuration uses", {
+  result <- .sum_session()
+  seen <- list()
+  stub <- .sum_runner(finish = function(n) if (n == 1L) "length" else "stop")
+  runner <- function(experiments, ...) {
+    seen[[length(seen) + 1L]] <<- experiments$config[[1]]$model_params
+    stub$runner(experiments, ...)
+  }
+  cfg <- LLMR::llm_config("openai", "o4-mini", max_completion_tokens = 4000)
+  out <- summarize_focus_group(result, cfg, .runner = runner)
+  expect_identical(seen[[1]]$max_completion_tokens, 4000L)
+  expect_null(seen[[1]]$max_tokens)
+  expect_identical(seen[[2]]$max_completion_tokens, 8000L)
+  expect_identical(unname(out$metadata$max_tokens[1]), 4000)
+})
+
 # ---- What reaches the model -----------------------------------------------------
 
 test_that("imported speakers' names never reach a prompt", {
@@ -483,6 +642,65 @@ test_that("handles from the records label the speakers; user IDs stay in the res
   expect_match(stub$prompts[1], "] Moderator: ", fixed = TRUE)
   expect_identical(out$summaries$unit, c("Maria", "Jon", "Lee"))
   expect_identical(out$summaries$speaker_id, c("voter_1", "voter_2", "voter_3"))
+})
+
+test_that("names inside messages reach the model as labels; quotes are cut from the original", {
+  transcript <- data.frame(
+    speaker = c("Moderator", "Ana", "Ben", "Moderator", "Ana"),
+    text = c("What should change about the hours?",
+             "Longer evening hours for working parents.",
+             "I agree with Ana about the evening hours.",
+             "Ana, why do evenings matter to you?",
+             "Because I work days and Ben works nights."))
+  fg <- focus_group_from_transcript(transcript, topic = "library hours")
+  reply <- function(prompt, n, messages) {
+    claim <- list(id = 1, unit = "session", kind = "agreement", status = "stated",
+                  text = "P2 agreed with P1 about evening hours.", speakers = list("P2"),
+                  evidence = list(3), context = list(2),
+                  quotes = list(list(message_id = 3, speaker = "P2",
+                                     text = "I agree with P1 about")))
+    as.character(jsonlite::toJSON(list(claims = list(claim), levels = list(brief = list(1))),
+                                  auto_unbox = TRUE))
+  }
+  stub <- .sum_runner(reply)
+  out <- summarize_focus_group(fg, .sum_config(), by = "session", .runner = stub$runner)
+  expect_false(any(grepl("\\b(Ana|Ben)\\b", stub$prompts, perl = TRUE)))
+  expect_match(stub$prompts[1], "[#4] Moderator: P1, why do evenings matter to you?", fixed = TRUE)
+  expect_match(stub$prompts[1], "[#5] P1: Because I work days and P2 works nights.", fixed = TRUE)
+  expect_identical(out$quotes$verbatim, "I agree with Ana about")
+  expect_identical(substr(transcript$text[3], out$quotes$start, out$quotes$end),
+                   "I agree with Ana about")
+  named <- function(prompt, n, messages) {
+    sub("P2 agreed with P1", "P2 agreed with Ana", reply(prompt, n, messages), fixed = TRUE)
+  }
+  err <- tryCatch(summarize_focus_group(fg, .sum_config(), by = "session",
+                                        .runner = .sum_runner(named)$runner),
+                  focusgroup_summary_check_failure = function(e) e)
+  expect_s3_class(err, "focusgroup_summary_check_failure")
+  expect_match(conditionMessage(err), "uses the name Ana; refer to that speaker as P1", fixed = TRUE)
+})
+
+test_that("a voice whose name is a free label keeps it, and participants take others", {
+  result <- .sum_session(injections = fg_injection("A voice from outside.", at = fg_after_item(2),
+                                                   from = "Guest"))
+  result$transcript$speaker_id <- sub("^P", "voter_", result$transcript$speaker_id)
+  result$transcript$speaker_id[result$transcript$speaker_id == "Guest"] <- "P2"
+  result$participants$id <- sub("^P", "voter_", result$participants$id)
+  reply <- function(prompt, n, messages) {
+    msgs <- .sum_prompt_messages(prompt)
+    claim <- .sum_claim(1, "session", "P1", msgs[msgs$label == "P1", ][1, ])
+    as.character(jsonlite::toJSON(list(claims = list(claim), levels = list(brief = list(1))),
+                                  auto_unbox = TRUE))
+  }
+  stub <- .sum_runner(reply)
+  out <- summarize_focus_group(result, .sum_config(), by = "session", .runner = stub$runner)
+  expect_match(stub$prompts[1], "P2 (injected): A voice from outside.", fixed = TRUE)
+  expect_false(grepl("voter_", stub$prompts[1], fixed = TRUE))
+  expect_setequal(unique(.sum_prompt_messages(stub$prompts[1])$label),
+                  c("Moderator", "P1", "P2", "P3", "P4"))
+  handles <- out$metadata$handles
+  expect_identical(handles$label[match(c("voter_1", "voter_2", "voter_3"), handles$speaker_id)],
+                   c("P1", "P3", "P4"))
 })
 
 test_that("results without the 0.5.5 record fields fall back as the contract states", {
@@ -694,6 +912,12 @@ test_that("structured output is requested when LLMR offers it, and recorded", {
   preset <- LLMR::llm_config("openai", "example-model", response_format = list(type = "json_object"))
   out <- summarize_focus_group(result, preset, .runner = runner)
   expect_identical(out$metadata$structured_output$mode, "config")
+  # Anthropic refuses a forced tool call while thinking, so the format stays
+  # in the prompt, and the default limit leaves room after the budget.
+  claude <- LLMR::llm_config("anthropic", "claude-example", thinking_budget = 2048)
+  out <- summarize_focus_group(result, claude, .runner = runner)
+  expect_identical(out$metadata$structured_output$mode, "prompt")
+  expect_identical(unname(out$metadata$max_tokens[1]), 2000 + 2048)
 })
 
 test_that("the summary records its calls apart from the session", {
