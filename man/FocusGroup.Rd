@@ -587,7 +587,8 @@ Perform LLM-assisted thematic analysis on the transcript.
 
 \item{\code{.runner}}{Optional function used instead of live model calls. It
 receives a data frame with \code{config} and \code{messages} list-columns and
-returns the rows with at least \code{response_text}.}
+returns the rows with at least \code{response_text}. \code{NULL} makes a live
+call through \code{config}, also on a session that ran with a runner.}
 }
 \if{html}{\out{</div>}}
 }

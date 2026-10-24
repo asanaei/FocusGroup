@@ -924,7 +924,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
     #' @param .runner Optional function used instead of live model calls. It
     #'   receives a data frame with `config` and `messages` list-columns and
-    #'   returns the rows with at least `response_text`.
+    #'   returns the rows with at least `response_text`. `NULL` makes a live
+    #'   call through `config`, also on a session that ran with a runner.
     #' @return The thematic summary as a character string. An empty transcript
     #'   returns `character(0)`. Provider failures are propagated.
     analyze_themes = function(config, message_ids = NULL, speaker_ids = NULL,
@@ -959,7 +960,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         config = current_call_config,
         .usage = function(u) .fg_record_group(self, u),
         messages = list(list(role = "user", content = theme_prompt)),
-        .runner = .runner %||% self$agents[[self$moderator_id]]$.runner,
+        .runner = .runner,
         tries = 5,
         .call = list(type = "themes")
       )
