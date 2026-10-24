@@ -923,6 +923,66 @@ test_that("arms are summarized as the shared prefix and each arm after the branc
   expect_true(all(turns$message_id[turns$segment != "prefix"] > m))
 })
 
+test_that("the list FocusGroup$run_arms() returns is summarized as its arms object", {
+  make_runner <- function() {
+    count <- 0L
+    function(experiments, ...) {
+      count <<- count + 1L
+      prompt <- .sum_prompt(experiments$messages[[1]])
+      experiments$response_text <- if (grepl("MODERATOR", prompt, fixed = TRUE)) {
+        "What should change about the library hours?"
+      } else sprintf("Reply %03d about evening hours and the staff.", count)
+      experiments
+    }
+  }
+  agents <- create_agents(2, .sum_config(), direct_persona_descriptions = c("A.", "B."),
+                          .runner = make_runner())
+  fg <- FocusGroup$new(
+    "library hours", "Test.", agents, "MOD",
+    create_conversation_flow("round_robin", agents, "MOD"),
+    question_script = list(list(phase = "opening"),
+                           list(phase = "engagement_question", text = "Which hours?"),
+                           list(phase = "engagement_question", text = "Who is left out?"),
+                           list(phase = "closing")),
+    max_participant_responses = 2, call_on_silent = "none")
+  run <- fg$run_arms(list(objection = fg_injection("Hours cost money.", at = fg_after_item(2),
+                                                   from = "Guest expert"),
+                          control = NULL), final_summary = FALSE)
+  setup <- list(flow = "round_robin", message_mode = "roleflip", n_participants = 2L,
+                estimated_calls = NA_integer_, run_meta = list(seed = NULL))
+  object <- FocusGroup:::.fg_arms_result(run$prefix, run$arms, setup)
+  summarize <- function(x) {
+    stub <- .sum_runner()
+    out <- summarize_focus_group(x, .sum_config(), .runner = stub$runner)
+    list(prompts = stub$prompts, summaries = out$summaries, claims = out$claims,
+         quotes = out$quotes, segments = out$metadata$segments)
+  }
+  expected <- summarize(object)
+  expect_identical(expected$segments, c("prefix", "objection", "control"))
+  expect_identical(summarize(run), expected)
+  expect_identical(summarize(run$arms), expected)
+  expect_identical(fg_turns(run), fg_turns(object))
+  expect_identical(fg_turns(run$arms), fg_turns(object))
+
+  # Hard negatives: unnamed arms, arms that share no recorded prefix, and a
+  # list of other things are refused.
+  expect_error(summarize_focus_group(list(prefix = run$prefix, arms = unname(run$arms)),
+                                     .sum_config(), .runner = .sum_runner()$runner),
+               "distinct, non-empty name")
+  plain <- FocusGroup$new(
+    "library hours", "Test.", agents, "MOD",
+    create_conversation_flow("round_robin", agents, "MOD"),
+    question_script = list(list(phase = "engagement_question", text = "Which hours?")),
+    max_participant_responses = 1, call_on_silent = "none")
+  plain$run_simulation(final_summary = FALSE)
+  expect_error(summarize_focus_group(list(a = run$arms$objection, b = plain), .sum_config(),
+                                     .runner = .sum_runner()$runner),
+               "one shared prefix")
+  expect_error(summarize_focus_group(list(a = 1, b = 2), .sum_config(),
+                                     .runner = .sum_runner()$runner),
+               "FocusGroup$run_arms() returns", fixed = TRUE)
+})
+
 # ---- Limits, templates, and the records ----------------------------------------
 
 test_that("the budget gate fires before any call, and the session's runner is never used", {

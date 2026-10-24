@@ -7,8 +7,9 @@
 fg_turns(x)
 }
 \arguments{
-\item{x}{A \code{focus_group_result}, a \code{focus_group_arms} object, or a
-\link{FocusGroup}, as for \code{\link[=summarize_focus_group]{summarize_focus_group()}}.}
+\item{x}{A \code{focus_group_result}, a \code{focus_group_arms} object, a
+\link{FocusGroup}, or the list that \code{FocusGroup$run_arms()} returns, as for
+\code{\link[=summarize_focus_group]{summarize_focus_group()}}.}
 }
 \value{
 A data frame with \code{segment} (\code{"session"}, or \code{"prefix"} and the

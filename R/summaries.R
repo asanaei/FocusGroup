@@ -172,8 +172,10 @@
 #' recorded in `metadata$structured_output`. No temperature or seed is set.
 #'
 #' @param x A `focus_group_result` from [run_focus_group()], a
-#'   `focus_group_arms` object from [run_focus_group_arms()], or a
-#'   [FocusGroup], including one made by [focus_group_from_transcript()].
+#'   `focus_group_arms` object from [run_focus_group_arms()], a
+#'   [FocusGroup], including one made by [focus_group_from_transcript()], or
+#'   the list that `FocusGroup$run_arms()` returns (or its named list of
+#'   arms), summarized as a `focus_group_arms` object is.
 #' @param config An explicit `llm_config` object for the summarizing model.
 #'   The session's own models and runner are never used.
 #' @param by The unit: one of `"participant"`, `"item"`, `"disagreements"`,
@@ -459,8 +461,9 @@ summarize_focus_group <- function(x, config, by = "participant",
 #' `linked_message_id` is the moderator's line (the routing record's
 #' `trigger_message_id`); for `"sequence"`, the previous message.
 #'
-#' @param x A `focus_group_result`, a `focus_group_arms` object, or a
-#'   [FocusGroup], as for [summarize_focus_group()].
+#' @param x A `focus_group_result`, a `focus_group_arms` object, a
+#'   [FocusGroup], or the list that `FocusGroup$run_arms()` returns, as for
+#'   [summarize_focus_group()].
 #' @return A data frame with `segment` (`"session"`, or `"prefix"` and the
 #'   arm names; an arm's rows start after the branch point), `message_id`,
 #'   `item`, `round`, `phase`, `speaker_id`, `handle`, `is_moderator`,
@@ -495,6 +498,9 @@ fg_turns <- function(x) {
 # The sessions a summary reads: one segment for a single session, or the
 # shared prefix and each arm's continuation after the branch point.
 .fg_summary_source <- function(x) {
+  branches <- if (!inherits(x, c("focus_group_arms", "focus_group_result", "FocusGroup"))) {
+    .fg_branch_list(x)
+  }
   if (inherits(x, "focus_group_arms")) {
     m <- x$metadata$prefix_messages
     if (!is.numeric(m) || length(m) != 1L || is.na(m) || m < 0) {
@@ -507,13 +513,23 @@ fg_turns <- function(x) {
            call. = FALSE)
     }
     prefix <- .fg_source_session(x$prefix)
+    arms <- x$arms
+  } else if (!is.null(branches)) {
+    m <- branches$prefix_messages
+    arms <- branches$arms
+    prefix <- if (is.null(branches$prefix)) {
+      .fg_session_head(.fg_source_session(arms[[1]]), m)
+    } else .fg_source_session(branches$prefix)
+  }
+  if (inherits(x, "focus_group_arms") || !is.null(branches)) {
+    arm_sessions <- lapply(arms, .fg_source_session)
     cut <- if (m >= 1 && m <= nrow(prefix$transcript)) prefix$transcript$message_id[m] else
       as.integer(m)
     segments <- list(.fg_source_segment(prefix, "prefix", NA_character_,
                                         seq_len(nrow(prefix$transcript)),
                                         prefix$probes))
-    for (name in names(x$arms)) {
-      arm <- .fg_source_session(x$arms[[name]])
+    for (name in names(arms)) {
+      arm <- arm_sessions[[name]]
       rows <- seq_len(nrow(arm$transcript))
       probes <- arm$probes[!is.na(arm$probes$arm) & arm$probes$arm == name, , drop = FALSE]
       segments[[length(segments) + 1L]] <- .fg_source_segment(
@@ -522,7 +538,7 @@ fg_turns <- function(x) {
                               "The earlier messages are summarized separately."),
                        as.integer(cut)))
     }
-    sessions <- c(list(prefix), lapply(x$arms, .fg_source_session))
+    sessions <- c(list(prefix), unname(arm_sessions))
   } else if (inherits(x, c("focus_group_result", "FocusGroup"))) {
     session <- .fg_source_session(x)
     segments <- list(.fg_source_segment(session, "session", NA_character_,
@@ -530,8 +546,8 @@ fg_turns <- function(x) {
                                         session$probes))
     sessions <- list(session)
   } else {
-    stop("`x` must be a focus_group_result, a focus_group_arms object, or a ",
-         "FocusGroup.", call. = FALSE)
+    stop("`x` must be a focus_group_result, a focus_group_arms object, a ",
+         "FocusGroup, or the list FocusGroup$run_arms() returns.", call. = FALSE)
   }
   handles <- unique(do.call(rbind, lapply(segments, function(s) s$handles)))
   rownames(handles) <- NULL
@@ -545,6 +561,52 @@ fg_turns <- function(x) {
        })),
        transcript_ngrams = unique(unlist(lapply(all_messages$text, .fg_ngrams))),
        probe_ngrams = unique(unlist(lapply(all_probes[!is.na(all_probes)], .fg_ngrams))))
+}
+
+# The list FocusGroup$run_arms() returns (`prefix`, a FocusGroup stopped at
+# the branch point, and `arms`, the FocusGroup of each arm, named by arm), or
+# its `arms` alone, as fg_player() takes them; NULL for anything else. The
+# arms must name one branch point and one prefix. Returns the prefix (NULL
+# when only the arms are given), the arms, and the number of messages before
+# the branch point.
+.fg_branch_list <- function(x) {
+  if (!is.list(x) || is.object(x) || !length(x)) return(NULL)
+  is_group <- function(v) inherits(v, "FocusGroup")
+  prefix <- NULL
+  if (is.list(x$arms) && length(x$arms) && all(vapply(x$arms, is_group, logical(1))) &&
+      (is.null(x$prefix) || is_group(x$prefix))) {
+    prefix <- x$prefix
+    arms <- x$arms
+  } else if (all(vapply(x, is_group, logical(1)))) {
+    arms <- x
+  } else {
+    return(NULL)
+  }
+  names <- names(arms)
+  if (is.null(names) || anyNA(names) || any(!nzchar(names)) || anyDuplicated(names)) {
+    stop("Every arm must have a distinct, non-empty name.", call. = FALSE)
+  }
+  branch <- lapply(c(if (!is.null(prefix)) list(prefix), arms), function(fg) {
+    fg$records$info$branch %||% list()
+  })
+  counts <- vapply(branch, function(b) as.numeric(b$prefix_messages %||% NA_real_), numeric(1))
+  hashes <- vapply(branch, function(b) as.character(b$prefix_hash %||% NA_character_),
+                   character(1))
+  if (anyNA(counts) || length(unique(counts)) != 1L || length(unique(hashes)) != 1L) {
+    stop("The arms do not record one shared prefix; pass the list that ",
+         "FocusGroup$run_arms() returns.", call. = FALSE)
+  }
+  list(prefix = prefix, arms = arms, prefix_messages = counts[[1]])
+}
+
+# The first `m` messages of a session read from an arm, with the probes asked
+# before the branch point: the shared prefix.
+.fg_session_head <- function(session, m) {
+  session$transcript <- session$transcript[seq_len(min(m, nrow(session$transcript))), ,
+                                           drop = FALSE]
+  probes <- session$probes
+  session$probes <- probes[is.na(probes$arm), , drop = FALSE]
+  session
 }
 
 # One session's records, read through the record contract: the transcript

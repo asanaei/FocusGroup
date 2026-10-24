@@ -23,8 +23,10 @@ summarize_focus_group(
 }
 \arguments{
 \item{x}{A \code{focus_group_result} from \code{\link[=run_focus_group]{run_focus_group()}}, a
-\code{focus_group_arms} object from \code{\link[=run_focus_group_arms]{run_focus_group_arms()}}, or a
-\link{FocusGroup}, including one made by \code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}}.}
+\code{focus_group_arms} object from \code{\link[=run_focus_group_arms]{run_focus_group_arms()}}, a
+\link{FocusGroup}, including one made by \code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}}, or
+the list that \code{FocusGroup$run_arms()} returns (or its named list of
+arms), summarized as a \code{focus_group_arms} object is.}
 
 \item{config}{An explicit \code{llm_config} object for the summarizing model.
 The session's own models and runner are never used.}
