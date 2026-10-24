@@ -328,19 +328,22 @@ format_conversation_history <- function(conversation_log,
 # moderator is "Moderator".
 
 # The neutral handles: the moderator is "Moderator"; a participant whose ID is
-# already of the form "P1" to "P99" keeps it, so that "P2" never stands for
-# another agent, and the others are numbered "P1", "P2", ... in roster order,
-# skipping the numbers already taken.
-.fg_neutral_handles <- function(ids, moderator_id) {
+# already of the form "P1" to "P99" keeps it, and the others are numbered
+# "P1", "P2", ... in roster order, skipping every number that is an agent's
+# ID, the moderator's included, or a name in `reserved`, such as an injected
+# voice's, compared without regard to case. So "P2" never stands for an agent
+# other than the one whose ID it is.
+.fg_neutral_handles <- function(ids, moderator_id, reserved = character()) {
   participants <- setdiff(ids, moderator_id)
   out <- stats::setNames(rep("Moderator", length(ids)), ids)
   kept <- participants[grepl("^P[1-9][0-9]?$", participants)]
   out[kept] <- kept
+  taken <- tolower(c(ids, reserved))
   k <- 0L
   for (id in setdiff(participants, kept)) {
     repeat {
       k <- k + 1L
-      if (!paste0("P", k) %in% kept) break
+      if (!tolower(paste0("P", k)) %in% taken) break
     }
     out[[id]] <- paste0("P", k)
   }
@@ -351,10 +354,11 @@ format_conversation_history <- function(conversation_log,
 # FocusGroup$new(): NULL for the neutral handles, "ids" for the agent IDs, or
 # a character vector naming some agents by ID with the handle each is to have;
 # the others keep their neutral handles. A handle cannot be empty, repeated,
-# "System", or contain a standalone number from 0 to 10, which the desire-score
-# parser would read as a score.
-.fg_resolve_handles <- function(handles, ids, moderator_id) {
-  neutral <- .fg_neutral_handles(ids, moderator_id)
+# "System", a name in `reserved` (the voices a session injects), or contain a
+# standalone number from 0 to 10, which the desire-score parser would read as
+# a score.
+.fg_resolve_handles <- function(handles, ids, moderator_id, reserved = character()) {
+  neutral <- .fg_neutral_handles(ids, moderator_id, reserved)
   if (is.null(handles)) return(neutral)
   if (identical(handles, "ids")) return(stats::setNames(ids, ids))
   if (!is.character(handles) || !length(handles)) {
@@ -388,6 +392,11 @@ format_conversation_history <- function(conversation_log,
   if (any(tolower(out) == "system")) {
     stop("\"System\" cannot be a handle: it labels the roster row.", call. = FALSE)
   }
+  voices <- out[tolower(out) %in% tolower(reserved)]
+  if (length(voices)) {
+    stop("A handle cannot be the name of an injected voice: ",
+         paste(unique(voices), collapse = ", "), ".", call. = FALSE)
+  }
   numbered <- out[grepl("\\b(10|[0-9])\\b", out, perl = TRUE)]
   if (length(numbered)) {
     stop("A handle cannot contain a standalone number from 0 to 10, which would be ",
@@ -413,6 +422,14 @@ format_conversation_history <- function(conversation_log,
 .fg_handle_sentence <- function(agent) {
   if (isTRUE(agent$is_moderator) || is.null(agent$handle)) return(NULL)
   sprintf("In this discussion you are %s.", .fg_agent_label(agent))
+}
+
+# The one user message of the flat construction: the filled template, after
+# the sentence that tells a participant its handle, so that it can tell its
+# own lines in the transcript the template inlines.
+.fg_flat_messages <- function(agent, prompt) {
+  list(list(role = "user",
+            content = paste(c(.fg_handle_sentence(agent), prompt), collapse = "\n\n")))
 }
 
 # The system text of a desire-scoring call, shared by the per-agent and the
@@ -444,13 +461,16 @@ format_conversation_history <- function(conversation_log,
 
 # The participant a moderator line gives the floor to, or NA. The line's last
 # question, the last sentence ending in "?", must open with one participant's
-# handle and a comma ("P3, do you agree with P2?") or close with a comma and
-# one handle ("Could you say more, P3?"), and must not also put the question
-# to the group ("What does everyone think?", "P3, who else agrees?"). A
-# handle in a list of handles ("P2, P3, what do you think?", "What do you
-# think, P2 and P3?") addresses no one, nor does a question that opens with
-# one handle and closes with another. `handles` are the participants'
-# handles named by agent ID; the agent ID is returned.
+# handle and a comma or colon ("P3, do you agree with P2?", "P3: what do you
+# think?"), close with a comma and one handle ("Could you say more, P3?"), or
+# be a short follow-up that names one handle and nothing else ("And P3?",
+# "What about P3?", "How about P3?"), and must not also put the question to
+# the group ("What does everyone think?", "P3, who else agrees?"). A handle
+# in a list of handles ("P2, P3, what do you think?", "What do you think, P2
+# and P3?") addresses no one, nor does a question that opens with one handle
+# and closes with another, nor a recap that gives two handles a colon ("P2:
+# evenings, P3: mornings?"). `handles` are the participants' handles named by
+# agent ID; the agent ID is returned.
 .fg_addressee <- function(text, handles) {
   if (!length(handles) || !is.character(text) || length(text) != 1L || is.na(text)) {
     return(NA_character_)
@@ -472,11 +492,22 @@ format_conversation_history <- function(conversation_log,
   escaped <- vapply(handles, .fg_regex_escape, character(1))
   any_handle <- paste0("(?:", paste(escaped, collapse = "|"), ")(?![[:alnum:]_])")
   start <- "^[\\s\"'(\\[]*"
+  colons <- lengths(regmatches(question, gregexpr(
+    paste0("(?<![[:alnum:]_])", any_handle, "\\s*:"), question, perl = TRUE)))
+  follow_up <- paste0(start, "(?i:and(?:\\s+(?:what|how)\\s+about)?|what\\s+about|",
+                      "how\\s+about)\\s+")
   opener <- closer <- character()
   for (i in seq_along(handles)) {
     h <- paste0(escaped[[i]], "(?![[:alnum:]_])")
     if (grepl(paste0(start, h, "\\s*,"), question, perl = TRUE) &&
         !grepl(paste0(start, h, "\\s*,\\s*", any_handle), question, perl = TRUE)) {
+      opener <- c(opener, names(handles)[[i]])
+    }
+    if (colons == 1L && grepl(paste0(start, h, "\\s*:"), question, perl = TRUE) &&
+        !grepl(paste0(start, h, "\\s*:\\s*", any_handle), question, perl = TRUE)) {
+      opener <- c(opener, names(handles)[[i]])
+    }
+    if (grepl(paste0(follow_up, escaped[[i]], "\\s*\\?$"), question, perl = TRUE)) {
       opener <- c(opener, names(handles)[[i]])
     }
     if (grepl(paste0(",\\s*(?<![[:alnum:]_])", escaped[[i]], "\\s*\\?$"), question, perl = TRUE) &&
@@ -508,9 +539,11 @@ format_conversation_history <- function(conversation_log,
 }
 
 # The labels an agent might write for itself at the start of a reply: its
-# handle and ID, and for the moderator also "MOD" and "Moderator".
+# handle (its ID only when it has none), and for the moderator also "MOD" and
+# "Moderator". An agent never sees its ID beside a handle, and under
+# permuted handles its ID is another agent's handle, which is content.
 .fg_self_labels <- function(agent) {
-  labels <- c(.fg_agent_label(agent), agent$id)
+  labels <- .fg_agent_label(agent)
   if (isTRUE(agent$is_moderator)) labels <- c(labels, "MOD", "Moderator")
   unique(labels)
 }
@@ -534,8 +567,10 @@ format_conversation_history <- function(conversation_log,
 
 .fg_call_on_names <- c("opening", "midpoint", "end")
 
-# Appended to the turn instruction of a participant the moderator called on.
+# Appended to the turn instruction of a participant the moderator called on,
+# and of one the moderator's last question was put to by handle.
 .fg_called_on_cue <- "The moderator has asked you directly for your view."
+.fg_addressed_cue <- "The moderator's last question was put to you directly."
 
 .fg_default_call_on_text <- "{participant}, I'd like to hear from you as well. What are your thoughts?"
 
@@ -810,7 +845,8 @@ format_conversation_history <- function(conversation_log,
 
 # Dispatch one request and record its returned usage before validating output.
 # `.call` describes the call for the session record: its `type`, `agent_id`,
-# and `attempt`.
+# and `attempt`. A live call leaves the random-number state as it was; a
+# runner is the caller's code and runs as written.
 .fg_call_llm <- function(config, messages, .runner = NULL, ..., .usage = NULL,
                          .call = NULL) {
   publish <- function(usage) {
@@ -820,7 +856,11 @@ format_conversation_history <- function(conversation_log,
   }
   out <- tryCatch({
     if (is.null(.runner)) {
-      LLMR::call_llm_robust(config = config, messages = messages, ...)
+      # A provider's retries draw random waits; the random-number stream is
+      # left as it was, so that a retry does not shift the session's later
+      # speaker draws or break the common random numbers of arms.
+      withr::with_preserve_seed(
+        LLMR::call_llm_robust(config = config, messages = messages, ...))
     } else {
       if (!is.function(.runner)) {
         stop("`.runner` must be `NULL` or a function.", call. = FALSE)

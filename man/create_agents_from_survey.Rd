@@ -38,8 +38,11 @@ variables that are not demographics are used, except a case ID, which
 is left out with a message: a variable without value labels whose values
 are whole numbers or codes without spaces and differ in every row, in a
 file of at least 30 rows or under a name or label that reads as an
-identifier ("id", "case", "respondent", "serial"). Variables named \code{id}, \code{respondent_id}, or
-\code{persona_id} are never rendered.}
+identifier ("id", "case", "respondent", "serial"). A variable whose
+name identifies respondents (\code{id}, \code{caseid}, \code{respondent_id}, \code{respid},
+\code{persona_id}, \code{uid}, \code{record_id}, or \code{row_id}, in any case and with or
+without spaces, dots, hyphens, or underscores, as in \code{ID}, \code{CaseID}, or
+\code{resp_id}) is never rendered.}
 
 \item{rows}{Optional row selector restricting the eligible respondents before
 sampling: integer positions of rows in the file, a logical vector with one
@@ -111,10 +114,10 @@ on every agent.}
 A named list of \code{FGAgent} objects (participants + moderator), keyed
 by agent ID. Two attributes record which respondents were drawn. The
 \code{source_rows} attribute is an integer vector of their row positions in the
-file, named by participant ID. When the file has columns named \code{id},
-\code{respondent_id}, or \code{persona_id}, the \code{source_ids} attribute is a data
-frame of those columns for the drawn respondents, with participant IDs as
-row names. The moderator appears in neither. A third attribute,
+file, named by participant ID. When the file has columns whose names
+identify respondents (as described for \code{survey_vars}), the \code{source_ids}
+attribute is a data frame of those columns for the drawn respondents,
+with participant IDs as row names. The moderator appears in neither. A third attribute,
 \code{rendering_report}, records for each participant and each requested field
 and item the text shown or the reason it was left out; read it with
 \code{\link[=persona_rendering_report]{persona_rendering_report()}}. Subsetting the list drops the attributes,

@@ -109,7 +109,16 @@ test_that("the addressee is the one participant the last question opens or close
     "Thanks, P2. P4, what are your thoughts on what P2 just shared?" = "id4",
     "P4, do you agree with P2?" = "id4",
     "What do you make of P2's point, P4?" = "id4",
-    "__P7__, could you say more?" = "id7")
+    "__P7__, could you say more?" = "id7",
+    # A handle and a colon, and short follow-ups that name one handle.
+    "P2: what do you think?" = "id2",
+    "Thanks. **P2:** what do you think of that?" = "id2",
+    "P2: do you agree with P3?" = "id2",
+    "Thanks, P4. And P3?" = "id3",
+    "What about P3?" = "id3",
+    "How about P3?" = "id3",
+    "And what about P10?" = "id10",
+    "That helps. what about P5 ?" = "id5")
   for (text in names(positives)) {
     expect_identical(addressee(text), positives[[text]], info = text)
   }
@@ -135,6 +144,21 @@ test_that("the addressee is the one participant the last question opens or close
     "P2, do you both agree?",
     "What do you think, P2, P3?",
     "P4, what do you make of P2's point, P3?",
+    # A recap that quotes participants, and follow-ups that name more than
+    # one participant or name a participant's point.
+    "P2: I agree.",
+    "To recap. P2: I agree with longer evenings. P3: mornings work better.",
+    "P2: evenings. P3: mornings. Which matters more?",
+    "P2: evenings, P3: mornings?",
+    "P2: what do you make of that, P3?",
+    "P2: P3, what do you think?",
+    "What about P3's point?",
+    "And P3's view?",
+    "How about P3 and P4?",
+    "What about P3, P4?",
+    "And P30?",
+    "What about everyone else?",
+    "And the rest of you, P3?",
     "")
   for (text in negatives) {
     expect_identical(addressee(text), NA_character_, info = text)
@@ -185,6 +209,46 @@ test_that("a moderator line that addresses a participant gives that participant 
   fg$run_simulation()
   expect_identical(fg$records$routing[[1]]$rule, "highest_score")
   expect_identical(fg$records$routing[[1]]$selected_id, "P1")
+})
+
+test_that("an addressed turn's instruction says the question was put to it, in both modes", {
+  addressed <- "The moderator's last question was put to you directly."
+  called <- "The moderator has asked you directly for your view."
+  for (mode in c("roleflip", "flat")) {
+    withr::local_options(list(focusgroup.message_mode = mode))
+    stub <- .rt_runner(top = "9", moderator = "Thanks. P3, what do you think about the hours?")
+    fg <- .rt_group(stub$runner, list(
+      list(phase = "engagement_question", text = "Which hours matter?")),
+      responses = 2L, call_on_silent = "none")
+    fg$run_simulation(final_summary = FALSE)
+    participant <- Filter(function(call) identical(call$call_type, "participant"),
+                          fg$records$calls)
+    last <- vapply(participant, function(call) {
+      as.character(call$messages[[length(call$messages)]]$content)
+    }, character(1))
+    rules <- vapply(fg$records$routing, `[[`, character(1), "rule")
+    expect_identical(rules, c("addressed", "highest_score"), info = mode)
+    # The cue closes the addressed turn's instruction and no other's.
+    expect_true(endsWith(last[[1]], paste0("\n", addressed)), info = mode)
+    expect_false(grepl(addressed, last[[2]], fixed = TRUE), info = mode)
+    expect_false(any(grepl(called, last, fixed = TRUE)), info = mode)
+  }
+
+  # Hard negative: a called-on turn keeps its own cue and gets no other.
+  stub <- .rt_runner(top = "9")
+  fg <- .rt_group(stub$runner, list(
+    list(phase = "engagement_question", text = "Which hours matter?")),
+    responses = 1L, call_on_silent = 1L)
+  fg$run_simulation(final_summary = FALSE)
+  participant <- Filter(function(call) identical(call$call_type, "participant"),
+                        fg$records$calls)
+  last <- vapply(participant, function(call) {
+    as.character(call$messages[[length(call$messages)]]$content)
+  }, character(1))
+  rules <- vapply(fg$records$routing, `[[`, character(1), "rule")
+  expect_identical(rules, c("highest_score", "called_on", "called_on"))
+  expect_identical(grepl(called, last, fixed = TRUE), c(FALSE, TRUE, TRUE))
+  expect_false(any(grepl(addressed, last, fixed = TRUE)))
 })
 
 test_that("an injected moderator line can address a participant", {

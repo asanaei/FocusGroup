@@ -75,9 +75,14 @@ test_that("a scripted experiments runner completes a desire-based session offlin
   expect_s3_class(basic$speaker_stats, "tbl_df")
   expect_true(nrow(basic$speaker_stats) >= 3L)
 
-  themes <- fg$analyze_themes(config = config)
+  themes <- fg$analyze_themes(config = config, .runner = scripted_runner)
   expect_type(themes, "character")
   expect_true(nzchar(themes))
+  # Without a runner the call goes to the provider, never to the session's
+  # scripted runner.
+  before <- calls$n
+  expect_error(fg$analyze_themes(config = config), "live robust call reached")
+  expect_identical(calls$n, before)
   expect_true(all(vapply(fg$agents, function(agent) {
     identical(agent$.runner, scripted_runner)
   }, logical(1))))

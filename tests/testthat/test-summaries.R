@@ -592,7 +592,7 @@ test_that("the summary writes its token limit into the field the configuration u
 
 # ---- What reaches the model -----------------------------------------------------
 
-test_that("imported speakers' names never reach a prompt", {
+test_that("imported speakers' names never reach a prompt as speaker labels", {
   transcript <- data.frame(
     speaker = c("Moderator", "Ana", "Ben", "Ana", "Moderator", "Ben"),
     text = c("What do you make of the new library hours?",
@@ -644,7 +644,15 @@ test_that("handles from the records label the speakers; user IDs stay in the res
   expect_identical(out$summaries$speaker_id, c("voter_1", "voter_2", "voter_3"))
 })
 
-test_that("names inside messages reach the model as labels; quotes are cut from the original", {
+# A reply of one claim at the "brief" length.
+.sum_one_claim <- function(claim) {
+  function(prompt, n, messages) {
+    as.character(jsonlite::toJSON(list(claims = list(claim), levels = list(brief = list(1))),
+                                  auto_unbox = TRUE))
+  }
+}
+
+test_that("names inside messages reach the model as written; quotes are cut from them", {
   transcript <- data.frame(
     speaker = c("Moderator", "Ana", "Ben", "Moderator", "Ana"),
     text = c("What should change about the hours?",
@@ -653,31 +661,139 @@ test_that("names inside messages reach the model as labels; quotes are cut from 
              "Ana, why do evenings matter to you?",
              "Because I work days and Ben works nights."))
   fg <- focus_group_from_transcript(transcript, topic = "library hours")
-  reply <- function(prompt, n, messages) {
-    claim <- list(id = 1, unit = "session", kind = "agreement", status = "stated",
-                  text = "P2 agreed with P1 about evening hours.", speakers = list("P2"),
-                  evidence = list(3), context = list(2),
-                  quotes = list(list(message_id = 3, speaker = "P2",
-                                     text = "I agree with P1 about")))
-    as.character(jsonlite::toJSON(list(claims = list(claim), levels = list(brief = list(1))),
-                                  auto_unbox = TRUE))
-  }
-  stub <- .sum_runner(reply)
+  claim <- list(id = 1, unit = "session", kind = "agreement", status = "stated",
+                text = "P2 agreed with Ana, P1, about evening hours.", speakers = list("P2"),
+                evidence = list(3), context = list(2),
+                quotes = list(list(message_id = 3, speaker = "P2",
+                                   text = "I agree with Ana about")))
+  stub <- .sum_runner(.sum_one_claim(claim))
   out <- summarize_focus_group(fg, .sum_config(), by = "session", .runner = stub$runner)
-  expect_false(any(grepl("\\b(Ana|Ben)\\b", stub$prompts, perl = TRUE)))
-  expect_match(stub$prompts[1], "[#4] Moderator: P1, why do evenings matter to you?", fixed = TRUE)
-  expect_match(stub$prompts[1], "[#5] P1: Because I work days and P2 works nights.", fixed = TRUE)
+  # The speakers are labeled P1 and P2; their words are sent as recorded.
+  expect_match(stub$prompts[1], "[#3] P2: I agree with Ana about the evening hours.",
+               fixed = TRUE)
+  expect_match(stub$prompts[1], "[#4] Moderator: Ana, why do evenings matter to you?",
+               fixed = TRUE)
+  expect_match(stub$prompts[1], "[#5] P1: Because I work days and Ben works nights.",
+               fixed = TRUE)
   expect_identical(out$quotes$verbatim, "I agree with Ana about")
   expect_identical(substr(transcript$text[3], out$quotes$start, out$quotes$end),
                    "I agree with Ana about")
-  named <- function(prompt, n, messages) {
-    sub("P2 agreed with P1", "P2 agreed with Ana", reply(prompt, n, messages), fixed = TRUE)
-  }
+  expect_identical(out$claims$speaker_ids[[1]], "Ben")
+
+  # Hard negative: a name that labels no speaker and that no message contains
+  # still fails.
+  transcript$speaker[5] <- "Cleo"
+  transcript$text[5] <- "Because I work days and nights."
+  fg <- focus_group_from_transcript(transcript, topic = "library hours")
+  claim$text <- "P2 agreed with Cleo about evening hours."
   err <- tryCatch(summarize_focus_group(fg, .sum_config(), by = "session",
-                                        .runner = .sum_runner(named)$runner),
+                                        .runner = .sum_runner(.sum_one_claim(claim))$runner),
                   focusgroup_summary_check_failure = function(e) e)
   expect_s3_class(err, "focusgroup_summary_check_failure")
-  expect_match(conditionMessage(err), "uses the name Ana; refer to that speaker as P1", fixed = TRUE)
+  expect_match(conditionMessage(err), "uses the name Cleo; refer to that speaker as P3",
+               fixed = TRUE)
+})
+
+test_that("with permuted handles, a handle in a message names the speaker it named", {
+  result <- .sum_session(handles = c(P1 = "P2", P2 = "P3", P3 = "P1"), engine_fields = TRUE)
+  tr <- result$transcript
+  expect_identical(unique(tr$handle[tr$speaker_id == "P2"]), "P3")
+  # Agent P2, shown as P3, agrees with agent P1, shown as P2.
+  said <- tr$message_id[tr$speaker_id == "P2"][1]
+  earlier <- tr$message_id[tr$speaker_id == "P1"][1]
+  expect_lt(earlier, said)
+  result$transcript$text[tr$message_id == said] <- "I agree with P2 that evenings matter most."
+  claim <- list(id = 1, unit = "session", kind = "agreement", status = "stated",
+                text = "P3 agreed with P2 that evenings matter most.", speakers = list("P3"),
+                evidence = list(said), context = list(earlier),
+                quotes = list(list(message_id = said, speaker = "P3",
+                                   text = "I agree with P2 that evenings")))
+  stub <- .sum_runner(.sum_one_claim(claim))
+  out <- summarize_focus_group(result, .sum_config(), by = "session", .runner = stub$runner)
+  expect_match(stub$prompts[1],
+               sprintf("[#%d] P3: I agree with P2 that evenings matter most.", said),
+               fixed = TRUE)
+  expect_match(stub$prompts[1], sprintf("[#%d] P2: ", earlier), fixed = TRUE)
+  expect_identical(out$claims$speaker_ids[[1]], "P2")
+  expect_identical(out$quotes$verbatim, "I agree with P2 that evenings")
+  turns <- fg_turns(result)
+  expect_identical(turns$speaker_id[turns$message_id == earlier], "P1")
+
+  # Hard negative: crediting the view to the participant shown as P1 fails.
+  wrong <- claim
+  wrong$speakers <- list("P1")
+  wrong$quotes[[1]]$speaker <- "P1"
+  err <- tryCatch(summarize_focus_group(result, .sum_config(), by = "session",
+                                        .runner = .sum_runner(.sum_one_claim(wrong))$runner),
+                  focusgroup_summary_check_failure = function(e) e)
+  expect_s3_class(err, "focusgroup_summary_check_failure")
+  expect_match(conditionMessage(err), sprintf("message %d is by P3", said), fixed = TRUE)
+})
+
+test_that("agent IDs that are words reach the model unchanged inside messages", {
+  runner <- function(experiments, ...) {
+    messages <- experiments$messages[[1]]
+    prompt <- .sum_prompt(messages)
+    system <- as.character(messages[[1]]$content)
+    experiments$response_text <- if (grepl("Summary:$", prompt)) {
+      "A short summary."
+    } else if (grepl("MODERATOR", prompt, fixed = TRUE)) {
+      "Who should host the evening events?"
+    } else if (grepl("Persona teacher", system, fixed = TRUE)) {
+      "Evening hours matter to me as a teacher who grades papers at night."
+    } else {
+      "Mornings matter to me as a nurse on night shifts."
+    }
+    experiments
+  }
+  make <- function(id, moderator = FALSE) {
+    FGAgent$new(id, list(direct_persona_description = paste("Persona", id)),
+                .sum_config(), is_moderator = moderator, .runner = runner)
+  }
+  agents <- list(teacher = make("teacher"), nurse = make("nurse"), host = make("host", TRUE))
+  fg <- FocusGroup$new(
+    topic = "library hours", purpose = "Test.", agents = agents, moderator_id = "host",
+    turn_taking_flow = create_conversation_flow("round_robin", agents, "host"),
+    question_script = list(list(phase = "engagement_question", text = "Which hours?")),
+    max_participant_responses = 2, call_on_silent = "none")
+  fg$run_simulation(final_summary = FALSE)
+  expect_identical(unname(fg$handles), c("P1", "P2", "Moderator"))
+  claim <- list(id = 1, unit = "session", kind = "position", status = "stated",
+                text = "P2, a nurse on night shifts, wants the branch open in the morning.",
+                speakers = list("P2"), evidence = list(4L), context = list(),
+                quotes = list(list(message_id = 4L, speaker = "P2",
+                                   text = "a nurse on night shifts")))
+  stub <- .sum_runner(.sum_one_claim(claim))
+  out <- summarize_focus_group(fg, .sum_config(), by = "session", .runner = stub$runner)
+  expect_match(stub$prompts[1], "[#2] Moderator: Who should host the evening events?",
+               fixed = TRUE)
+  expect_match(stub$prompts[1], "[#3] P1: Evening hours matter to me as a teacher who grades",
+               fixed = TRUE)
+  expect_match(stub$prompts[1], "[#4] P2: Mornings matter to me as a nurse on night shifts.",
+               fixed = TRUE)
+  expect_identical(out$claims$speaker_ids[[1]], "nurse")
+  expect_identical(out$quotes$verbatim, "a nurse on night shifts")
+})
+
+test_that("imported speakers named Will and May leave the words will and may intact", {
+  transcript <- data.frame(
+    speaker = c("Moderator", "Will", "May"),
+    text = c("What worries you about the hours?",
+             "Will the library stay open in May?",
+             "I hope so, my exams are in May."))
+  fg <- focus_group_from_transcript(transcript, topic = "library hours")
+  claim <- list(id = 1, unit = "session", kind = "question", status = "stated",
+                text = "P1 asked whether the library will stay open in May.",
+                speakers = list("P1"), evidence = list(2), context = list(),
+                quotes = list(list(message_id = 2, speaker = "P1",
+                                   text = "Will the library stay open in May")))
+  stub <- .sum_runner(.sum_one_claim(claim))
+  out <- summarize_focus_group(fg, .sum_config(), by = "session", .runner = stub$runner)
+  expect_match(stub$prompts[1], "[#2] P1: Will the library stay open in May?", fixed = TRUE)
+  expect_match(stub$prompts[1], "[#3] P2: I hope so, my exams are in May.", fixed = TRUE)
+  expect_identical(out$quotes$verbatim, "Will the library stay open in May")
+  expect_identical(c(out$quotes$start, out$quotes$end), c(1L, 33L))
+  expect_identical(out$claims$speaker_ids[[1]], "Will")
 })
 
 test_that("a voice whose name is a free label keeps it, and participants take others", {
@@ -805,6 +921,66 @@ test_that("arms are summarized as the shared prefix and each arm after the branc
   turns <- fg_turns(arms)
   expect_identical(unique(turns$segment), c("prefix", "objection", "control"))
   expect_true(all(turns$message_id[turns$segment != "prefix"] > m))
+})
+
+test_that("the list FocusGroup$run_arms() returns is summarized as its arms object", {
+  make_runner <- function() {
+    count <- 0L
+    function(experiments, ...) {
+      count <<- count + 1L
+      prompt <- .sum_prompt(experiments$messages[[1]])
+      experiments$response_text <- if (grepl("MODERATOR", prompt, fixed = TRUE)) {
+        "What should change about the library hours?"
+      } else sprintf("Reply %03d about evening hours and the staff.", count)
+      experiments
+    }
+  }
+  agents <- create_agents(2, .sum_config(), direct_persona_descriptions = c("A.", "B."),
+                          .runner = make_runner())
+  fg <- FocusGroup$new(
+    "library hours", "Test.", agents, "MOD",
+    create_conversation_flow("round_robin", agents, "MOD"),
+    question_script = list(list(phase = "opening"),
+                           list(phase = "engagement_question", text = "Which hours?"),
+                           list(phase = "engagement_question", text = "Who is left out?"),
+                           list(phase = "closing")),
+    max_participant_responses = 2, call_on_silent = "none")
+  run <- fg$run_arms(list(objection = fg_injection("Hours cost money.", at = fg_after_item(2),
+                                                   from = "Guest expert"),
+                          control = NULL), final_summary = FALSE)
+  setup <- list(flow = "round_robin", message_mode = "roleflip", n_participants = 2L,
+                estimated_calls = NA_integer_, run_meta = list(seed = NULL))
+  object <- FocusGroup:::.fg_arms_result(run$prefix, run$arms, setup)
+  summarize <- function(x) {
+    stub <- .sum_runner()
+    out <- summarize_focus_group(x, .sum_config(), .runner = stub$runner)
+    list(prompts = stub$prompts, summaries = out$summaries, claims = out$claims,
+         quotes = out$quotes, segments = out$metadata$segments)
+  }
+  expected <- summarize(object)
+  expect_identical(expected$segments, c("prefix", "objection", "control"))
+  expect_identical(summarize(run), expected)
+  expect_identical(summarize(run$arms), expected)
+  expect_identical(fg_turns(run), fg_turns(object))
+  expect_identical(fg_turns(run$arms), fg_turns(object))
+
+  # Hard negatives: unnamed arms, arms that share no recorded prefix, and a
+  # list of other things are refused.
+  expect_error(summarize_focus_group(list(prefix = run$prefix, arms = unname(run$arms)),
+                                     .sum_config(), .runner = .sum_runner()$runner),
+               "distinct, non-empty name")
+  plain <- FocusGroup$new(
+    "library hours", "Test.", agents, "MOD",
+    create_conversation_flow("round_robin", agents, "MOD"),
+    question_script = list(list(phase = "engagement_question", text = "Which hours?")),
+    max_participant_responses = 1, call_on_silent = "none")
+  plain$run_simulation(final_summary = FALSE)
+  expect_error(summarize_focus_group(list(a = run$arms$objection, b = plain), .sum_config(),
+                                     .runner = .sum_runner()$runner),
+               "one shared prefix")
+  expect_error(summarize_focus_group(list(a = 1, b = 2), .sum_config(),
+                                     .runner = .sum_runner()$runner),
+               "FocusGroup$run_arms() returns", fixed = TRUE)
 })
 
 # ---- Limits, templates, and the records ----------------------------------------

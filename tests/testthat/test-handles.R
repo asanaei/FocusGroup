@@ -190,6 +190,143 @@ test_that("handles and agent names are checked before any call", {
   expect_true(injected$is_moderator)
 })
 
+test_that("no neutral handle names another agent's ID, the moderator's included", {
+  stub <- .hd_stub()
+  agents <- .hd_agents(stub$runner, ids = c("alice", "bob"), moderator = "P1")
+  fg <- .hd_group(agents, .hd_script(1), call_on_silent = "none")
+  expect_identical(fg$handles, c(alice = "P2", bob = "P3", P1 = "Moderator"))
+  fg$run_simulation(final_summary = FALSE)
+  view <- fg$.__enclos_env__$private$agent_view()
+  expect_identical(view[[1]]$text, "Participants: P2, P3; Moderator: Moderator")
+  prompts <- vapply(fg$records$calls, function(call) .hd_prompt(call$messages), character(1))
+  expect_false(any(grepl("\\bP1\\b", prompts, perl = TRUE)))
+
+  neutral <- FocusGroup:::.fg_neutral_handles
+  # IDs are compared without regard to case, and reserved names are skipped.
+  expect_identical(neutral(c("p1", "x", "MOD"), "MOD"),
+                   c(p1 = "P2", x = "P3", MOD = "Moderator"))
+  expect_identical(neutral(c("a", "b", "MOD"), "MOD", reserved = c("P1", "p3")),
+                   c(a = "P2", b = "P4", MOD = "Moderator"))
+  # Hard negatives: rosters whose IDs take no number another agent needs
+  # keep the handles they had.
+  expect_identical(neutral(c("P1", "P2", "P3", "MOD"), "MOD"),
+                   c(P1 = "P1", P2 = "P2", P3 = "P3", MOD = "Moderator"))
+  expect_identical(neutral(c("teacher_conservative", "V240001", "lead_moderator"),
+                           "lead_moderator"),
+                   c(teacher_conservative = "P1", V240001 = "P2",
+                     lead_moderator = "Moderator"))
+  expect_identical(neutral(c("P2", "x", "MOD"), "MOD"),
+                   c(P2 = "P2", x = "P1", MOD = "Moderator"))
+  # A handle given by name may not be a reserved voice's name.
+  resolve <- FocusGroup:::.fg_resolve_handles
+  expect_error(resolve(c(a = "Guest"), c("a", "b", "MOD"), "MOD", reserved = "guest"),
+               "injected voice: Guest")
+  expect_identical(resolve(c(a = "Ana"), c("a", "b", "MOD"), "MOD", reserved = "Guest"),
+                   c(a = "Ana", b = "P2", MOD = "Moderator"))
+})
+
+test_that("in flat mode each participant is told its handle, and the moderator is not", {
+  withr::local_options(list(focusgroup.message_mode = "flat"))
+  stub <- .hd_stub()
+  fg <- .hd_group(.hd_agents(stub$runner), .hd_script(1), call_on_silent = "none")
+  fg$run_simulation(final_summary = FALSE)
+  calls <- fg$records$calls
+  types <- vapply(calls, `[[`, character(1), "call_type")
+  expect_true(all(c("moderator", "participant", "desire") %in% types))
+  for (call in calls) {
+    first <- call$messages[[1]]$content
+    if (identical(call$call_type, "moderator")) {
+      expect_false(grepl("In this discussion you are", first, fixed = TRUE))
+      next
+    }
+    # One user message that opens with the agent's own handle.
+    expect_length(call$messages, 1L)
+    expect_identical(call$messages[[1]]$role, "user")
+    expect_true(startsWith(first, paste0("In this discussion you are ",
+                                         fg$handles[[call$agent_id]], ".\n\n")),
+                info = call$agent_id)
+  }
+  participant <- Filter(function(call) identical(call$call_type, "participant"), calls)
+  text <- participant[[1]]$messages[[1]]$content
+  expect_match(text, "address other participants by their labels", fixed = TRUE)
+  expect_false(grepl("by ID", text, fixed = TRUE))
+
+  # The broadcast desire path sends the same flat message.
+  seen <- NULL
+  testthat::local_mocked_bindings(
+    call_llm_broadcast = function(config, messages, ...) {
+      seen <<- c(seen, messages)
+      data.frame(response_text = rep("6", length(messages)), success = TRUE)
+    }, .package = "LLMR")
+  live <- .hd_agents(NULL)
+  flow <- create_conversation_flow("desire_based", live, "lead_moderator")
+  group <- .hd_group(live, .hd_script(1))
+  group$turn_taking_flow <- flow
+  group$.__enclos_env__$private$claim_handles()
+  flow$select_next_speaker(group)
+  expect_length(seen, 2L)
+  firsts <- vapply(seen, function(m) m[[1]]$content, character(1))
+  expect_true(startsWith(firsts[[1]], "In this discussion you are P1.\n\n"))
+  expect_true(startsWith(firsts[[2]], "In this discussion you are P2.\n\n"))
+
+  # Hard negative: in role-flip mode the handle is in the system message,
+  # once, and not added to the instruction.
+  withr::local_options(list(focusgroup.message_mode = "roleflip"))
+  stub <- .hd_stub()
+  fg <- .hd_group(.hd_agents(stub$runner), .hd_script(1), call_on_silent = "none")
+  fg$run_simulation(final_summary = FALSE)
+  for (call in Filter(function(call) identical(call$call_type, "participant"),
+                      fg$records$calls)) {
+    contents <- vapply(call$messages, function(m) as.character(m$content), character(1))
+    expect_identical(sum(grepl("In this discussion you are", contents, fixed = TRUE)), 1L)
+    expect_identical(call$messages[[1]]$role, "system")
+  }
+})
+
+test_that("an agent's own label is its handle, so another speaker's handle is kept", {
+  runner <- function(experiments, ...) {
+    messages <- experiments$messages[[1]]
+    prompt <- .hd_prompt(messages)
+    you <- sub(".*In this discussion you are ([^.]+)\\..*", "\\1", prompt)
+    experiments$response_text <- if (grepl("Summary:$", prompt)) {
+      "A short summary."
+    } else if (grepl("MODERATOR", prompt, fixed = TRUE)) {
+      "**MOD:** Which hours matter most to you?"
+    } else if (identical(you, "P3")) {
+      "P2: you make a fair point about the evening hours."
+    } else {
+      sprintf("%s: evening hours help me after my shift ends.", you)
+    }
+    experiments
+  }
+  agents <- create_agents(3, .hd_config(), direct_persona_descriptions = c("A.", "B.", "C."),
+                          .runner = runner)
+  fg <- FocusGroup$new(
+    topic = "library hours", purpose = "Test.", agents = agents, moderator_id = "MOD",
+    turn_taking_flow = create_conversation_flow("round_robin", agents, "MOD"),
+    question_script = list(list(phase = "engagement_question", text = "Which hours?")),
+    max_participant_responses = 3, call_on_silent = "none",
+    handles = c(P1 = "P2", P2 = "P3", P3 = "P1"))
+  fg$run_simulation(final_summary = FALSE)
+  log <- fg$conversation_log
+  said <- function(id) Filter(function(m) identical(m$speaker_id, id), log)[[1]]
+  # Agent P2, shown as P3, addresses the agent shown as P2: the label stays.
+  expect_identical(said("P2")$text, "P2: you make a fair point about the evening hours.")
+  expect_null(said("P2")$metadata$self_label_removed)
+  # Agents P1 and P3 wrote their own handles, P2 and P1, which are removed.
+  expect_identical(said("P1")$text, "evening hours help me after my shift ends.")
+  expect_true(said("P1")$metadata$self_label_removed)
+  expect_identical(said("P3")$text, "evening hours help me after my shift ends.")
+  expect_identical(said("MOD")$text, "Which hours matter most to you?")
+
+  labels <- FocusGroup:::.fg_self_labels
+  expect_identical(labels(fg$agents$P2), "P3")
+  expect_identical(labels(fg$agents$MOD), c("Moderator", "MOD"))
+  # An agent outside a session answers to its ID.
+  loose <- FGAgent$new("teacher", list(direct_persona_description = "A."), .hd_config())
+  expect_identical(labels(loose), "teacher")
+})
+
 test_that("identifier columns stay out of persona text and are reported", {
   cfg <- .hd_config()
   data <- data.frame(id = c("R-101", "R-102"), respondent_id = c(9001L, 9002L),
@@ -215,6 +352,34 @@ test_that("identifier columns stay out of persona text and are reported", {
   report <- persona_rendering_report(agents)
   expect_identical(unique(report$reason[report$variable == "persona_id"]), "identifier column")
   expect_identical(agents$P1$demographics$persona_id, "x7")
+
+  # Identifier names are matched in any case and with their common variants.
+  agents <- create_agents(2, cfg, demographics = data.frame(
+    ID = c("R-201", "R-202"), CaseID = c(5501L, 5502L), age = c(30, 41)))
+  personas <- vapply(agents[1:2], function(a) a$persona_description, character(1))
+  expect_false(any(grepl("R-20|550[12]|ID", personas)))
+  expect_true(all(grepl("age: ", personas, fixed = TRUE)))
+  report <- persona_rendering_report(agents)
+  expect_true(all(report$reason[report$variable %in% c("ID", "CaseID")] == "identifier column"))
+  agents <- create_agents_from_data(data.frame(
+    Resp.ID = c("a1", "a2"), row_id = 1:2, age = c("30", "41")), 2, cfg,
+    demographic_cols = "age")
+  personas <- vapply(agents[1:2], function(a) a$persona_description, character(1))
+  expect_false(any(grepl("a[12]|Resp|row_id", personas)))
+  expect_identical(names(attr(agents, "source_ids")), c("Resp.ID", "row_id"))
+  is_id <- FocusGroup:::.fg_is_identifier
+  expect_true(all(is_id(c("id", "ID", "CaseID", "case_id", "Case ID", "respondent_id",
+                          "RespID", "resp_id", "respid", "persona_id", "UID", "record_id",
+                          "Row.ID", "row-id"))))
+  # Hard negatives: names that contain "id" but name no identifier are
+  # rendered.
+  expect_false(any(is_id(c("idea", "ideology", "paid", "kid_count", "valid", "Iduna",
+                           "household_id_type", "id2", NA))))
+  agents <- create_agents(2, cfg, demographics = data.frame(
+    ideology = c("liberal", "conservative"), paid = c("yes", "no")))
+  personas <- vapply(agents[1:2], function(a) a$persona_description, character(1))
+  expect_true(all(grepl("ideology: ", personas, fixed = TRUE)))
+  expect_true(all(grepl("paid: ", personas, fixed = TRUE)))
 })
 
 test_that("an automatically chosen survey variable that differs in every row is left out", {
@@ -225,7 +390,8 @@ test_that("an automatically chosen survey variable that differs in every row is 
   }
   d <- data.frame(
     AGE = lab(c(1L, 2L, 3L, 2L), c("18-29" = 1, "30-49" = 2, "50+" = 3), "Age group"),
-    CASEID = lab(c(240001, 240002, 240003, 240004), label = "Case ID"),
+    V200 = lab(c(240001, 240002, 240003, 240004), label = "Case ID"),
+    CaseID = lab(c(7001, 7002, 7003, 7003), label = "Household"),
     PARTY = lab(c(1L, 2L, 1L, 2L), c("Democrat" = 1, "Republican" = 2), "Party"),
     RANK = lab(c(1L, 2L, 3L, 4L), c("One" = 1, "Two" = 2, "Three" = 3, "Four" = 4), "Rank"),
     INCOME = lab(c(50000, 62000, 50000, 71000), label = "Income in dollars"))
@@ -234,9 +400,11 @@ test_that("an automatically chosen survey variable that differs in every row is 
   cfg <- .hd_config()
   msgs <- testthat::capture_messages(suppressWarnings(
     agents <- create_agents_from_survey(4, f, cfg, demographic_vars = c(age = "AGE"))))
-  expect_true(any(grepl("respondent identifiers.*CASEID", msgs)))
+  expect_true(any(grepl("respondent identifiers.*V200", msgs)))
   personas <- vapply(agents[1:4], function(a) a$persona_description, character(1))
   expect_false(any(grepl("24000[1-4]|Case ID", personas)))
+  # A variable named as an identifier is left out by its name alone.
+  expect_false(any(grepl("700[1-3]|Household", personas)))
   # A labeled item and an unlabeled number with a repeated value are kept.
   expect_true(all(grepl("Rank", personas, fixed = TRUE)))
   expect_true(all(grepl("Income in dollars", personas, fixed = TRUE)))
@@ -254,11 +422,17 @@ test_that("an automatically chosen survey variable that differs in every row is 
   expect_true(distinct(240001:240040, "V240001"))
   expect_false(distinct(c(30:59, 59), "V9"))
   report <- persona_rendering_report(agents)
-  expect_true(all(report$reason[report$variable == "CASEID"] == "identifier column"))
-  # Named in `survey_vars`, the variable is rendered.
+  expect_true(all(report$reason[report$variable %in% c("V200", "CaseID")] ==
+                    "identifier column"))
+  # Named in `survey_vars`, a variable found by its values is rendered; one
+  # named as an identifier is not.
   suppressWarnings(named <- create_agents_from_survey(
-    4, f, cfg, demographic_vars = c(age = "AGE"), survey_vars = c("CASEID", "PARTY")))
-  expect_true(any(grepl("24000", vapply(named[1:4], function(a) a$persona_description, ""))))
+    4, f, cfg, demographic_vars = c(age = "AGE"), survey_vars = c("V200", "CaseID", "PARTY")))
+  shown <- vapply(named[1:4], function(a) a$persona_description, "")
+  expect_true(any(grepl("24000", shown)))
+  expect_false(any(grepl("700[1-3]|Household", shown)))
+  expect_true(all(persona_rendering_report(named)$reason[
+    persona_rendering_report(named)$variable == "CaseID"] == "identifier column"))
 })
 
 test_that("an imported transcript keeps its speakers' names and numbers its items", {

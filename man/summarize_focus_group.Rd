@@ -23,8 +23,10 @@ summarize_focus_group(
 }
 \arguments{
 \item{x}{A \code{focus_group_result} from \code{\link[=run_focus_group]{run_focus_group()}}, a
-\code{focus_group_arms} object from \code{\link[=run_focus_group_arms]{run_focus_group_arms()}}, or a
-\link{FocusGroup}, including one made by \code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}}.}
+\code{focus_group_arms} object from \code{\link[=run_focus_group_arms]{run_focus_group_arms()}}, a
+\link{FocusGroup}, including one made by \code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}}, or
+the list that \code{FocusGroup$run_arms()} returns (or its named list of
+arms), summarized as a \code{focus_group_arms} object is.}
 
 \item{config}{An explicit \code{llm_config} object for the summarizing model.
 The session's own models and runner are never used.}
@@ -150,15 +152,14 @@ summary; they are not enforced.
 \section{What the model sees}{
 
 The transcript, with each message's id and its speaker's handle, the label
-the agents saw. User IDs never reach the model: a speaker whose handle is
-its user ID (an imported transcript, \code{handles = "ids"}, or a session made
+the agents saw. No user ID labels a speaker: a speaker whose handle is its
+user ID (an imported transcript, \code{handles = "ids"}, or a session made
 before handles existed) is shown as \code{P1}, \code{P2}, ... in roster order, unless
 that ID already has this form or another voice uses it, and the moderator
-as \code{Moderator}. Inside the messages, too, each user ID or name with such a
-label is replaced by the label wherever it stands as a whole word with the
-same case ("Ana, why evenings?" reaches the model as "P1, why
-evenings?"); names without a letter or shorter than 2 characters are left
-as written. Personas are never sent, nor is the System roster row.
+as \code{Moderator}. The messages themselves are sent as recorded: the speakers
+wrote them under the handles they saw, and a name in them ("Ana, why
+evenings?", "Will the library stay open in May?") is left as written.
+Personas are never sent, nor is the System roster row.
 Injected messages are marked as injected, and those shown to participants
 only are marked as such. Private probe answers are sent only with
 \code{include_probes = TRUE}, as a separate block with ids \code{Q1}, \code{Q2}, ...
@@ -175,7 +176,7 @@ within the unit, and not be the System row. The messages given as evidence
 must be by the speakers the claim names, and a claim other than
 \code{"not_stated"} must cite at least one message by each speaker it names.
 
-A quote must appear in the text the model saw of the cited message,
+A quote must appear in the text of the cited message,
 ignoring only differences of case, whitespace, and quotation marks (and,
 for Persian, the zero-width non-joiner and the Arabic forms of yeh and
 kaf). It must have at least 3 words and start and end on word boundaries,
@@ -192,7 +193,8 @@ roster; a participant the text names must be among the claim's speakers
 or the speaker of a message it cites as context; a claim that is not
 \code{"not_stated"} may not name a participant with no message in the unit; a
 claim that a participant said nothing fails when that participant spoke;
-and a user ID or name the model was not shown may not appear. A claim that
+and a user ID or name the model was not shown, as a speaker's label or in
+the text of a message, may not appear. A claim that
 speaks for the whole group ("everyone", "all of them", "no one",
 "consensus", "unanimous", "the whole group", and similar wording) must cite
 a message from every participant who spoke on each item it cites. Unless

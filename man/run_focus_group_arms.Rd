@@ -67,7 +67,8 @@ participant.}
 \item{seed}{Optional integer governing in-package sampling: the respondents
 drawn from the bundled records and the random choices of the turn-taking
 flow, such as the speaker draws of \code{"probabilistic"} and the tie-breaks of
-\code{"desire_based"}. The caller's random-number state is restored when the
+\code{"desire_based"}. The random waits of a provider's retries do not draw
+from this stream. The caller's random-number state is restored when the
 function returns. The option \code{focusgroup.seed}, when set, fixes the
 respondent draw instead.}
 
@@ -194,8 +195,9 @@ The prefix is run once, with its probes, and a copy of the whole session
 branch point; each arm continues its own copy. Each arm also starts from
 the random-number state at the branch point, so the random draws that
 follow, such as tie-breaks and probabilistic speaker choices, use the same
-stream in every arm. With \code{seed}, the whole run is reproducible; without
-it, the arms still share the stream from the branch point on.
+stream in every arm; a provider's retries, which wait a random time, do
+not draw from it. With \code{seed}, the whole run is reproducible; without it,
+the arms still share the stream from the branch point on.
 
 A branch point must lie within the guide: \code{fg_after_item(k)} needs \code{k} no
 larger than the number of guide items, and \code{fg_before_turn(t)} needs \code{t}

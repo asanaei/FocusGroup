@@ -262,6 +262,53 @@ test_that("a custom flow's picks are recorded as custom", {
                    c("FirstFlow", "FirstFlow"))
 })
 
+test_that("a flow's choice of no participant or of the moderator records no routing row", {
+  # Odd picks give the floor to the first participant; even picks end the
+  # discussion of the item, leaving a record of their own that must not be
+  # copied for a later pick.
+  EndingFlow <- R6::R6Class("EndingFlow", inherit = ConversationFlow, public = list(
+    picks = 0L,
+    ends_with = "none",
+    select_next_speaker = function(focus_group) {
+      self$picks <- self$picks + 1L
+      if (self$picks %% 2L == 1L) return(self$agents[[self$participant_ids[1]]])
+      self$routing_record <- list(flow = "EndingFlow", rule = "ended")
+      if (identical(self$ends_with, "moderator")) self$agents[[self$moderator_id]] else NULL
+    }))
+  for (ending in c("none", "moderator")) {
+    rec <- .recording_runner()
+    agents <- create_agents(3, config = LLMR::llm_config("openai", "example-model"),
+                            direct_persona_descriptions = c("A.", "B.", "C."),
+                            .runner = rec$runner)
+    flow <- EndingFlow$new(agents, "MOD")
+    flow$ends_with <- ending
+    fg <- FocusGroup$new(
+      topic = "library hours", purpose = "Test.", agents = agents, moderator_id = "MOD",
+      turn_taking_flow = flow,
+      question_script = list(list(phase = "engagement_question", text = "Which hours?"),
+                             list(phase = "engagement_question", text = "Who is left out?")),
+      max_participant_responses = 2, call_on_silent = 1L)
+    fg$run_simulation(injections = fg_injection("A word from outside.", fg_before_turn(2),
+                                                from = "Guest"),
+                      final_summary = FALSE)
+    result <- FocusGroup:::.fg_focus_group_result(fg, "EndingFlow", "roleflip", 3L, NA_integer_)
+    routing <- result$routing
+    expect_identical(routing$turn, 1:4, info = ending)
+    expect_identical(routing$rule, c("custom", "called_on", "called_on", "custom"), info = ending)
+    expect_identical(routing$selected_id, c("P1", "P2", "P3", "P1"), info = ending)
+    expect_false(anyNA(routing$message_id), info = ending)
+    tr <- result$transcript
+    replies <- tr$message_id[tr$speaker_id %in% c("P1", "P2", "P3")]
+    expect_identical(routing$message_id, replies, info = ending)
+    # The point before turn 2 came when the flow was asked for turn 2, so the
+    # injection stands before the call-on line whose reply is turn 2.
+    injected <- which(vapply(tr$metadata, function(m) isTRUE(m$injected), logical(1)))
+    line <- which(vapply(tr$metadata, function(m) !is.null(m$call_on), logical(1)))[1]
+    expect_identical(injected + 1L, line, info = ending)
+    expect_identical(tr$speaker_id[[line + 1L]], "P2", info = ending)
+  }
+})
+
 test_that("session metadata records the settings, templates, and versions", {
   rec <- .recording_runner()
   result <- .record_session(

@@ -391,10 +391,8 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
           last_utterance_text = last_utterance_info$text
         )
         instruction <- replace_placeholders(desire_tpl, prompt_values)
-        if (desire_legacy) {
-          return(list(list(role = "user", content = instruction)))
-        }
         agent <- self$agents[[pid]]
+        if (desire_legacy) return(.fg_flat_messages(agent, instruction))
         .fg_build_agent_messages(desire_transcript, .fg_agent_label(agent),
                                  .fg_desire_system_text(agent),
                                  instruction = instruction, self_state = NULL)
@@ -440,10 +438,13 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
         cfg <- .fg_with_params(cfg, desire_call_params)
         group_msgs <- lapply(ids, build_desire_msg)
         broadcast_error <- NULL
+        # Retries draw random waits; the random-number stream is left as it
+        # was, so that a retry does not change the draws that follow.
         out <- tryCatch(
-          LLMR::call_llm_broadcast(config = cfg, messages = group_msgs,
-                                   tries = 5, wait_seconds = 2, backoff_factor = 3,
-                                   progress = FALSE),
+          withr::with_preserve_seed(
+            LLMR::call_llm_broadcast(config = cfg, messages = group_msgs,
+                                     tries = 5, wait_seconds = 2, backoff_factor = 3,
+                                     progress = FALSE)),
           error = function(e) {
             broadcast_error <<- e
             NULL

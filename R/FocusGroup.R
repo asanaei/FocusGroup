@@ -113,9 +113,10 @@ NULL
 #' first point gives every participant a turn early in the session.
 #'
 #' A moderator line whose last question opens or closes with one
-#' participant's handle ("P3, do you agree?", "Could you say more, P3?"),
-#' and does not also ask the group, gives that participant the next turn,
-#' with the rule `"addressed"`.
+#' participant's handle ("P3, do you agree?", "P3: what do you think?",
+#' "Could you say more, P3?"), or is a short follow-up naming one ("And
+#' P3?", "What about P3?", "How about P3?"), and does not also ask the
+#' group, gives that participant the next turn, with the rule `"addressed"`.
 #'
 #' @references Krueger, R. A. (2002). *Designing and Conducting Focus Group
 #'   Interviews*. University of Minnesota.
@@ -194,14 +195,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'   its reasoning and the score.
     #' @param max_participant_responses Integer. Optional. Maximum participant exchanges per round before moderator intervention.
     #'        Defaults to `getOption("focusgroup.max_participant_responses", 2L)`.
+    #'        It must be one positive whole number.
     #' @param reasoning_effort Optional reasoning-effort setting, as described
     #'   for the `reasoning_effort` field.
     #' @param handles The labels under which the agents see each other.
     #'   `NULL` (the default) shows the participants as `"P1"`, `"P2"`, ...
     #'   in roster order and the moderator as `"Moderator"`, so the IDs given
     #'   to the agents never reach a prompt; a participant whose ID is already
-    #'   `"P1"` to `"P99"` keeps it, and the others take the numbers left
-    #'   free, so that a handle never names a different agent's ID. `"ids"` shows the agent IDs, with
+    #'   `"P1"` to `"P99"` keeps it, and the others take the numbers that are
+    #'   no agent's ID, the moderator's included, so that a neutral handle
+    #'   never names a different agent's ID. `"ids"` shows the agent IDs, with
     #'   a message listing them. A character vector named by agent ID sets
     #'   handles of your own, such as invented first names, and the agents it
     #'   does not name keep their neutral handles. A handle must be non-empty
@@ -241,6 +244,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
       if (!is.character(moderator_id) || !(moderator_id %in% names(agents))) stop("'moderator_id' must be a valid ID of an agent in 'agents'.")
       if (!inherits(turn_taking_flow, "ConversationFlow")) stop("'turn_taking_flow' must be a ConversationFlow object.")
       if (!is.list(question_script)) stop("'question_script' must be a list.")
+      response_limit <- max_participant_responses %||%
+        getOption("focusgroup.max_participant_responses", 2L)
+      if (!is.numeric(response_limit) || length(response_limit) != 1L ||
+          is.na(response_limit) || !is.finite(response_limit) || response_limit < 1 ||
+          response_limit != floor(response_limit) ||
+          response_limit > .Machine$integer.max) {
+        stop("`max_participant_responses` (or the option ",
+             "`focusgroup.max_participant_responses`) must be one positive whole number.",
+             call. = FALSE)
+      }
       self$handles <- .fg_resolve_handles(handles, agent_ids, moderator_id)
       self$call_on_text <- .fg_check_call_on_text(call_on_text)
       if (identical(handles, "ids")) {
@@ -342,7 +355,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         }
       }
       self$reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
-      self$max_participant_responses <- max_participant_responses %||% getOption("focusgroup.max_participant_responses", 2L)
+      self$max_participant_responses <- as.integer(response_limit)
 
       self$total_tokens_sent <- 0
       self$total_tokens_received <- 0
@@ -923,7 +936,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #' @param speaker_ids Character vector. Optional. Specific speakers to analyze.
     #' @param .runner Optional function used instead of live model calls. It
     #'   receives a data frame with `config` and `messages` list-columns and
-    #'   returns the rows with at least `response_text`.
+    #'   returns the rows with at least `response_text`. `NULL` makes a live
+    #'   call through `config`, also on a session that ran with a runner.
     #' @return The thematic summary as a character string. An empty transcript
     #'   returns `character(0)`. Provider failures are propagated.
     analyze_themes = function(config, message_ids = NULL, speaker_ids = NULL,
@@ -958,7 +972,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         config = current_call_config,
         .usage = function(u) .fg_record_group(self, u),
         messages = list(list(role = "user", content = theme_prompt)),
-        .runner = .runner %||% self$agents[[self$moderator_id]]$.runner,
+        .runner = .runner,
         tries = 5,
         .call = list(type = "themes")
       )
@@ -1548,6 +1562,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
       private$append_routing(record)
     },
 
+    # Drop the flow's record of a choice that gave no participant the turn,
+    # so that it is not copied for the next pick.
+    discard_routing = function() {
+      flow <- self$turn_taking_flow
+      if ("routing_record" %in% names(flow)) flow$routing_record <- NULL
+      invisible(NULL)
+    },
+
     # Record a turn given without the flow: to a participant the moderator
     # called on ("called_on") or addressed ("addressed") in the message
     # `trigger`. No scores are asked for, and the flow's own record of its
@@ -1872,22 +1894,25 @@ FocusGroup <- R6::R6Class("FocusGroup",
         if (verbose) cat(paste("Addressed by the moderator:", agent$id, "\n"))
         pick <- private$record_forced_routing(agent$id, "addressed",
                                               addressed$message_id)
-        private$participant_turn(agent, pick, metadata = list(addressed = TRUE),
-                                 verbose = verbose)
+        private$participant_turn(agent, pick, cue = .fg_addressed_cue,
+                                 metadata = list(addressed = TRUE), verbose = verbose)
       } else {
         next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
-        pick <- private$record_routing(next_participant)
-
+        # A choice of no participant, or of the moderator, ends the discussion
+        # of the item. It is not a turn, so it has no routing record.
         if (is.null(next_participant)) {
+          private$discard_routing()
           if (verbose) cat("No participant selected by flow (e.g., low desire). Ending participant response round.\n")
           private$end_discussion()
           return(FALSE)
         }
         if (next_participant$id == self$moderator_id && length(self$agents) > 1) {
+          private$discard_routing()
           if (verbose) cat("Turn-taking flow selected moderator during participant response phase. Allowing moderator to manage flow.\n")
           private$end_discussion()
           return(FALSE)
         }
+        pick <- private$record_routing(next_participant)
         if (verbose) cat(paste("Selected participant by flow:", next_participant$id, "\n"))
         private$participant_turn(
           next_participant, pick,

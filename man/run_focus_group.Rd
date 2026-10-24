@@ -65,7 +65,8 @@ participant.}
 \item{seed}{Optional integer governing in-package sampling: the respondents
 drawn from the bundled records and the random choices of the turn-taking
 flow, such as the speaker draws of \code{"probabilistic"} and the tie-breaks of
-\code{"desire_based"}. The caller's random-number state is restored when the
+\code{"desire_based"}. The random waits of a provider's retries do not draw
+from this stream. The caller's random-number state is restored when the
 function returns. The option \code{focusgroup.seed}, when set, fixes the
 respondent draw instead.}
 
@@ -264,9 +265,13 @@ The participants and the moderator see each other under handles, never
 under the IDs of the records: the IDs of \code{\link[=create_agents]{create_agents()}} are already
 \code{"P1"}, \code{"P2"}, ..., and the moderator appears as \code{"Moderator"}. When
 the moderator's last question opens or closes with one participant's
-handle ("P3, do you agree?", "Could you say more, P3?") and does not also
-put it to the group, that participant takes the next turn, without a
-desire score, and the reply carries \code{metadata$addressed = TRUE}. A label
+handle ("P3, do you agree?", "P3: what do you think?", "Could you say
+more, P3?"), or is a short follow-up naming one ("And P3?", "What about
+P3?"), and does not also put it to the group, that participant takes the
+next turn, without a
+desire score and with a sentence in its turn instruction saying that the
+question was put to it, and the reply carries \code{metadata$addressed = TRUE}.
+A label
 a speaker writes for itself at the start of its reply (\verb{**MOD:**},
 \verb{P3:}) is removed, and the message carries
 \code{metadata$self_label_removed = TRUE}; the reply as returned stays in

@@ -30,8 +30,9 @@
 #' @param strip_speaker_prefix `FALSE` (the default) shows every message as
 #'   recorded. `TRUE` drops a speaker label that the model wrote at the start
 #'   of its own line, such as `"**MOD:**"` in a moderator line or `"P3:"` in
-#'   P3's reply, never another speaker's label; the title page says so and
-#'   counts the lines changed.
+#'   the reply of the participant whose handle is P3, never another speaker's
+#'   label; a speaker's own label is its handle, not its ID. The title page
+#'   says so and counts the lines changed.
 #' @param open Open the file with [utils::browseURL()]. The default opens it
 #'   in an interactive session.
 #'
@@ -541,9 +542,10 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   stripped <- 0L
   if (strip_speaker_prefix) {
     for (i in which((tr$turn | (guide_line & !verbatim)))) {
-      labels <- c(tr$handle[[i]], tr$speaker_id[[i]])
-      if (tr$is_moderator[[i]]) labels <- c(labels, moderator$handle, moderator$id,
-                                            "MOD", "Moderator")
+      # The speaker's own label is its handle; its ID can be another
+      # speaker's handle.
+      labels <- tr$handle[[i]]
+      if (tr$is_moderator[[i]]) labels <- c(labels, moderator$handle, "MOD", "Moderator")
       new <- .fg_player_strip_label(tr$text[[i]], labels)
       if (!identical(new, tr$text[[i]])) {
         stripped <- stripped + 1L

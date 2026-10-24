@@ -37,7 +37,11 @@ Guide items are numbered in the order the session runs them: with
 Participant turns count every reply, those that answer the moderator's
 call-on lines among them (see \code{call_on_silent} in \code{\link[=run_focus_group]{run_focus_group()}}).
 When \code{fg_before_turn(t)} falls on the reply to a call-on line, it comes
-after that line.
+after that line. A custom turn-taking flow can end the discussion of an
+item by choosing no participant (\code{NULL}) or the moderator; that choice is
+not a turn and has no routing record. The point has then already come, so
+when call-ons follow, \code{fg_before_turn(t)} falls before the call-on line
+whose reply is turn \code{t}.
 }
 \examples{
 fg_after_item(4)

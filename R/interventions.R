@@ -23,7 +23,11 @@
 #' Participant turns count every reply, those that answer the moderator's
 #' call-on lines among them (see `call_on_silent` in [run_focus_group()]).
 #' When `fg_before_turn(t)` falls on the reply to a call-on line, it comes
-#' after that line.
+#' after that line. A custom turn-taking flow can end the discussion of an
+#' item by choosing no participant (`NULL`) or the moderator; that choice is
+#' not a turn and has no routing record. The point has then already come, so
+#' when call-ons follow, `fg_before_turn(t)` falls before the call-on line
+#' whose reply is turn `t`.
 #'
 #' @param k One positive whole number, the guide item.
 #' @param t One positive whole number, the participant turn.
@@ -301,8 +305,9 @@ print.fg_probe <- function(x, ...) {
 #' branch point; each arm continues its own copy. Each arm also starts from
 #' the random-number state at the branch point, so the random draws that
 #' follow, such as tie-breaks and probabilistic speaker choices, use the same
-#' stream in every arm. With `seed`, the whole run is reproducible; without
-#' it, the arms still share the stream from the branch point on.
+#' stream in every arm; a provider's retries, which wait a random time, do
+#' not draw from it. With `seed`, the whole run is reproducible; without it,
+#' the arms still share the stream from the branch point on.
 #'
 #' A branch point must lie within the guide: `fg_after_item(k)` needs `k` no
 #' larger than the number of guide items, and `fg_before_turn(t)` needs `t`

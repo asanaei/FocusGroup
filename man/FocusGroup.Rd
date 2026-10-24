@@ -46,9 +46,10 @@ describes the opening question of a focus group as a round robin; the
 first point gives every participant a turn early in the session.
 
 A moderator line whose last question opens or closes with one
-participant's handle ("P3, do you agree?", "Could you say more, P3?"),
-and does not also ask the group, gives that participant the next turn,
-with the rule \code{"addressed"}.
+participant's handle ("P3, do you agree?", "P3: what do you think?",
+"Could you say more, P3?"), or is a short follow-up naming one ("And
+P3?", "What about P3?", "How about P3?"), and does not also ask the
+group, gives that participant the next turn, with the rule \code{"addressed"}.
 }
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
@@ -250,7 +251,8 @@ before answering needs \code{desire} and \code{desire_retry} large enough to hol
 its reasoning and the score.}
 
 \item{\code{max_participant_responses}}{Integer. Optional. Maximum participant exchanges per round before moderator intervention.
-Defaults to \code{getOption("focusgroup.max_participant_responses", 2L)}.}
+Defaults to \code{getOption("focusgroup.max_participant_responses", 2L)}.
+It must be one positive whole number.}
 
 \item{\code{reasoning_effort}}{Optional reasoning-effort setting, as described
 for the \code{reasoning_effort} field.}
@@ -259,8 +261,9 @@ for the \code{reasoning_effort} field.}
 \code{NULL} (the default) shows the participants as \code{"P1"}, \code{"P2"}, ...
 in roster order and the moderator as \code{"Moderator"}, so the IDs given
 to the agents never reach a prompt; a participant whose ID is already
-\code{"P1"} to \code{"P99"} keeps it, and the others take the numbers left
-free, so that a handle never names a different agent's ID. \code{"ids"} shows the agent IDs, with
+\code{"P1"} to \code{"P99"} keeps it, and the others take the numbers that are
+no agent's ID, the moderator's included, so that a neutral handle
+never names a different agent's ID. \code{"ids"} shows the agent IDs, with
 a message listing them. A character vector named by agent ID sets
 handles of your own, such as invented first names, and the agents it
 does not name keep their neutral handles. A handle must be non-empty
@@ -586,7 +589,8 @@ Perform LLM-assisted thematic analysis on the transcript.
 
 \item{\code{.runner}}{Optional function used instead of live model calls. It
 receives a data frame with \code{config} and \code{messages} list-columns and
-returns the rows with at least \code{response_text}.}
+returns the rows with at least \code{response_text}. \code{NULL} makes a live
+call through \code{config}, also on a session that ran with a runner.}
 }
 \if{html}{\out{</div>}}
 }

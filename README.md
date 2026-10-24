@@ -403,8 +403,10 @@ as `Moderator`, whatever IDs the roster uses. The transcript keeps the IDs in
 directly with IDs such as `"teacher_conservative"` or `"V240001"` never see
 those IDs in a prompt. `handles = "ids"` shows the IDs instead, and a vector
 such as `c(teacher_conservative = "Ana")` sets labels of your own. Identifier
-columns (`id`, `respondent_id`, `persona_id`) are kept in the roster's
-`source_ids` and are not rendered into personas.
+columns (`id`, `caseid`, `respondent_id`, `respid`, `persona_id`, `uid`,
+`record_id`, `row_id`, in any case and with or without separators, as in `ID`
+or `CaseID`) are kept in the roster's `source_ids` and are not rendered into
+personas.
 
 The `participants` component is a data frame. `usage` uses LLMR's `sent`, `rec`,
 and `total` token vocabulary, and `unknown` counts the calls whose usage was

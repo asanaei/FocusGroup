@@ -152,7 +152,9 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   built role-flipped: this agent's own prior turns, those under its
     #'   `handle` (or, without one, its `id`), become `assistant`
     #'   messages and others' become labeled `user` messages. `NULL` keeps the
-    #'   legacy flat single-user-message construction.
+    #'   legacy flat single-user-message construction. In a session, the flat
+    #'   message of a participant opens with the sentence that tells it its
+    #'   handle ("In this discussion you are P3.").
     #' @param standing_rules Character or NULL. The system-message standing rules
     #'   (persona-anchoring, safety, etc.) for the role-flipped path; `NULL` uses a
     #'   built-in default appropriate to the agent's role.
@@ -231,7 +233,7 @@ FGAgent <- R6::R6Class("FGAgent",
       legacy_template <- grepl("\\{\\{(conversation_history|persona_description)\\}\\}",
                                utterance_prompt_template)
       if (legacy_template || is.null(conversation_log)) {
-        msgs <- list(list(role = "user", content = final_prompt))
+        msgs <- .fg_flat_messages(self, final_prompt)
       } else {
         transcript <- .fg_log_to_transcript(conversation_log)
         own <- .fg_agent_label(self)
@@ -431,7 +433,7 @@ FGAgent <- R6::R6Class("FGAgent",
       legacy_template <- grepl("\\{\\{(conversation_history|persona_description)\\}\\}",
                                desire_prompt_template)
       if (legacy_template || is.null(conversation_log)) {
-        desire_msgs <- list(list(role = "user", content = final_prompt))
+        desire_msgs <- .fg_flat_messages(self, final_prompt)
       } else {
         transcript <- .fg_log_to_transcript(conversation_log)
         desire_msgs <- .fg_build_agent_messages(transcript, .fg_agent_label(self),
