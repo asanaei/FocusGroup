@@ -328,19 +328,22 @@ format_conversation_history <- function(conversation_log,
 # moderator is "Moderator".
 
 # The neutral handles: the moderator is "Moderator"; a participant whose ID is
-# already of the form "P1" to "P99" keeps it, so that "P2" never stands for
-# another agent, and the others are numbered "P1", "P2", ... in roster order,
-# skipping the numbers already taken.
-.fg_neutral_handles <- function(ids, moderator_id) {
+# already of the form "P1" to "P99" keeps it, and the others are numbered
+# "P1", "P2", ... in roster order, skipping every number that is an agent's
+# ID, the moderator's included, or a name in `reserved`, such as an injected
+# voice's, compared without regard to case. So "P2" never stands for an agent
+# other than the one whose ID it is.
+.fg_neutral_handles <- function(ids, moderator_id, reserved = character()) {
   participants <- setdiff(ids, moderator_id)
   out <- stats::setNames(rep("Moderator", length(ids)), ids)
   kept <- participants[grepl("^P[1-9][0-9]?$", participants)]
   out[kept] <- kept
+  taken <- tolower(c(ids, reserved))
   k <- 0L
   for (id in setdiff(participants, kept)) {
     repeat {
       k <- k + 1L
-      if (!paste0("P", k) %in% kept) break
+      if (!tolower(paste0("P", k)) %in% taken) break
     }
     out[[id]] <- paste0("P", k)
   }
@@ -351,10 +354,11 @@ format_conversation_history <- function(conversation_log,
 # FocusGroup$new(): NULL for the neutral handles, "ids" for the agent IDs, or
 # a character vector naming some agents by ID with the handle each is to have;
 # the others keep their neutral handles. A handle cannot be empty, repeated,
-# "System", or contain a standalone number from 0 to 10, which the desire-score
-# parser would read as a score.
-.fg_resolve_handles <- function(handles, ids, moderator_id) {
-  neutral <- .fg_neutral_handles(ids, moderator_id)
+# "System", a name in `reserved` (the voices a session injects), or contain a
+# standalone number from 0 to 10, which the desire-score parser would read as
+# a score.
+.fg_resolve_handles <- function(handles, ids, moderator_id, reserved = character()) {
+  neutral <- .fg_neutral_handles(ids, moderator_id, reserved)
   if (is.null(handles)) return(neutral)
   if (identical(handles, "ids")) return(stats::setNames(ids, ids))
   if (!is.character(handles) || !length(handles)) {
@@ -387,6 +391,11 @@ format_conversation_history <- function(conversation_log,
   }
   if (any(tolower(out) == "system")) {
     stop("\"System\" cannot be a handle: it labels the roster row.", call. = FALSE)
+  }
+  voices <- out[tolower(out) %in% tolower(reserved)]
+  if (length(voices)) {
+    stop("A handle cannot be the name of an injected voice: ",
+         paste(unique(voices), collapse = ", "), ".", call. = FALSE)
   }
   numbered <- out[grepl("\\b(10|[0-9])\\b", out, perl = TRUE)]
   if (length(numbered)) {

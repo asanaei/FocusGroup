@@ -259,8 +259,9 @@ for the \code{reasoning_effort} field.}
 \code{NULL} (the default) shows the participants as \code{"P1"}, \code{"P2"}, ...
 in roster order and the moderator as \code{"Moderator"}, so the IDs given
 to the agents never reach a prompt; a participant whose ID is already
-\code{"P1"} to \code{"P99"} keeps it, and the others take the numbers left
-free, so that a handle never names a different agent's ID. \code{"ids"} shows the agent IDs, with
+\code{"P1"} to \code{"P99"} keeps it, and the others take the numbers that are
+no agent's ID, the moderator's included, so that a neutral handle
+never names a different agent's ID. \code{"ids"} shows the agent IDs, with
 a message listing them. A character vector named by agent ID sets
 handles of your own, such as invented first names, and the agents it
 does not name keep their neutral handles. A handle must be non-empty

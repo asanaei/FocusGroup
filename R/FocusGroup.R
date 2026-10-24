@@ -200,8 +200,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'   `NULL` (the default) shows the participants as `"P1"`, `"P2"`, ...
     #'   in roster order and the moderator as `"Moderator"`, so the IDs given
     #'   to the agents never reach a prompt; a participant whose ID is already
-    #'   `"P1"` to `"P99"` keeps it, and the others take the numbers left
-    #'   free, so that a handle never names a different agent's ID. `"ids"` shows the agent IDs, with
+    #'   `"P1"` to `"P99"` keeps it, and the others take the numbers that are
+    #'   no agent's ID, the moderator's included, so that a neutral handle
+    #'   never names a different agent's ID. `"ids"` shows the agent IDs, with
     #'   a message listing them. A character vector named by agent ID sets
     #'   handles of your own, such as invented first names, and the agents it
     #'   does not name keep their neutral handles. A handle must be non-empty

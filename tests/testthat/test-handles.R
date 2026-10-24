@@ -190,6 +190,41 @@ test_that("handles and agent names are checked before any call", {
   expect_true(injected$is_moderator)
 })
 
+test_that("no neutral handle names another agent's ID, the moderator's included", {
+  stub <- .hd_stub()
+  agents <- .hd_agents(stub$runner, ids = c("alice", "bob"), moderator = "P1")
+  fg <- .hd_group(agents, .hd_script(1), call_on_silent = "none")
+  expect_identical(fg$handles, c(alice = "P2", bob = "P3", P1 = "Moderator"))
+  fg$run_simulation(final_summary = FALSE)
+  view <- fg$.__enclos_env__$private$agent_view()
+  expect_identical(view[[1]]$text, "Participants: P2, P3; Moderator: Moderator")
+  prompts <- vapply(fg$records$calls, function(call) .hd_prompt(call$messages), character(1))
+  expect_false(any(grepl("\\bP1\\b", prompts, perl = TRUE)))
+
+  neutral <- FocusGroup:::.fg_neutral_handles
+  # IDs are compared without regard to case, and reserved names are skipped.
+  expect_identical(neutral(c("p1", "x", "MOD"), "MOD"),
+                   c(p1 = "P2", x = "P3", MOD = "Moderator"))
+  expect_identical(neutral(c("a", "b", "MOD"), "MOD", reserved = c("P1", "p3")),
+                   c(a = "P2", b = "P4", MOD = "Moderator"))
+  # Hard negatives: rosters whose IDs take no number another agent needs
+  # keep the handles they had.
+  expect_identical(neutral(c("P1", "P2", "P3", "MOD"), "MOD"),
+                   c(P1 = "P1", P2 = "P2", P3 = "P3", MOD = "Moderator"))
+  expect_identical(neutral(c("teacher_conservative", "V240001", "lead_moderator"),
+                           "lead_moderator"),
+                   c(teacher_conservative = "P1", V240001 = "P2",
+                     lead_moderator = "Moderator"))
+  expect_identical(neutral(c("P2", "x", "MOD"), "MOD"),
+                   c(P2 = "P2", x = "P1", MOD = "Moderator"))
+  # A handle given by name may not be a reserved voice's name.
+  resolve <- FocusGroup:::.fg_resolve_handles
+  expect_error(resolve(c(a = "Guest"), c("a", "b", "MOD"), "MOD", reserved = "guest"),
+               "injected voice: Guest")
+  expect_identical(resolve(c(a = "Ana"), c("a", "b", "MOD"), "MOD", reserved = "Guest"),
+                   c(a = "Ana", b = "P2", MOD = "Moderator"))
+})
+
 test_that("identifier columns stay out of persona text and are reported", {
   cfg <- .hd_config()
   data <- data.frame(id = c("R-101", "R-102"), respondent_id = c(9001L, 9002L),
