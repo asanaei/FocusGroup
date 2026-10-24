@@ -1550,6 +1550,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
       private$append_routing(record)
     },
 
+    # Drop the flow's record of a choice that gave no participant the turn,
+    # so that it is not copied for the next pick.
+    discard_routing = function() {
+      flow <- self$turn_taking_flow
+      if ("routing_record" %in% names(flow)) flow$routing_record <- NULL
+      invisible(NULL)
+    },
+
     # Record a turn given without the flow: to a participant the moderator
     # called on ("called_on") or addressed ("addressed") in the message
     # `trigger`. No scores are asked for, and the flow's own record of its
@@ -1878,18 +1886,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
                                  metadata = list(addressed = TRUE), verbose = verbose)
       } else {
         next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
-        pick <- private$record_routing(next_participant)
-
+        # A choice of no participant, or of the moderator, ends the discussion
+        # of the item. It is not a turn, so it has no routing record.
         if (is.null(next_participant)) {
+          private$discard_routing()
           if (verbose) cat("No participant selected by flow (e.g., low desire). Ending participant response round.\n")
           private$end_discussion()
           return(FALSE)
         }
         if (next_participant$id == self$moderator_id && length(self$agents) > 1) {
+          private$discard_routing()
           if (verbose) cat("Turn-taking flow selected moderator during participant response phase. Allowing moderator to manage flow.\n")
           private$end_discussion()
           return(FALSE)
         }
+        pick <- private$record_routing(next_participant)
         if (verbose) cat(paste("Selected participant by flow:", next_participant$id, "\n"))
         private$participant_turn(
           next_participant, pick,

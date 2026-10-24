@@ -23,7 +23,11 @@
 #' Participant turns count every reply, those that answer the moderator's
 #' call-on lines among them (see `call_on_silent` in [run_focus_group()]).
 #' When `fg_before_turn(t)` falls on the reply to a call-on line, it comes
-#' after that line.
+#' after that line. A custom turn-taking flow can end the discussion of an
+#' item by choosing no participant (`NULL`) or the moderator; that choice is
+#' not a turn and has no routing record. The point has then already come, so
+#' when call-ons follow, `fg_before_turn(t)` falls before the call-on line
+#' whose reply is turn `t`.
 #'
 #' @param k One positive whole number, the guide item.
 #' @param t One positive whole number, the participant turn.
