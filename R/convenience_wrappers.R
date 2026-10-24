@@ -310,7 +310,9 @@ NULL
 #'
 #' The estimate counts one output for each moderator turn the model writes,
 #' one for each participant response a question round allows, one for each
-#' participant at each call-on point, and one for the final summary. Under
+#' participant at each call-on point, one for each probe answer (two when the
+#' probe has a `scale`, for a possible re-ask), and one for the final
+#' summary. Under
 #' `"desire_based"` it adds one desire score per participant before each
 #' response the flow chooses. With the default guide, six participants, and
 #' the default flow, two responses per question give an estimate of 111
@@ -428,9 +430,12 @@ NULL
 #'     probabilities for `"probabilistic"`), and `tied`, followed by `arm`.}
 #'   \item{probes}{A data frame with one row per probe answer: `probe` (its
 #'     label), `point`, `agent_id`, `question`, `answer` (the final answer,
-#'     or `NA` when none came), `raw_text`, `finish_reason`, `call_id` (its
-#'     row in `calls`), `round`, `phase`, `turn` (the next participant turn),
-#'     `after_message_id` (the last message before it), and `arm`.}
+#'     or `NA` when none came), `value` (the number read from the answer for
+#'     a probe with a `scale`, otherwise `NA`; see [fg_probe()]), `raw_text`,
+#'     `finish_reason`, `attempts` (the calls made for the answer, retries
+#'     and the re-ask included), `call_id` (the row in `calls` of the call
+#'     that gave the answer), `round`, `phase`, `turn` (the next participant
+#'     turn), `after_message_id` (the last message before it), and `arm`.}
 #'   \item{injections}{A data frame with one row per injection: `label`,
 #'     `arm`, `point`, `delivered` (`FALSE` for one whose point the session
 #'     never reached, which is also reported with a warning), `message_id`,
@@ -442,7 +447,8 @@ NULL
 #' earlier lack `calls`, `routing`, `probes`, `injections`, and the metadata
 #' that follows `failure`; results saved by 0.5.4 and earlier lack the
 #' `item` and `handle` columns, `trigger_message_id`, and the metadata that
-#' follows `branch`.
+#' follows `branch`; results saved by 0.5.5 and earlier lack the `value`
+#' and `attempts` columns of `probes`.
 #'
 #' @references Krueger, R. A. (2002). *Designing and Conducting Focus Group
 #'   Interviews*. University of Minnesota.
@@ -634,8 +640,10 @@ run_focus_group <- function(topic, config, n_participants = 6,
   } else {
     0L
   }
+  # A probe with a scale may re-ask each answer once.
   probe_outputs <- sum(vapply(probes, function(p) {
-    length(p$at) * as.double(length(p$participants %||% seq_len(n_participants)))
+    length(p$at) * as.double(length(p$participants %||% seq_len(n_participants))) *
+      (if (is.null(p$scale)) 1 else 2)
   }, numeric(1)))
   # The moderator's call-on lines are delivered as written; the replies to
   # them need no desire score.
@@ -1014,8 +1022,10 @@ run_focus_group <- function(topic, config, n_participants = 6,
   data.frame(
     probe = col("probe", "character"), point = col("point", "character"),
     agent_id = col("agent_id", "character"), question = col("question", "character"),
-    answer = col("answer", "character"), raw_text = col("raw_text", "character"),
+    answer = col("answer", "character"), value = col("value", "double"),
+    raw_text = col("raw_text", "character"),
     finish_reason = col("finish_reason", "character"),
+    attempts = col("attempts", "integer"),
     call_id = col("call_id", "integer"), round = col("round", "integer"),
     phase = col("phase", "character"), turn = col("turn", "integer"),
     after_message_id = col("after_message_id", "integer"),

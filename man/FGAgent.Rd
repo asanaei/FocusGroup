@@ -295,7 +295,9 @@ answer is returned, not logged, and is not added to \code{history}.
   template = "{{probe_question}}",
   max_tokens = NULL,
   conversation_summary = NULL,
-  call_params = NULL
+  call_params = NULL,
+  scale = NULL,
+  reask_template = NULL
 )}\if{html}{\out{</div>}}
 }
 
@@ -321,14 +323,26 @@ discussion to add to the system message.}
 
 \item{\code{call_params}}{Optional named list of model parameters written over
 the configuration for this call.}
+
+\item{\code{scale}}{Optional two whole numbers, \code{c(lo, hi)}. When given, the
+answer is read as one number on that scale, and an answer from which
+none can be read is followed by one re-ask (see \code{\link[=fg_probe]{fg_probe()}}).}
+
+\item{\code{reask_template}}{Character or NULL. The re-ask, with placeholders
+\code{{{lo}}}, \code{{{hi}}}, and \code{{{probe_question}}}; \code{NULL} uses
+\code{participant_probe_reask} of \code{\link[=get_default_prompt_templates]{get_default_prompt_templates()}}.}
 }
 \if{html}{\out{</div>}}
 }
 \subsection{Returns}{
 A list with \code{answer} (the final answer, trimmed, or \code{NA} when
 the reply is empty after one retry with a larger budget), \code{raw_text}
-(the reply as returned), \code{finish_reason}, and \code{call_id} (the call's
-row in the session's call record, or \code{NA} outside a session).
+(the reply as returned), \code{finish_reason}, \code{call_id} (the call's
+row in the session's call record, or \code{NA} outside a session),
+\code{value} (the number read from the answer on \code{scale}, or \code{NA}), and
+\code{attempts} (the number of calls made). After a re-ask that returned
+text, \code{answer}, \code{raw_text}, \code{finish_reason}, and \code{call_id} describe
+the re-ask.
 }
 }
 \if{html}{\out{<hr>}}

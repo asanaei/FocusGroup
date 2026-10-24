@@ -28,9 +28,13 @@
 #'     flat template and routed through the flat path.
 #' }
 #'
-#' @section Probe template:
+#' @section Probe templates:
 #' `participant_probe_instruction` closes the messages of a private probe
 #' ([fg_probe()]); `\{\{probe_question\}\}` is replaced by the question.
+#' `participant_probe_reask` follows an answer to a probe with a `scale`
+#' from which no number could be read, in the same private exchange; its
+#' placeholders are `\{\{lo\}\}` and `\{\{hi\}\}`, the ends of the
+#' scale, and `\{\{probe_question\}\}`.
 #'
 #' @section Summary templates:
 #' `summary_participant`, `summary_item`, `summary_disagreements`,
@@ -133,6 +137,11 @@ Desire to talk score (0-10):",
 "The researcher has a private question for you. The other participants will not see your answer, and it will not become part of the discussion.
 Question: {{probe_question}}
 Answer as yourself.",
+
+    # The follow-up to a probe answer from which no number on the probe's
+    # scale could be read (see fg_probe()).
+    participant_probe_reask =
+"The researcher could not read one number from {{lo}} to {{hi}} in your answer to the private question. Reply with only the one whole number from {{lo}} to {{hi}} that best gives your answer, and nothing else.",
 
     participant_desire_to_talk_nuanced =
 "You are a focus group participant.

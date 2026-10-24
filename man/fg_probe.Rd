@@ -4,7 +4,7 @@
 \alias{fg_probe}
 \title{A Private Question Put to Each Participant}
 \usage{
-fg_probe(question, at, label = NULL, participants = NULL)
+fg_probe(question, at, label = NULL, participants = NULL, scale = NULL)
 }
 \arguments{
 \item{question}{One non-empty string, the question.}
@@ -19,6 +19,10 @@ comes before it.}
 
 \item{participants}{Optional character vector of participant ids to ask;
 \code{NULL} asks every participant.}
+
+\item{scale}{Optional two whole numbers, \code{c(lo, hi)} with \code{lo < hi}, the
+ends of the scale on which the question asks for a number. \code{NULL}, the
+default, records the answers as text only.}
 }
 \value{
 An object of class \code{fg_probe}.
@@ -40,12 +44,32 @@ without any reasoning. A reply that is empty or cut off is retried once
 with a larger budget; one still empty is recorded as \code{NA}, with a
 warning. The answers are returned in the \code{probes} component of the result,
 with the raw reply beside each.
+
+With \code{scale = c(lo, hi)}, each answer is also read as a number, recorded
+in the \code{value} column. The reading is strict. Markup ("\strong{4}"), a
+restatement of the scale ("1-7:", "on a scale of 1 to 7", "from 1
+(strongly against) to 7 (strongly in favor)"), and a denominator equal to
+\code{hi} ("5/7", "6 out of 7") are set aside, as are digits joined to letters
+("P3", "V241", "2024s") and, on a scale whose ends lie between -999 and
+999, numbers of four or more digits, such as years. What remains must be
+one whole number from \code{lo} to \code{hi}. An answer with no number, with two
+different numbers ("3 or 4"), with a fraction of a point ("4.5"), with a
+number outside the scale ("-2"), or on another scale ("6/10" on a 1 to 7
+scale) is not read, and neither are numbers written in words ("seven").
+Such an answer is followed by one re-ask in the same private exchange,
+worded by the \code{participant_probe_reask} template, asking for one number
+from \code{lo} to \code{hi} alone. An empty reply to the re-ask is not retried, and
+the earlier answer is kept. A value still unread is \code{NA}, and the
+participants concerned are named in one warning for the probe at that
+point. The column \code{attempts} counts the calls made for each answer, and
+every call, the re-ask included, is in the result's \code{calls}.
 }
 \examples{
 fg_probe(paste("Where do you stand on extending library hours, from 1",
                "(strongly against) to 7 (strongly in favor)?",
                "Answer with the number first."),
-         at = list("start", fg_after_item(4), "end"), label = "position")
+         at = list("start", fg_after_item(4), "end"), label = "position",
+         scale = c(1, 7))
 }
 \seealso{
 \code{\link[=run_focus_group]{run_focus_group()}}, \code{\link[=run_focus_group_arms]{run_focus_group_arms()}}.

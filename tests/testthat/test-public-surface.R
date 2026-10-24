@@ -158,6 +158,7 @@ test_that("default prompt names are all supported contracts", {
     "participant_turn_instruction",
     "participant_desire_instruction",
     "participant_probe_instruction",
+    "participant_probe_reask",
     "participant_desire_to_talk_nuanced",
     "moderator_opening",
     "moderator_icebreaker_question",

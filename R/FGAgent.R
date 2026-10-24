@@ -508,13 +508,24 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   discussion to add to the system message.
     #' @param call_params Optional named list of model parameters written over
     #'   the configuration for this call.
+    #' @param scale Optional two whole numbers, `c(lo, hi)`. When given, the
+    #'   answer is read as one number on that scale, and an answer from which
+    #'   none can be read is followed by one re-ask (see [fg_probe()]).
+    #' @param reask_template Character or NULL. The re-ask, with placeholders
+    #'   `{{lo}}`, `{{hi}}`, and `{{probe_question}}`; `NULL` uses
+    #'   `participant_probe_reask` of [get_default_prompt_templates()].
     #' @return A list with `answer` (the final answer, trimmed, or `NA` when
     #'   the reply is empty after one retry with a larger budget), `raw_text`
-    #'   (the reply as returned), `finish_reason`, and `call_id` (the call's
-    #'   row in the session's call record, or `NA` outside a session).
+    #'   (the reply as returned), `finish_reason`, `call_id` (the call's
+    #'   row in the session's call record, or `NA` outside a session),
+    #'   `value` (the number read from the answer on `scale`, or `NA`), and
+    #'   `attempts` (the number of calls made). After a re-ask that returned
+    #'   text, `answer`, `raw_text`, `finish_reason`, and `call_id` describe
+    #'   the re-ask.
     answer_probe = function(question, conversation_log, topic = NULL,
                             template = "{{probe_question}}", max_tokens = NULL,
-                            conversation_summary = NULL, call_params = NULL) {
+                            conversation_summary = NULL, call_params = NULL,
+                            scale = NULL, reask_template = NULL) {
       if (is.null(self$config)) {
         stop("An explicit config is required to answer a probe.", call. = FALSE)
       }
@@ -539,27 +550,53 @@ FGAgent <- R6::R6Class("FGAgent",
 
       usage <- .fg_usage_recorder()
       on.exit(.fg_add_agent_usage(self, usage$value()), add = TRUE)
-      ask <- function(cfg, attempt) {
+      ask <- function(cfg, attempt, messages = msgs) {
         response <- .fg_call_llm(
-          config = cfg, messages = msgs, .runner = self$.runner,
+          config = cfg, messages = messages, .runner = self$.runner,
           .usage = usage$add, tries = 5, wait_seconds = 2, backoff_factor = 3,
           .call = list(type = "probe", agent_id = self$id, attempt = attempt))
         .fg_note_call(response, cleaned_text = trimws(.fg_response_text(response)))
         response
       }
-      response <- ask(config, 1L)
+      attempts <- 1L
+      response <- ask(config, attempts)
       answer <- trimws(.fg_response_text(response))
       if (!nzchar(answer) || identical(.fg_response_finish(response), "length")) {
-        retry <- config
-        retry$model_params$max_tokens <- max(4 * budget, 1024)
-        response <- ask(retry, 2L)
+        config$model_params$max_tokens <- max(4 * budget, 1024)
+        attempts <- 2L
+        response <- ask(config, attempts)
         answer <- trimws(.fg_response_text(response))
+      }
+      value <- NA_real_
+      if (!is.null(scale)) {
+        value <- .fg_parse_number(answer, scale[[1]], scale[[2]])
+        if (is.na(value)) {
+          # One re-ask in the same private exchange, with the same budget as
+          # the last call; an empty reply to it is not retried.
+          reask <- replace_placeholders(
+            reask_template %||% get_default_prompt_templates()$participant_probe_reask,
+            list(lo = .fg_number_text(scale[[1]]), hi = .fg_number_text(scale[[2]]),
+                 probe_question = question, topic = topic %||% ""))
+          follow_up <- LLMR::ensure_alternating_messages(c(
+            msgs,
+            if (nzchar(answer)) list(list(role = "assistant", content = answer)),
+            list(list(role = "user", content = reask))))
+          attempts <- attempts + 1L
+          second <- ask(config, attempts, follow_up)
+          again <- trimws(.fg_response_text(second))
+          if (nzchar(again)) {
+            response <- second
+            answer <- again
+            value <- .fg_parse_number(answer, scale[[1]], scale[[2]])
+          }
+        }
       }
       handle <- attr(response, "focusgroup_call", exact = TRUE)
       list(answer = if (nzchar(answer)) answer else NA_character_,
            raw_text = .fg_raw_text(response),
            finish_reason = .fg_response_finish(response),
-           call_id = as.integer(if (is.null(handle)) NA_integer_ else handle$index %||% NA_integer_))
+           call_id = as.integer(if (is.null(handle)) NA_integer_ else handle$index %||% NA_integer_),
+           value = value, attempts = attempts)
     }
   ),
 

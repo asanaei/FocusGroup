@@ -353,3 +353,170 @@ test_that("a failing arm returns the completed arms and the prefix", {
   expect_identical(failed$calls$error[[nrow(failed$calls)]], "The provider is unavailable.")
   expect_identical(nrow(partial$prefix$transcript), 4L)
 })
+
+test_that("a probe answer is read as one whole number on its scale, or not at all", {
+  read <- function(text, lo = 1, hi = 7) .fg_parse_number(text, lo, hi)
+  # Read: markup, restated scales, the scale's own denominator, digits joined
+  # to letters, and years set aside.
+  expect_identical(read("P3 said 4"), 4)
+  expect_identical(read("1-7: 5"), 5)
+  expect_identical(read("**4**"), 4)
+  expect_identical(read("Number: 3"), 3)
+  expect_identical(read("I'd say a 2"), 2)
+  expect_identical(read("On a scale of 1 to 7, I would say 5"), 5)
+  expect_identical(read("5 on a scale from 1 (strongly against) to 7 (strongly in favor)"), 5)
+  expect_identical(read("Where 1 is strongly against and 7 is strongly in favor, I'm a 5."), 5)
+  expect_identical(read("5/7"), 5)
+  expect_identical(read("6 out of 7"), 6)
+  expect_identical(read("2024 was a hard year ... 5"), 5)
+  expect_identical(read("V241 and the 2024s aside, 4"), 4)
+  expect_identical(read("My 7-point answer is 6"), 6)
+  expect_identical(read("5. Yes, a 5."), 5)
+  expect_identical(read("5.0"), 5)
+  expect_identical(read("7 (strongly in favor)"), 7)
+  expect_identical(read("5 is about right"), 5)
+  # Not read: two numbers, another scale, outside the scale, a fraction of a
+  # point, words, nothing.
+  expect_identical(read("3 or 4"), NA_real_)
+  expect_identical(read("3-4"), NA_real_)
+  expect_identical(read("between 3 and 4"), NA_real_)
+  expect_identical(read("6/10"), NA_real_)
+  expect_identical(read("5/5"), NA_real_)
+  expect_identical(read("On a 1-10 scale, 6"), NA_real_)
+  expect_identical(read("-2"), NA_real_)
+  expect_identical(read("8"), NA_real_)
+  expect_identical(read("4.5"), NA_real_)
+  expect_identical(read("seven"), NA_real_)
+  expect_identical(read("Somewhere between 1 and 7"), NA_real_)
+  expect_identical(read(""), NA_real_)
+  expect_identical(read(NA_character_), NA_real_)
+  # Other scales: negative ends, and a wide scale on which years are not
+  # numbers to read but thousands still are.
+  expect_identical(read("-3 to 3: -1", -3, 3), -1)
+  expect_identical(read("-2", -3, 3), -2)
+  expect_identical(read("70/100", 0, 100), 70)
+  expect_identical(read("In 2024, 70", 0, 100), 70)
+  expect_identical(read("1990", 1900, 2100), 1990)
+})
+
+test_that("fg_probe() takes a scale of two whole numbers", {
+  probe <- fg_probe("Q?", "end", scale = c(1L, 7L))
+  expect_identical(probe$scale, c(1, 7))
+  expect_output(print(probe), "scale 1 to 7")
+  expect_null(fg_probe("Q?", "end")$scale)
+  for (bad in list(c(7, 1), c(1, 1), c(1.5, 7), c(1, NA), c(1, Inf), 1:3, "1-7", 7)) {
+    expect_error(fg_probe("Q?", "end", scale = bad), "two whole numbers")
+  }
+})
+
+# A runner whose probe answers depend on the participant: `first` gives the
+# answer to the probe and `second` the reply to a re-ask, by handle. It keeps
+# the messages of every re-ask.
+.scale_stub <- function(first, second = list()) {
+  env <- new.env()
+  env$reasks <- list()
+  env$runner <- function(experiments, ...) {
+    messages <- experiments$messages[[1]]
+    prompt <- .inj_prompt(messages)
+    who <- regmatches(prompt, regexpr("(?<=you are )P[0-9]", prompt, perl = TRUE))
+    last <- messages[[length(messages)]]$content
+    experiments$response_text <- if (grepl("could not read one number", last, fixed = TRUE)) {
+      env$reasks[[length(env$reasks) + 1L]] <- messages
+      second[[who]] %||% "4"
+    } else if (grepl("private question", prompt, fixed = TRUE)) {
+      first[[who]]
+    } else if (grepl("Summary:$", prompt)) {
+      "A short summary of the session."
+    } else {
+      "Evening hours matter to working families."
+    }
+    experiments
+  }
+  env
+}
+
+.scale_run <- function(stub, probes) {
+  run_focus_group(
+    topic = "library hours", config = .inj_config(), n_participants = 3,
+    guide = list(Engagement = "Which hours matter most to you?", Closing = "Close."),
+    flow = "round_robin", max_participant_responses = 1, call_on_silent = "none",
+    probes = probes, verbose = FALSE, .runner = stub$runner)
+}
+
+test_that("an unread answer on a scale is re-asked once, and the records say so", {
+  stub <- .scale_stub(first = list(P1 = "**5**", P2 = "Maybe 3 or 4.", P3 = "It depends."),
+                      second = list(P2 = "4", P3 = ""))
+  question <- "From 1 to 7, how strongly do you favor longer hours?"
+  w <- testthat::capture_warnings(result <- .scale_run(
+    stub, fg_probe(question, "end", label = "hours", scale = c(1, 7))))
+  # One warning for the probe, naming the participant whose value stays NA.
+  expect_length(w, 1L)
+  expect_match(w, "Probe 'hours' at end: no whole number from 1 to 7.*answer of P3")
+
+  probes <- result$probes
+  expect_true(all(c("value", "attempts") %in% names(probes)))
+  expect_identical(probes$agent_id, c("P1", "P2", "P3"))
+  expect_identical(probes$value, c(5, 4, NA))
+  expect_identical(probes$attempts, c(1L, 2L, 2L))
+  # The re-ask's answer replaces the first when it has text; an empty re-ask
+  # keeps the first answer and is not retried.
+  expect_identical(probes$answer, c("**5**", "4", "It depends."))
+  calls <- result$calls[result$calls$call_type == "probe", ]
+  expect_identical(calls$agent_id, c("P1", "P2", "P2", "P3", "P3"))
+  expect_identical(calls$attempt, c(1L, 1L, 2L, 1L, 2L))
+  expect_identical(probes$call_id, calls$call_id[c(1, 3, 4)])
+  expect_identical(calls$raw_text, c("**5**", "Maybe 3 or 4.", "4", "It depends.", ""))
+
+  # The re-ask follows the answer in the same private exchange and asks for
+  # one number from 1 to 7.
+  expect_length(stub$reasks, 2L)
+  reask <- stub$reasks[[1]]
+  n <- length(reask)
+  expect_identical(reask[[n - 1L]], list(role = "assistant", content = "Maybe 3 or 4."))
+  expect_identical(reask[[n]]$role, "user")
+  expect_match(reask[[n]]$content, "only the one whole number from 1 to 7", fixed = TRUE)
+  expect_match(.inj_prompt(reask[seq_len(n - 2L)]), question, fixed = TRUE)
+  expect_false(any(grepl(question, result$transcript$text, fixed = TRUE)))
+
+  # The estimate counts one re-ask for every probed answer.
+  plain <- .scale_run(.scale_stub(first = list(P1 = "5", P2 = "5", P3 = "5")),
+                      fg_probe(question, "end"))
+  expect_identical(result$metadata$estimated_calls - plain$metadata$estimated_calls, 3L)
+})
+
+test_that("without a scale, probe answers are recorded as text, as before", {
+  stub <- .scale_stub(first = list(P1 = "Maybe 3 or 4.", P2 = "5", P3 = "seven"))
+  expect_silent(result <- .scale_run(stub, fg_probe("From 1 to 7?", "end")))
+  expect_identical(result$probes$answer, c("Maybe 3 or 4.", "5", "seven"))
+  expect_identical(result$probes$value, rep(NA_real_, 3))
+  expect_identical(result$probes$attempts, rep(1L, 3))
+  expect_length(stub$reasks, 0L)
+  expect_identical(sum(result$calls$call_type == "probe"), 3L)
+
+  # An empty reply is retried with a larger budget, and counted.
+  stub <- .scale_stub(first = list(P1 = "", P2 = "5", P3 = "5"))
+  expect_warning(result <- .scale_run(stub, fg_probe("From 1 to 7?", "end")),
+                 "returned no answer from P1")
+  expect_identical(result$probes$attempts, c(2L, 1L, 1L))
+  expect_identical(result$probes$answer[[1]], NA_character_)
+})
+
+test_that("the re-ask is worded by the session's participant_probe_reask template", {
+  stub <- .scale_stub(first = list(P1 = "Hard to say.", P2 = "6"))
+  agents <- create_agents(2, config = .inj_config(),
+                          direct_persona_descriptions = c("A.", "B."), .runner = stub$runner)
+  templates <- get_default_prompt_templates()
+  templates$participant_probe_reask <-
+    "The researcher could not read one number. Give a number from {{lo}} to {{hi}} for: {{probe_question}}"
+  fg <- FocusGroup$new(
+    topic = "library hours", purpose = "Test.", agents = agents, moderator_id = "MOD",
+    turn_taking_flow = create_conversation_flow("round_robin", agents, "MOD"),
+    question_script = list(list(phase = "closing", text = "Close.")),
+    prompt_templates = templates, call_on_silent = "none")
+  fg$run_simulation(probes = fg_probe("Hours?", "start", scale = c(0, 10)))
+  expect_length(stub$reasks, 1L)
+  last <- stub$reasks[[1]][[length(stub$reasks[[1]])]]$content
+  expect_identical(last, "The researcher could not read one number. Give a number from 0 to 10 for: Hours?")
+  values <- vapply(fg$records$probes, `[[`, numeric(1), "value")
+  expect_identical(values, c(4, 6))
+})

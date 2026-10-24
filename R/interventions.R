@@ -186,6 +186,25 @@ print.fg_injection <- function(x, ...) {
 #' warning. The answers are returned in the `probes` component of the result,
 #' with the raw reply beside each.
 #'
+#' With `scale = c(lo, hi)`, each answer is also read as a number, recorded
+#' in the `value` column. The reading is strict. Markup ("**4**"), a
+#' restatement of the scale ("1-7:", "on a scale of 1 to 7", "from 1
+#' (strongly against) to 7 (strongly in favor)"), and a denominator equal to
+#' `hi` ("5/7", "6 out of 7") are set aside, as are digits joined to letters
+#' ("P3", "V241", "2024s") and, on a scale whose ends lie between -999 and
+#' 999, numbers of four or more digits, such as years. What remains must be
+#' one whole number from `lo` to `hi`. An answer with no number, with two
+#' different numbers ("3 or 4"), with a fraction of a point ("4.5"), with a
+#' number outside the scale ("-2"), or on another scale ("6/10" on a 1 to 7
+#' scale) is not read, and neither are numbers written in words ("seven").
+#' Such an answer is followed by one re-ask in the same private exchange,
+#' worded by the `participant_probe_reask` template, asking for one number
+#' from `lo` to `hi` alone. An empty reply to the re-ask is not retried, and
+#' the earlier answer is kept. A value still unread is `NA`, and the
+#' participants concerned are named in one warning for the probe at that
+#' point. The column `attempts` counts the calls made for each answer, and
+#' every call, the re-ask included, is in the result's `calls`.
+#'
 #' @param question One non-empty string, the question.
 #' @param at One point, or a list of points, at which to ask it:
 #'   [fg_after_item()], [fg_before_turn()], `"start"`, `"before_closing"`,
@@ -195,15 +214,19 @@ print.fg_injection <- function(x, ...) {
 #'   `"probe_1"`, `"probe_2"`, ... in the order the probes are given.
 #' @param participants Optional character vector of participant ids to ask;
 #'   `NULL` asks every participant.
+#' @param scale Optional two whole numbers, `c(lo, hi)` with `lo < hi`, the
+#'   ends of the scale on which the question asks for a number. `NULL`, the
+#'   default, records the answers as text only.
 #' @return An object of class `fg_probe`.
 #' @seealso [run_focus_group()], [run_focus_group_arms()].
 #' @examples
 #' fg_probe(paste("Where do you stand on extending library hours, from 1",
 #'                "(strongly against) to 7 (strongly in favor)?",
 #'                "Answer with the number first."),
-#'          at = list("start", fg_after_item(4), "end"), label = "position")
+#'          at = list("start", fg_after_item(4), "end"), label = "position",
+#'          scale = c(1, 7))
 #' @export
-fg_probe <- function(question, at, label = NULL, participants = NULL) {
+fg_probe <- function(question, at, label = NULL, participants = NULL, scale = NULL) {
   .fg_check_string(question, "question")
   points <- if (inherits(at, "fg_point")) list(at) else
     if (is.character(at)) as.list(at) else at
@@ -222,14 +245,17 @@ fg_probe <- function(question, at, label = NULL, participants = NULL) {
     stop("`participants` must be `NULL` or distinct participant ids.",
          call. = FALSE)
   }
+  scale <- .fg_check_scale(scale)
   structure(list(question = question, at = points, label = label,
-                 participants = participants),
+                 participants = participants, scale = scale),
             class = "fg_probe")
 }
 
 #' @export
 print.fg_probe <- function(x, ...) {
   cat("<fg_probe> at ", paste(vapply(x$at, format, character(1)), collapse = ", "),
+      if (!is.null(x$scale)) sprintf(", scale %s to %s", .fg_number_text(x$scale[[1]]),
+                                     .fg_number_text(x$scale[[2]])),
       "\n", sep = "")
   cat("  ", x$question, "\n", sep = "")
   invisible(x)
@@ -244,6 +270,86 @@ print.fg_probe <- function(x, ...) {
          call. = FALSE)
   }
   unname(x)
+}
+
+# The whole number from `lo` to `hi` that a probe answer states, or NA. The
+# reading is strict, so that a number is recorded only when the answer gives
+# one and no other:
+# * markup ("**4**") is removed;
+# * a restatement of the scale is removed: "1-7", "1 to 7", "between 1 and
+#   7", "from 1 (strongly against) to 7 (strongly in favor)", and the pair
+#   "1 is ... 7 is ..." (or "means", "=");
+# * a fraction or "out of" whose denominator is `hi` ("5/7", "6 out of 7")
+#   counts as its numerator, and "out of 7" alone is removed; any other
+#   denominator ("6/10" on a 1-7 scale) means the answer was given on
+#   another scale, and no number is read;
+# * digits joined to letters are not numbers ("P3", "V241", "2024s",
+#   "7-point", "9pm"), nor, on a scale whose ends lie between -999 and 999,
+#   are numbers of four or more digits, which are years or counts ("2024",
+#   "1,000");
+# * what remains must be one number, perhaps repeated, that is whole and lies
+#   from `lo` to `hi`. No number, two different numbers ("3 or 4", "3-4"), a
+#   fraction of a point ("4.5"), or a number outside the scale ("-2", "8")
+#   gives NA.
+# Numbers written in words ("seven") are not read.
+.fg_parse_number <- function(text, lo, hi) {
+  if (length(text) != 1L || is.na(text)) return(NA_real_)
+  x <- tolower(as.character(text))
+  x <- gsub("[‐-―−]", "-", x)
+  x <- gsub("[*_`~#>|]", " ", x)
+  x <- gsub("(?<=[0-9]),(?=[0-9]{3}\\b)", "", x, perl = TRUE)
+  num <- "[0-9]+(?:\\.[0-9]+)?"
+  start <- "(?<![a-z0-9.])"
+  end <- "(?![a-z0-9]|\\.[0-9])"
+  as_pattern <- function(v) gsub("-", "\\-", .fg_number_text(v), fixed = TRUE)
+  lo_re <- paste0(start, as_pattern(lo), end)
+  hi_re <- paste0(start, as_pattern(hi), end)
+  aside <- "(?:\\s*\\([^()]*\\))?"
+  range <- paste0(lo_re, aside, "\\s*(?:-|to|through|thru|and)\\s*", hi_re, aside)
+  x <- gsub(range, " ", x, perl = TRUE)
+  anchor <- "(?=\\s*(?:is\\b|means\\b|=))"
+  if (grepl(paste0(lo_re, anchor), x, perl = TRUE) &&
+      grepl(paste0(hi_re, anchor), x, perl = TRUE)) {
+    x <- gsub(paste0("(", lo_re, "|", hi_re, ")", anchor), " ", x, perl = TRUE)
+  }
+  fraction <- paste0(start, "(-?", num, ")\\s*(?:/|out\\s+of)\\s*(", num, ")", end)
+  found <- regmatches(x, gregexpr(fraction, x, perl = TRUE))[[1]]
+  if (length(found)) {
+    parts <- regmatches(found, regexec(fraction, found, perl = TRUE))
+    if (any(vapply(parts, function(p) as.numeric(p[[3]]) != hi, logical(1)))) {
+      return(NA_real_)
+    }
+    regmatches(x, gregexpr(fraction, x, perl = TRUE)) <-
+      list(paste0(" ", vapply(parts, `[[`, character(1), 2L), " "))
+  }
+  x <- gsub(paste0("(?:out\\s+of|/)\\s*", hi_re), " ", x, perl = TRUE)
+  if (grepl(paste0("(?:out\\s+of|/)\\s*", num), x, perl = TRUE)) return(NA_real_)
+  tokens <- gregexpr("[a-z0-9]+(?:[-'.][a-z0-9]+)*", x, perl = TRUE)
+  words <- regmatches(x, tokens)[[1]]
+  mixed <- grepl("[a-z]", words) & grepl("[0-9]", words)
+  regmatches(x, tokens) <- list(ifelse(mixed, " ", words))
+  x <- gsub("([0-9])(?:-|\\s+-\\s+)(?=[0-9])", "\\1 to ", x, perl = TRUE)
+  values <- as.numeric(regmatches(x, gregexpr(paste0("(?<![a-z0-9])-?", num), x,
+                                              perl = TRUE))[[1]])
+  if (max(abs(c(lo, hi))) < 1000) {
+    values <- values[!grepl("^-?[0-9]{4,}", .fg_number_text(trunc(values)))]
+  }
+  values <- unique(values)
+  if (length(values) != 1L || values != round(values) || values < lo || values > hi) {
+    return(NA_real_)
+  }
+  values
+}
+
+# Validate a probe's `scale`: NULL, or two whole numbers, the lower first.
+.fg_check_scale <- function(scale) {
+  if (is.null(scale)) return(NULL)
+  if (!is.numeric(scale) || length(scale) != 2L || anyNA(scale) ||
+      any(!is.finite(scale)) || any(scale != round(scale)) || scale[[1]] >= scale[[2]]) {
+    stop("`scale` must be `NULL` or two whole numbers, the lower end first, as in c(1, 7).",
+         call. = FALSE)
+  }
+  as.double(unname(scale))
 }
 
 # A list of probes from NULL, one probe, or a list of them.

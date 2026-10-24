@@ -224,9 +224,12 @@ by participant, giving the reason, such as \code{"previous_speaker"} or
 probabilities for \code{"probabilistic"}), and \code{tied}, followed by \code{arm}.}
 \item{probes}{A data frame with one row per probe answer: \code{probe} (its
 label), \code{point}, \code{agent_id}, \code{question}, \code{answer} (the final answer,
-or \code{NA} when none came), \code{raw_text}, \code{finish_reason}, \code{call_id} (its
-row in \code{calls}), \code{round}, \code{phase}, \code{turn} (the next participant turn),
-\code{after_message_id} (the last message before it), and \code{arm}.}
+or \code{NA} when none came), \code{value} (the number read from the answer for
+a probe with a \code{scale}, otherwise \code{NA}; see \code{\link[=fg_probe]{fg_probe()}}), \code{raw_text},
+\code{finish_reason}, \code{attempts} (the calls made for the answer, retries
+and the re-ask included), \code{call_id} (the row in \code{calls} of the call
+that gave the answer), \code{round}, \code{phase}, \code{turn} (the next participant
+turn), \code{after_message_id} (the last message before it), and \code{arm}.}
 \item{injections}{A data frame with one row per injection: \code{label},
 \code{arm}, \code{point}, \code{delivered} (\code{FALSE} for one whose point the session
 never reached, which is also reported with a warning), \code{message_id},
@@ -238,7 +241,8 @@ Results saved by FocusGroup 0.5.2 and earlier lack \code{usage$unknown},
 earlier lack \code{calls}, \code{routing}, \code{probes}, \code{injections}, and the metadata
 that follows \code{failure}; results saved by 0.5.4 and earlier lack the
 \code{item} and \code{handle} columns, \code{trigger_message_id}, and the metadata that
-follows \code{branch}.
+follows \code{branch}; results saved by 0.5.5 and earlier lack the \code{value}
+and \code{attempts} columns of \code{probes}.
 }
 \description{
 Constructs the agents, moderator guide, and turn-taking flow, then runs one
@@ -279,7 +283,9 @@ a speaker writes for itself at the start of its reply (\verb{**MOD:**},
 
 The estimate counts one output for each moderator turn the model writes,
 one for each participant response a question round allows, one for each
-participant at each call-on point, and one for the final summary. Under
+participant at each call-on point, one for each probe answer (two when the
+probe has a \code{scale}, for a possible re-ask), and one for the final
+summary. Under
 \code{"desire_based"} it adds one desire score per participant before each
 response the flow chooses. With the default guide, six participants, and
 the default flow, two responses per question give an estimate of 111

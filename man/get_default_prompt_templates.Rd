@@ -40,10 +40,14 @@ flat template and routed through the flat path.
 }
 }
 
-\section{Probe template}{
+\section{Probe templates}{
 
 \code{participant_probe_instruction} closes the messages of a private probe
 (\code{\link[=fg_probe]{fg_probe()}}); \verb{\\\{\\\{probe_question\\\}\\\}} is replaced by the question.
+\code{participant_probe_reask} follows an answer to a probe with a \code{scale}
+from which no number could be read, in the same private exchange; its
+placeholders are \verb{\\\{\\\{lo\\\}\\\}} and \verb{\\\{\\\{hi\\\}\\\}}, the ends of the
+scale, and \verb{\\\{\\\{probe_question\\\}\\\}}.
 }
 
 \section{Summary templates}{

@@ -2240,35 +2240,51 @@ FocusGroup <- R6::R6Class("FocusGroup",
     },
 
     # Ask one probe of each of its participants. The answers are recorded and
-    # never logged.
+    # never logged. With a scale, each answer is read as a number, after one
+    # re-ask when none can be read; the participants whose value stays NA are
+    # named in one warning.
     run_probe = function(probe, event, verbose) {
       targets <- probe$participants %||% setdiff(names(self$agents), self$moderator_id)
       template <- self$prompt_templates$participant_probe_instruction %||%
         get_default_prompt_templates()$participant_probe_instruction
+      reask <- self$prompt_templates$participant_probe_reask %||%
+        get_default_prompt_templates()$participant_probe_reask
       log <- self$conversation_log
       after <- if (length(log)) as.integer(log[[length(log)]]$message_id) else NA_integer_
       phase <- private$state$details$phase %||% "setup"
       previous_phase <- attr(self, "execution_phase")
       attr(self, "execution_phase") <- "probe"
       view <- private$agent_view(log)
+      unread <- character()
       for (id in targets) {
         out <- .fg_with_group_usage(self, self$agents[[id]]$answer_probe(
           question = probe$question, conversation_log = view, topic = self$topic,
           template = template, max_tokens = self$max_tokens_probe,
           conversation_summary = self$current_conversation_summary,
-          call_params = .fg_call_params(self, "probe")))
+          call_params = .fg_call_params(self, "probe"),
+          scale = probe$scale, reask_template = reask))
         if (is.na(out$answer)) {
           warning(sprintf("Probe '%s' at %s returned no answer from %s; it is recorded as NA.",
                           probe$label, .fg_event_label(event), id), call. = FALSE)
+        } else if (!is.null(probe$scale) && is.na(out$value)) {
+          unread <- c(unread, id)
         }
         self$records$probes[[length(self$records$probes) + 1L]] <- list(
           probe = probe$label, point = .fg_event_label(event), agent_id = id,
-          question = probe$question, answer = out$answer, raw_text = out$raw_text,
-          finish_reason = out$finish_reason, call_id = out$call_id,
+          question = probe$question, answer = out$answer, value = out$value,
+          raw_text = out$raw_text, finish_reason = out$finish_reason,
+          attempts = out$attempts, call_id = out$call_id,
           round = private$current_round, phase = phase,
           turn = private$participant_turns + 1L, after_message_id = after,
           arm = private$arm %||% NA_character_)
         if (verbose) cat(paste0(id, " (probe ", probe$label, "): ", out$answer, "\n"))
+      }
+      if (length(unread)) {
+        warning(sprintf(paste(
+          "Probe '%s' at %s: no whole number from %s to %s could be read from",
+          "the answer of %s, even after a re-ask; the value is recorded as NA."),
+          probe$label, .fg_event_label(event), .fg_number_text(probe$scale[[1]]),
+          .fg_number_text(probe$scale[[2]]), paste(unread, collapse = ", ")), call. = FALSE)
       }
       attr(self, "execution_phase") <- previous_phase
       invisible(NULL)
