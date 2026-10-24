@@ -397,6 +397,11 @@ test_that("a probe answer is read as one whole number on its scale, or not at al
   expect_identical(read("70/100", 0, 100), 70)
   expect_identical(read("In 2024, 70", 0, 100), 70)
   expect_identical(read("1990", 1900, 2100), 1990)
+  # Typographic dashes and the minus sign read as hyphens.
+  expect_identical(read("1\u20137: 6"), 6)
+  expect_identical(read("I\u2019d rate it 5 out of 7 \u2014 leaning in favor"), 5)
+  expect_identical(read("3\u20134"), NA_real_)
+  expect_identical(read("\u22122", -3, 3), -2)
 })
 
 test_that("fg_probe() takes a scale of two whole numbers", {

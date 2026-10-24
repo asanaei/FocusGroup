@@ -294,8 +294,12 @@ print.fg_probe <- function(x, ...) {
 # Numbers written in words ("seven") are not read.
 .fg_parse_number <- function(text, lo, hi) {
   if (length(text) != 1L || is.na(text)) return(NA_real_)
-  x <- tolower(as.character(text))
-  x <- gsub("[‐-―−]", "-", x)
+  # Dashes and the minus sign as "-"; fixed matching works in every locale.
+  x <- enc2utf8(as.character(text))
+  for (dash in c("\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212")) {
+    x <- gsub(dash, "-", x, fixed = TRUE)
+  }
+  x <- tolower(x)
   x <- gsub("[*_`~#>|]", " ", x)
   x <- gsub("(?<=[0-9]),(?=[0-9]{3}\\b)", "", x, perl = TRUE)
   num <- "[0-9]+(?:\\.[0-9]+)?"
