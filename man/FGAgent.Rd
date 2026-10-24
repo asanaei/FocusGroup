@@ -179,7 +179,9 @@ supplied (and the template is not a legacy flat template), the message is
 built role-flipped: this agent's own prior turns, those under its
 \code{handle} (or, without one, its \code{id}), become \code{assistant}
 messages and others' become labeled \code{user} messages. \code{NULL} keeps the
-legacy flat single-user-message construction.}
+legacy flat single-user-message construction. In a session, the flat
+message of a participant opens with the sentence that tells it its
+handle ("In this discussion you are P3.").}
 
 \item{\code{standing_rules}}{Character or NULL. The system-message standing rules
 (persona-anchoring, safety, etc.) for the role-flipped path; \code{NULL} uses a

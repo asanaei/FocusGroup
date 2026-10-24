@@ -391,10 +391,8 @@ DesireBasedFlow <- R6::R6Class("DesireBasedFlow",
           last_utterance_text = last_utterance_info$text
         )
         instruction <- replace_placeholders(desire_tpl, prompt_values)
-        if (desire_legacy) {
-          return(list(list(role = "user", content = instruction)))
-        }
         agent <- self$agents[[pid]]
+        if (desire_legacy) return(.fg_flat_messages(agent, instruction))
         .fg_build_agent_messages(desire_transcript, .fg_agent_label(agent),
                                  .fg_desire_system_text(agent),
                                  instruction = instruction, self_state = NULL)

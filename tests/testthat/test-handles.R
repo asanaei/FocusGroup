@@ -225,6 +225,64 @@ test_that("no neutral handle names another agent's ID, the moderator's included"
                    c(a = "Ana", b = "P2", MOD = "Moderator"))
 })
 
+test_that("in flat mode each participant is told its handle, and the moderator is not", {
+  withr::local_options(list(focusgroup.message_mode = "flat"))
+  stub <- .hd_stub()
+  fg <- .hd_group(.hd_agents(stub$runner), .hd_script(1), call_on_silent = "none")
+  fg$run_simulation(final_summary = FALSE)
+  calls <- fg$records$calls
+  types <- vapply(calls, `[[`, character(1), "call_type")
+  expect_true(all(c("moderator", "participant", "desire") %in% types))
+  for (call in calls) {
+    first <- call$messages[[1]]$content
+    if (identical(call$call_type, "moderator")) {
+      expect_false(grepl("In this discussion you are", first, fixed = TRUE))
+      next
+    }
+    # One user message that opens with the agent's own handle.
+    expect_length(call$messages, 1L)
+    expect_identical(call$messages[[1]]$role, "user")
+    expect_true(startsWith(first, paste0("In this discussion you are ",
+                                         fg$handles[[call$agent_id]], ".\n\n")),
+                info = call$agent_id)
+  }
+  participant <- Filter(function(call) identical(call$call_type, "participant"), calls)
+  text <- participant[[1]]$messages[[1]]$content
+  expect_match(text, "address other participants by their labels", fixed = TRUE)
+  expect_false(grepl("by ID", text, fixed = TRUE))
+
+  # The broadcast desire path sends the same flat message.
+  seen <- NULL
+  testthat::local_mocked_bindings(
+    call_llm_broadcast = function(config, messages, ...) {
+      seen <<- c(seen, messages)
+      data.frame(response_text = rep("6", length(messages)), success = TRUE)
+    }, .package = "LLMR")
+  live <- .hd_agents(NULL)
+  flow <- create_conversation_flow("desire_based", live, "lead_moderator")
+  group <- .hd_group(live, .hd_script(1))
+  group$turn_taking_flow <- flow
+  group$.__enclos_env__$private$claim_handles()
+  flow$select_next_speaker(group)
+  expect_length(seen, 2L)
+  firsts <- vapply(seen, function(m) m[[1]]$content, character(1))
+  expect_true(startsWith(firsts[[1]], "In this discussion you are P1.\n\n"))
+  expect_true(startsWith(firsts[[2]], "In this discussion you are P2.\n\n"))
+
+  # Hard negative: in role-flip mode the handle is in the system message,
+  # once, and not added to the instruction.
+  withr::local_options(list(focusgroup.message_mode = "roleflip"))
+  stub <- .hd_stub()
+  fg <- .hd_group(.hd_agents(stub$runner), .hd_script(1), call_on_silent = "none")
+  fg$run_simulation(final_summary = FALSE)
+  for (call in Filter(function(call) identical(call$call_type, "participant"),
+                      fg$records$calls)) {
+    contents <- vapply(call$messages, function(m) as.character(m$content), character(1))
+    expect_identical(sum(grepl("In this discussion you are", contents, fixed = TRUE)), 1L)
+    expect_identical(call$messages[[1]]$role, "system")
+  }
+})
+
 test_that("identifier columns stay out of persona text and are reported", {
   cfg <- .hd_config()
   data <- data.frame(id = c("R-101", "R-102"), respondent_id = c(9001L, 9002L),

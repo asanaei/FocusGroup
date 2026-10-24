@@ -1874,8 +1874,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
         if (verbose) cat(paste("Addressed by the moderator:", agent$id, "\n"))
         pick <- private$record_forced_routing(agent$id, "addressed",
                                               addressed$message_id)
-        private$participant_turn(agent, pick, metadata = list(addressed = TRUE),
-                                 verbose = verbose)
+        private$participant_turn(agent, pick, cue = .fg_addressed_cue,
+                                 metadata = list(addressed = TRUE), verbose = verbose)
       } else {
         next_participant <- self$turn_taking_flow$select_next_speaker(self) # Flow should select a PARTICIPANT
         pick <- private$record_routing(next_participant)

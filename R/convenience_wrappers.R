@@ -298,7 +298,9 @@ NULL
 #' the moderator's last question opens or closes with one participant's
 #' handle ("P3, do you agree?", "Could you say more, P3?") and does not also
 #' put it to the group, that participant takes the next turn, without a
-#' desire score, and the reply carries `metadata$addressed = TRUE`. A label
+#' desire score and with a sentence in its turn instruction saying that the
+#' question was put to it, and the reply carries `metadata$addressed = TRUE`.
+#' A label
 #' a speaker writes for itself at the start of its reply (`**MOD:**`,
 #' `P3:`) is removed, and the message carries
 #' `metadata$self_label_removed = TRUE`; the reply as returned stays in

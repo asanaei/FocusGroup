@@ -424,6 +424,14 @@ format_conversation_history <- function(conversation_log,
   sprintf("In this discussion you are %s.", .fg_agent_label(agent))
 }
 
+# The one user message of the flat construction: the filled template, after
+# the sentence that tells a participant its handle, so that it can tell its
+# own lines in the transcript the template inlines.
+.fg_flat_messages <- function(agent, prompt) {
+  list(list(role = "user",
+            content = paste(c(.fg_handle_sentence(agent), prompt), collapse = "\n\n")))
+}
+
 # The system text of a desire-scoring call, shared by the per-agent and the
 # broadcast paths so that both send the same messages.
 .fg_desire_system_text <- function(agent) {
@@ -543,8 +551,10 @@ format_conversation_history <- function(conversation_log,
 
 .fg_call_on_names <- c("opening", "midpoint", "end")
 
-# Appended to the turn instruction of a participant the moderator called on.
+# Appended to the turn instruction of a participant the moderator called on,
+# and of one the moderator's last question was put to by handle.
 .fg_called_on_cue <- "The moderator has asked you directly for your view."
+.fg_addressed_cue <- "The moderator's last question was put to you directly."
 
 .fg_default_call_on_text <- "{participant}, I'd like to hear from you as well. What are your thoughts?"
 

@@ -187,6 +187,46 @@ test_that("a moderator line that addresses a participant gives that participant 
   expect_identical(fg$records$routing[[1]]$selected_id, "P1")
 })
 
+test_that("an addressed turn's instruction says the question was put to it, in both modes", {
+  addressed <- "The moderator's last question was put to you directly."
+  called <- "The moderator has asked you directly for your view."
+  for (mode in c("roleflip", "flat")) {
+    withr::local_options(list(focusgroup.message_mode = mode))
+    stub <- .rt_runner(top = "9", moderator = "Thanks. P3, what do you think about the hours?")
+    fg <- .rt_group(stub$runner, list(
+      list(phase = "engagement_question", text = "Which hours matter?")),
+      responses = 2L, call_on_silent = "none")
+    fg$run_simulation(final_summary = FALSE)
+    participant <- Filter(function(call) identical(call$call_type, "participant"),
+                          fg$records$calls)
+    last <- vapply(participant, function(call) {
+      as.character(call$messages[[length(call$messages)]]$content)
+    }, character(1))
+    rules <- vapply(fg$records$routing, `[[`, character(1), "rule")
+    expect_identical(rules, c("addressed", "highest_score"), info = mode)
+    # The cue closes the addressed turn's instruction and no other's.
+    expect_true(endsWith(last[[1]], paste0("\n", addressed)), info = mode)
+    expect_false(grepl(addressed, last[[2]], fixed = TRUE), info = mode)
+    expect_false(any(grepl(called, last, fixed = TRUE)), info = mode)
+  }
+
+  # Hard negative: a called-on turn keeps its own cue and gets no other.
+  stub <- .rt_runner(top = "9")
+  fg <- .rt_group(stub$runner, list(
+    list(phase = "engagement_question", text = "Which hours matter?")),
+    responses = 1L, call_on_silent = 1L)
+  fg$run_simulation(final_summary = FALSE)
+  participant <- Filter(function(call) identical(call$call_type, "participant"),
+                        fg$records$calls)
+  last <- vapply(participant, function(call) {
+    as.character(call$messages[[length(call$messages)]]$content)
+  }, character(1))
+  rules <- vapply(fg$records$routing, `[[`, character(1), "rule")
+  expect_identical(rules, c("highest_score", "called_on", "called_on"))
+  expect_identical(grepl(called, last, fixed = TRUE), c(FALSE, TRUE, TRUE))
+  expect_false(any(grepl(addressed, last, fixed = TRUE)))
+})
+
 test_that("an injected moderator line can address a participant", {
   stub <- .rt_runner(top = "9")
   fg <- .rt_group(stub$runner, list(

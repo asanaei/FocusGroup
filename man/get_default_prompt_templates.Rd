@@ -32,7 +32,9 @@ the turn cue, because the persona, standing rules, and the transcript are
 supplied structurally (a system message plus role-separated turns).
 \item \code{participant_utterance_subtle_persona} is the flat template. It
 inlines the persona and the whole
-transcript into one user message. A custom template that contains
+transcript into one user message, which for a participant in a
+session opens with the sentence that tells it its handle ("In this
+discussion you are P3."). A custom template that contains
 \verb{\\\{\\\{conversation_history\\\}\\\}} or \verb{\\\{\\\{persona_description\\\}\\\}} is treated as a
 flat template and routed through the flat path.
 }

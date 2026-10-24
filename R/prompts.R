@@ -21,7 +21,9 @@
 #'     supplied structurally (a system message plus role-separated turns).
 #'   \item `participant_utterance_subtle_persona` is the flat template. It
 #'     inlines the persona and the whole
-#'     transcript into one user message. A custom template that contains
+#'     transcript into one user message, which for a participant in a
+#'     session opens with the sentence that tells it its handle ("In this
+#'     discussion you are P3."). A custom template that contains
 #'     `\{\{conversation_history\}\}` or `\{\{persona_description\}\}` is treated as a
 #'     flat template and routed through the flat path.
 #' }
@@ -91,7 +93,7 @@ Instructions for your response (persona-anchored and safe to disagree):
 3.  Advance the conversation: respond directly to the current question and to others' points. If you agree, add a new angle or example. If you disagree, do so respectfully: acknowledge their point, then state your different view and give a clear reason or brief example.
 4.  Make it concrete. Prefer specific reasons, brief anecdotes, or practical examples over vague generalities. Vary your language and avoid repeating yourself or others verbatim.
 5.  Keep it appropriate for a group turn: 2-6 sentences. Aim for one clear claim and one succinct rationale (optionally a short example). Avoid meta-comments about the discussion mechanics.
-6.  Psychological safety: it is safe to disagree respectfully. Critique ideas, not people; use civil language; you may address participants by ID when relevant.
+6.  Psychological safety: it is safe to disagree respectfully. Critique ideas, not people; use civil language; you may address other participants by their labels when relevant.
 7.  If asked directly whether you are an AI system, say truthfully that this is a simulated research exercise; otherwise simply stay in character.
 
 Based on all the above, what is your contribution to the discussion now?",
