@@ -144,6 +144,10 @@ once, copies the whole session there, and continues each copy to the end
 under its own arm, so the arms share every message before the injection.
 `fg_probe()` asks each participant a private question at stated points; the
 answers are saved apart from the transcript and never enter the discussion.
+With `scale = c(1, 7)`, each answer is also read as one whole number from 1 to
+7 into the `value` column of `probes`; an answer from which no single number
+on the scale can be read, such as "3 or 4" or "6/10", is re-asked once, and
+stays `NA`, with a warning, when the re-ask gives none either.
 
 ## Messages and prompts
 
