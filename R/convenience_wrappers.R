@@ -213,7 +213,8 @@ NULL
 #' @param seed Optional integer governing in-package sampling: the respondents
 #'   drawn from the bundled records and the random choices of the turn-taking
 #'   flow, such as the speaker draws of `"probabilistic"` and the tie-breaks of
-#'   `"desire_based"`. The caller's random-number state is restored when the
+#'   `"desire_based"`. The random waits of a provider's retries do not draw
+#'   from this stream. The caller's random-number state is restored when the
 #'   function returns. The option `focusgroup.seed`, when set, fixes the
 #'   respondent draw instead.
 #' @param message_mode Character. `"roleflip"` or `"flat"`.

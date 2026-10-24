@@ -301,8 +301,9 @@ print.fg_probe <- function(x, ...) {
 #' branch point; each arm continues its own copy. Each arm also starts from
 #' the random-number state at the branch point, so the random draws that
 #' follow, such as tie-breaks and probabilistic speaker choices, use the same
-#' stream in every arm. With `seed`, the whole run is reproducible; without
-#' it, the arms still share the stream from the branch point on.
+#' stream in every arm; a provider's retries, which wait a random time, do
+#' not draw from it. With `seed`, the whole run is reproducible; without it,
+#' the arms still share the stream from the branch point on.
 #'
 #' A branch point must lie within the guide: `fg_after_item(k)` needs `k` no
 #' larger than the number of guide items, and `fg_before_turn(t)` needs `t`

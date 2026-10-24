@@ -65,7 +65,8 @@ participant.}
 \item{seed}{Optional integer governing in-package sampling: the respondents
 drawn from the bundled records and the random choices of the turn-taking
 flow, such as the speaker draws of \code{"probabilistic"} and the tie-breaks of
-\code{"desire_based"}. The caller's random-number state is restored when the
+\code{"desire_based"}. The random waits of a provider's retries do not draw
+from this stream. The caller's random-number state is restored when the
 function returns. The option \code{focusgroup.seed}, when set, fixes the
 respondent draw instead.}
 

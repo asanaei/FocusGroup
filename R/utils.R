@@ -819,7 +819,8 @@ format_conversation_history <- function(conversation_log,
 
 # Dispatch one request and record its returned usage before validating output.
 # `.call` describes the call for the session record: its `type`, `agent_id`,
-# and `attempt`.
+# and `attempt`. A live call leaves the random-number state as it was; a
+# runner is the caller's code and runs as written.
 .fg_call_llm <- function(config, messages, .runner = NULL, ..., .usage = NULL,
                          .call = NULL) {
   publish <- function(usage) {
@@ -829,7 +830,11 @@ format_conversation_history <- function(conversation_log,
   }
   out <- tryCatch({
     if (is.null(.runner)) {
-      LLMR::call_llm_robust(config = config, messages = messages, ...)
+      # A provider's retries draw random waits; the random-number stream is
+      # left as it was, so that a retry does not shift the session's later
+      # speaker draws or break the common random numbers of arms.
+      withr::with_preserve_seed(
+        LLMR::call_llm_robust(config = config, messages = messages, ...))
     } else {
       if (!is.function(.runner)) {
         stop("`.runner` must be `NULL` or a function.", call. = FALSE)

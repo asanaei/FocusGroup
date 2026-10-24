@@ -300,3 +300,48 @@ test_that("empty desire output is a failure and its usage is counted", {
   expect_identical(failure$fallback, "uniform_random")
   expect_identical(result$usage$total, calls * 2)
 })
+
+# A live call that goes through a retry: LLMR waits a jittered time before
+# trying again, a draw from the random-number stream. `retry_at` names the
+# calls, of each kind, that retry once.
+.fl_retry_session <- function(flow, retry_at = integer(), broadcast_retry_at = integer(),
+                              seed = 42) {
+  count <- 0L
+  broadcasts <- 0L
+  testthat::local_mocked_bindings(
+    call_llm_robust = function(config, messages, ...) {
+      count <<- count + 1L
+      if (count %in% retry_at) stats::runif(1)
+      data.frame(response_text = "Evening hours matter because people work days.",
+                 sent = 0, rec = 0)
+    },
+    call_llm_broadcast = function(config, messages, ...) {
+      broadcasts <<- broadcasts + 1L
+      if (broadcasts %in% broadcast_retry_at) stats::runif(1)
+      data.frame(response_text = rep("8", length(messages)), success = TRUE,
+                 sent = 0, rec = 0)
+    }, .package = "LLMR")
+  result <- run_focus_group(
+    "library hours", LLMR::llm_config("openai", "example-model"), n_participants = 4,
+    guide = list(Engagement = c("Which hours matter?", "Who is left out?"),
+                 Closing = "Close the session."),
+    flow = flow, seed = seed, max_participant_responses = 3, call_on_silent = "none",
+    final_summary = FALSE, verbose = FALSE)
+  result$routing$selected_id
+}
+
+test_that("a provider retry leaves later speaker draws as they were", {
+  plain <- .fl_retry_session("probabilistic")
+  expect_length(plain, 6L)
+  expect_identical(.fl_retry_session("probabilistic", retry_at = 2L), plain)
+  expect_identical(.fl_retry_session("probabilistic", retry_at = c(2L, 5L)), plain)
+  # Hard negative: the flow still draws from the stream, so another seed
+  # gives another sequence.
+  expect_false(identical(.fl_retry_session("probabilistic", seed = 43), plain))
+
+  # Desire scores broadcast in one call per pick; every score ties, so the
+  # pick is drawn at random.
+  tied <- .fl_retry_session("desire_based")
+  expect_identical(.fl_retry_session("desire_based", broadcast_retry_at = 1L), tied)
+  expect_false(identical(.fl_retry_session("desire_based", seed = 43), tied))
+})
