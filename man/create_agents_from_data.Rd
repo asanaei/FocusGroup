@@ -83,10 +83,11 @@ do when the same data are read from a file by
 \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}. SPSS user-defined missing values, which
 \code{\link[haven:read_spss]{haven::read_sav()}} keeps with \code{user_na = TRUE}, are left out.
 \item Text and factor values are shown as given, except missing-data labels.
-A value is one when it matches \code{na_strings} and reads as a label: it
-starts with a numeric code ("-9. Refused", "-3. RESTRICTED") or has at
-most six words. Longer text that mentions such words, as an open-ended
-answer may ("My landlord refused to fix the heat all winter"), is kept.
+A value is one when it starts with a numeric code and matches
+\code{na_strings} ("-9. Refused", "-3. RESTRICTED"), or when it says nothing
+but wording matched by \code{na_strings} ("Refused to answer", "I don't
+know"). Answers that use such words ("I keep missing the bus", "My
+landlord refused to fix the heat") are kept.
 \item Numbers are shown in full ("100000"); \code{na_strings} does not apply to them.
 }
 

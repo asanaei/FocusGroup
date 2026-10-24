@@ -136,16 +136,29 @@
 }
 
 # Whether values that carry no value label, such as the text of a decoded
-# frame, are missing-data labels: they match `na_strings` and read as a
-# label, which means they start with a numeric code ("-9. Refused") or have
-# at most six words. Longer text that mentions such words, as an open-ended
-# answer may ("My landlord refused to fix the heat all winter"), is an
-# answer.
+# frame, are missing-data labels. A value that starts with a numeric code
+# ("-9. Refused", "97. Don't know") is a label and counts when it matches
+# `na_strings`. A value without a code counts only when it says nothing but
+# the missing-data wording: once the matched wording and a few filler words
+# ("I", "to", "answer", "skipped") are taken out, no other word may remain.
+# So "Refused to answer" and "I don't know" are missing, while answers that
+# use such words ("I keep missing the bus", "My landlord refused") are kept.
+.fg_missing_filler <- c("i", "to", "answer", "answers", "the", "a", "an", "of",
+                        "this", "that", "question", "item", "r", "respondent",
+                        "or", "and", "skipped", "skip", "by", "for", "na", "n/a")
+
 .fg_is_missing_value <- function(x, na_strings) {
   x <- as.character(x)
+  matched <- .fg_is_missing_label(x, na_strings)
+  if (!any(matched, na.rm = TRUE)) return(matched & FALSE)
   coded <- grepl("^\\s*-?[0-9]+\\.\\s", x)
-  short <- lengths(strsplit(trimws(x), "\\s+")) <= 6L
-  .fg_is_missing_label(x, na_strings) & (coded | short)
+  rest <- gsub(paste(na_strings, collapse = "|"), " ", x, ignore.case = TRUE)
+  words <- strsplit(tolower(rest), "[^a-z0-9/']+")
+  bare <- vapply(words, function(w) {
+    w <- w[nzchar(w)]
+    !length(setdiff(w, .fg_missing_filler))
+  }, logical(1))
+  matched & (coded | bare)
 }
 
 # Validate `na_strings`: NULL or a character vector of non-empty patterns. An

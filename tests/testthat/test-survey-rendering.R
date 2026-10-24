@@ -702,3 +702,19 @@ test_that("open-ended text in a survey file that mentions missing-data words is 
   expect_identical(why$status, c("rendered", "dropped", "dropped"))
   expect_identical(why$text[[1]], d$WHY[[1]])
 })
+
+test_that("text without a code is missing only when it says nothing but missing-data wording", {
+  na <- fg_default_na_strings()
+  missing <- c("Refused", "Don't know", "I don't know", "Refused to answer",
+               "Not applicable (skipped)", "No answer", "Missing; Not available",
+               "-9. Refused", "97. Refused", "Legitimate skip", "DK/RF",
+               "-3. RESTRICTED", "Inapplicable", "Not asked", "-1. Inapplicable",
+               "Technical error")
+  answers <- c("I keep missing the bus", "My landlord refused to fix the heat all winter",
+               "Missing person case", "There is an error", "Terrorism", "Not sure",
+               "Don't know enough to say", "I refused the offer", "Evening hours",
+               "The kids are missing out")
+  expect_true(all(.fg_is_missing_value(missing, na)))
+  expect_false(any(.fg_is_missing_value(answers, na)))
+  expect_false(any(.fg_is_missing_value(answers, character())))
+})
