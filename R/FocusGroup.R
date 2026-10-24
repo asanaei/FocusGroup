@@ -195,6 +195,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'   its reasoning and the score.
     #' @param max_participant_responses Integer. Optional. Maximum participant exchanges per round before moderator intervention.
     #'        Defaults to `getOption("focusgroup.max_participant_responses", 2L)`.
+    #'        It must be one positive whole number.
     #' @param reasoning_effort Optional reasoning-effort setting, as described
     #'   for the `reasoning_effort` field.
     #' @param handles The labels under which the agents see each other.
@@ -243,6 +244,16 @@ FocusGroup <- R6::R6Class("FocusGroup",
       if (!is.character(moderator_id) || !(moderator_id %in% names(agents))) stop("'moderator_id' must be a valid ID of an agent in 'agents'.")
       if (!inherits(turn_taking_flow, "ConversationFlow")) stop("'turn_taking_flow' must be a ConversationFlow object.")
       if (!is.list(question_script)) stop("'question_script' must be a list.")
+      response_limit <- max_participant_responses %||%
+        getOption("focusgroup.max_participant_responses", 2L)
+      if (!is.numeric(response_limit) || length(response_limit) != 1L ||
+          is.na(response_limit) || !is.finite(response_limit) || response_limit < 1 ||
+          response_limit != floor(response_limit) ||
+          response_limit > .Machine$integer.max) {
+        stop("`max_participant_responses` (or the option ",
+             "`focusgroup.max_participant_responses`) must be one positive whole number.",
+             call. = FALSE)
+      }
       self$handles <- .fg_resolve_handles(handles, agent_ids, moderator_id)
       self$call_on_text <- .fg_check_call_on_text(call_on_text)
       if (identical(handles, "ids")) {
@@ -344,7 +355,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         }
       }
       self$reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
-      self$max_participant_responses <- max_participant_responses %||% getOption("focusgroup.max_participant_responses", 2L)
+      self$max_participant_responses <- as.integer(response_limit)
 
       self$total_tokens_sent <- 0
       self$total_tokens_received <- 0

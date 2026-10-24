@@ -251,7 +251,8 @@ before answering needs \code{desire} and \code{desire_retry} large enough to hol
 its reasoning and the score.}
 
 \item{\code{max_participant_responses}}{Integer. Optional. Maximum participant exchanges per round before moderator intervention.
-Defaults to \code{getOption("focusgroup.max_participant_responses", 2L)}.}
+Defaults to \code{getOption("focusgroup.max_participant_responses", 2L)}.
+It must be one positive whole number.}
 
 \item{\code{reasoning_effort}}{Optional reasoning-effort setting, as described
 for the \code{reasoning_effort} field.}

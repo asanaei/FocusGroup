@@ -42,3 +42,25 @@ test_that("the load default and actual live gate use two responses", {
   g <- suppressMessages(FocusGroup$new("Hours", "Study", agents, "MOD", create_conversation_flow("round_robin", agents, "MOD")))
   expect_equal(g$max_participant_responses, 2)
 })
+
+test_that("FocusGroup$new() refuses a response limit that is not a positive whole number", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  agents <- create_agents(2, cfg, direct_persona_descriptions = c("A.", "B."))
+  build <- function(limit) {
+    FocusGroup$new("Hours", "Study", agents, "MOD",
+                   create_conversation_flow("round_robin", agents, "MOD"),
+                   question_script = list(list(phase = "engagement_question", text = "Q?")),
+                   max_participant_responses = limit)
+  }
+  for (limit in list(NA, NA_integer_, NaN, Inf, 0, -1, 1.5, "2", c(1, 2), TRUE,
+                     .Machine$integer.max + 1)) {
+    expect_error(build(limit), "max_participant_responses", info = deparse(limit))
+  }
+  withr::local_options(list(focusgroup.max_participant_responses = NA))
+  expect_error(build(NULL), "focusgroup.max_participant_responses", fixed = TRUE)
+  # Hard negatives: whole numbers are kept, as integers.
+  withr::local_options(list(focusgroup.max_participant_responses = NULL))
+  expect_identical(build(3)$max_participant_responses, 3L)
+  expect_identical(build(1L)$max_participant_responses, 1L)
+  expect_identical(build(NULL)$max_participant_responses, 2L)
+})
