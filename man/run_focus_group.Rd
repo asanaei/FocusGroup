@@ -265,8 +265,10 @@ The participants and the moderator see each other under handles, never
 under the IDs of the records: the IDs of \code{\link[=create_agents]{create_agents()}} are already
 \code{"P1"}, \code{"P2"}, ..., and the moderator appears as \code{"Moderator"}. When
 the moderator's last question opens or closes with one participant's
-handle ("P3, do you agree?", "Could you say more, P3?") and does not also
-put it to the group, that participant takes the next turn, without a
+handle ("P3, do you agree?", "P3: what do you think?", "Could you say
+more, P3?"), or is a short follow-up naming one ("And P3?", "What about
+P3?"), and does not also put it to the group, that participant takes the
+next turn, without a
 desire score and with a sentence in its turn instruction saying that the
 question was put to it, and the reply carries \code{metadata$addressed = TRUE}.
 A label

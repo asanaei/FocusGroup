@@ -461,13 +461,16 @@ format_conversation_history <- function(conversation_log,
 
 # The participant a moderator line gives the floor to, or NA. The line's last
 # question, the last sentence ending in "?", must open with one participant's
-# handle and a comma ("P3, do you agree with P2?") or close with a comma and
-# one handle ("Could you say more, P3?"), and must not also put the question
-# to the group ("What does everyone think?", "P3, who else agrees?"). A
-# handle in a list of handles ("P2, P3, what do you think?", "What do you
-# think, P2 and P3?") addresses no one, nor does a question that opens with
-# one handle and closes with another. `handles` are the participants'
-# handles named by agent ID; the agent ID is returned.
+# handle and a comma or colon ("P3, do you agree with P2?", "P3: what do you
+# think?"), close with a comma and one handle ("Could you say more, P3?"), or
+# be a short follow-up that names one handle and nothing else ("And P3?",
+# "What about P3?", "How about P3?"), and must not also put the question to
+# the group ("What does everyone think?", "P3, who else agrees?"). A handle
+# in a list of handles ("P2, P3, what do you think?", "What do you think, P2
+# and P3?") addresses no one, nor does a question that opens with one handle
+# and closes with another, nor a recap that gives two handles a colon ("P2:
+# evenings, P3: mornings?"). `handles` are the participants' handles named by
+# agent ID; the agent ID is returned.
 .fg_addressee <- function(text, handles) {
   if (!length(handles) || !is.character(text) || length(text) != 1L || is.na(text)) {
     return(NA_character_)
@@ -489,11 +492,22 @@ format_conversation_history <- function(conversation_log,
   escaped <- vapply(handles, .fg_regex_escape, character(1))
   any_handle <- paste0("(?:", paste(escaped, collapse = "|"), ")(?![[:alnum:]_])")
   start <- "^[\\s\"'(\\[]*"
+  colons <- lengths(regmatches(question, gregexpr(
+    paste0("(?<![[:alnum:]_])", any_handle, "\\s*:"), question, perl = TRUE)))
+  follow_up <- paste0(start, "(?i:and(?:\\s+(?:what|how)\\s+about)?|what\\s+about|",
+                      "how\\s+about)\\s+")
   opener <- closer <- character()
   for (i in seq_along(handles)) {
     h <- paste0(escaped[[i]], "(?![[:alnum:]_])")
     if (grepl(paste0(start, h, "\\s*,"), question, perl = TRUE) &&
         !grepl(paste0(start, h, "\\s*,\\s*", any_handle), question, perl = TRUE)) {
+      opener <- c(opener, names(handles)[[i]])
+    }
+    if (colons == 1L && grepl(paste0(start, h, "\\s*:"), question, perl = TRUE) &&
+        !grepl(paste0(start, h, "\\s*:\\s*", any_handle), question, perl = TRUE)) {
+      opener <- c(opener, names(handles)[[i]])
+    }
+    if (grepl(paste0(follow_up, escaped[[i]], "\\s*\\?$"), question, perl = TRUE)) {
       opener <- c(opener, names(handles)[[i]])
     }
     if (grepl(paste0(",\\s*(?<![[:alnum:]_])", escaped[[i]], "\\s*\\?$"), question, perl = TRUE) &&

@@ -109,7 +109,16 @@ test_that("the addressee is the one participant the last question opens or close
     "Thanks, P2. P4, what are your thoughts on what P2 just shared?" = "id4",
     "P4, do you agree with P2?" = "id4",
     "What do you make of P2's point, P4?" = "id4",
-    "__P7__, could you say more?" = "id7")
+    "__P7__, could you say more?" = "id7",
+    # A handle and a colon, and short follow-ups that name one handle.
+    "P2: what do you think?" = "id2",
+    "Thanks. **P2:** what do you think of that?" = "id2",
+    "P2: do you agree with P3?" = "id2",
+    "Thanks, P4. And P3?" = "id3",
+    "What about P3?" = "id3",
+    "How about P3?" = "id3",
+    "And what about P10?" = "id10",
+    "That helps. what about P5 ?" = "id5")
   for (text in names(positives)) {
     expect_identical(addressee(text), positives[[text]], info = text)
   }
@@ -135,6 +144,21 @@ test_that("the addressee is the one participant the last question opens or close
     "P2, do you both agree?",
     "What do you think, P2, P3?",
     "P4, what do you make of P2's point, P3?",
+    # A recap that quotes participants, and follow-ups that name more than
+    # one participant or name a participant's point.
+    "P2: I agree.",
+    "To recap. P2: I agree with longer evenings. P3: mornings work better.",
+    "P2: evenings. P3: mornings. Which matters more?",
+    "P2: evenings, P3: mornings?",
+    "P2: what do you make of that, P3?",
+    "P2: P3, what do you think?",
+    "What about P3's point?",
+    "And P3's view?",
+    "How about P3 and P4?",
+    "What about P3, P4?",
+    "And P30?",
+    "What about everyone else?",
+    "And the rest of you, P3?",
     "")
   for (text in negatives) {
     expect_identical(addressee(text), NA_character_, info = text)

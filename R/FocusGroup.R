@@ -113,9 +113,10 @@ NULL
 #' first point gives every participant a turn early in the session.
 #'
 #' A moderator line whose last question opens or closes with one
-#' participant's handle ("P3, do you agree?", "Could you say more, P3?"),
-#' and does not also ask the group, gives that participant the next turn,
-#' with the rule `"addressed"`.
+#' participant's handle ("P3, do you agree?", "P3: what do you think?",
+#' "Could you say more, P3?"), or is a short follow-up naming one ("And
+#' P3?", "What about P3?", "How about P3?"), and does not also ask the
+#' group, gives that participant the next turn, with the rule `"addressed"`.
 #'
 #' @references Krueger, R. A. (2002). *Designing and Conducting Focus Group
 #'   Interviews*. University of Minnesota.
