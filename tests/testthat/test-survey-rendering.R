@@ -538,3 +538,167 @@ test_that("a numeric column labeled only at its tagged missing values keeps its 
   expect_identical(r$text, c("12", NA, "250000"))
   expect_identical(r$reason[2], "missing value: Don't know")
 })
+
+# The same records as an in-memory frame: the file read back with haven, the
+# question wording and field names in a dictionary.
+.render_frame <- function(path) {
+  frame <- haven::read_dta(path)
+  attr(frame, "dictionary") <- data.frame(
+    handle = c("AGE", "RELIG", "EMPLOY", names(.wording)),
+    question = c("age", "religion", "employment", unname(.wording)),
+    stringsAsFactors = FALSE)
+  frame
+}
+
+test_that("a labelled frame renders as the same records read from the file", {
+  path <- .render_file(); on.exit(unlink(path))
+  cfg <- LLMR::llm_config("openai", "example-model")
+  from_file <- .quiet(.render_agents(path, rows = 1:4))
+  frame <- .render_frame(path)
+  w <- testthat::capture_warnings(m <- testthat::capture_messages(
+    from_data <- create_agents_from_data(frame, 4, cfg,
+                                         demographic_cols = c("AGE", "RELIG", "EMPLOY"))))
+  for (id in paste0("P", 1:4)) {
+    expect_identical(from_data[[id]]$persona_description, from_file[[id]]$persona_description)
+  }
+  file_report <- persona_rendering_report(from_file)
+  data_report <- persona_rendering_report(from_data)
+  # The identifier column is reported as dropped, and only on the data path.
+  ids <- data_report[data_report$variable == "id", ]
+  expect_identical(unique(ids$reason), "identifier column")
+  data_report <- data_report[data_report$variable != "id", ]
+  rownames(data_report) <- NULL
+  shared <- c("agent_id", "kind", "variable", "question", "code", "text",
+              "rendered_as", "status", "reason", "template")
+  expect_identical(data_report[shared], file_report[shared])
+  expect_true(any(data_report$rendered_as %in% "scale"))
+  expect_identical(data_report$reason[data_report$variable == "POSTQ" & data_report$agent_id == "P3"],
+                   "missing value: -6. No post interview")
+
+  # The warnings and the message name the same codes, with the data path's remedy.
+  expect_match(w, "bare code because the column has no value label.*RELIG code 9 \\(P1\\).*column's value labels",
+               all = FALSE)
+  expect_match(w, "80 characters long.*EMPLOY code 1 \\(P1, P2\\); IMMIG code 1 \\(P1, P3\\)",
+               all = FALSE)
+  expect_match(w, "Negative codes without a value label.*POSTQ code -1 \\(P2\\)", all = FALSE)
+  expect_false(any(grepl("value_labels", w, fixed = TRUE)))
+  expect_match(m, "4 answer\\(s\\) were left out of the personas as missing values \\(POSTQ; AGE; RELIG; SERV\\)",
+               all = FALSE)
+
+  # scale_template applies by column, as it does by variable for a file.
+  own <- c(SERV = "From {lo} ({lo_label}) to {hi} ({hi_label}), you chose {value}.")
+  agents <- .quiet(create_agents_from_data(frame, 4, cfg, demographic_cols = "AGE",
+                                           scale_template = own))
+  report <- persona_rendering_report(agents)
+  expect_identical(report$text[report$variable == "SERV" & report$agent_id == "P1"],
+                   paste("From 1 (Government should provide many fewer services) to 7",
+                         "(Government should provide many more services), you chose 5."))
+  w <- testthat::capture_warnings(suppressMessages(create_agents_from_data(
+    frame, 4, cfg, demographic_cols = "AGE", scale_template = c(NOPE = "At {value}."))))
+  expect_match(w, "`scale_template` names columns that are not in `data`.*NOPE", all = FALSE)
+})
+
+test_that("missing-data labels in text and factor columns are left out of a frame's personas", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  long_answer <- "My landlord refused to fix the heat all winter, so I moved."
+  frame <- data.frame(
+    age = c("30", "40", "50", "60", "70"),
+    view = c("-9. Refused", "Strongly agree", "-3. RESTRICTED", "There is an error", "Terrorism"),
+    reason = c(long_answer, "Don't know", "Higher rents downtown", "No answer", "-5. Missing; Not available"),
+    party = factor(c("Don't know", "Democrat", "Republican", "Democrat", "Refused")),
+    income = c(100000, 2.5, -9, 1e6, NA),
+    stringsAsFactors = FALSE)
+  expect_message(agents <- create_agents_from_data(frame, 5, cfg, demographic_cols = "age"),
+                 "7 answer\\(s\\) were left out of the personas as missing values \\(view; party; reason\\)")
+  report <- persona_rendering_report(agents)
+  cell <- function(id, variable) report[report$agent_id == id & report$variable == variable, ]
+  expect_identical(cell("P1", "view")$reason, "missing value: -9. Refused")
+  expect_identical(cell("P3", "view")$reason, "missing value: -3. RESTRICTED")
+  expect_identical(cell("P1", "party")$reason, "missing value: Don't know")
+  expect_identical(cell("P5", "party")$reason, "missing value: Refused")
+  expect_identical(cell("P2", "reason")$status, "dropped")
+  expect_identical(cell("P5", "reason")$status, "dropped")
+  expect_false(grepl("Refused", agents$P1$persona_description))
+  expect_false(grepl("RESTRICTED", agents$P3$persona_description))
+
+  # Answers that merely mention missing-data words are kept, and so is longer
+  # text that uses them; numbers are shown as given; an NA is not announced.
+  expect_identical(cell("P4", "view")$text, "There is an error")
+  expect_identical(cell("P5", "view")$text, "Terrorism")
+  expect_identical(cell("P1", "reason")$text, long_answer)
+  expect_identical(cell("P3", "reason")$text, "Higher rents downtown")
+  expect_identical(report$text[report$variable == "income"], c("100000", "2.5", "-9", "1000000", NA))
+  expect_identical(cell("P5", "income")$reason, "no value")
+
+  # `na_strings` can be replaced or emptied, and does not reach numbers.
+  expect_message(mine <- create_agents_from_data(frame, 5, cfg, demographic_cols = "age",
+                                                 na_strings = c("^-9$", "terrorism")),
+                 "1 answer\\(s\\) were left out.*\\(view\\)")
+  report <- persona_rendering_report(mine)
+  expect_identical(report$text[report$variable == "income"][[3]], "-9")
+  expect_identical(report$status[report$variable == "view"],
+                   c("rendered", "rendered", "rendered", "rendered", "dropped"))
+  none <- create_agents_from_data(frame, 5, cfg, demographic_cols = "age", na_strings = character())
+  expect_identical(persona_rendering_report(none)$text[1:2], c("30", "-9. Refused"))
+  expect_error(create_agents_from_data(frame, 5, cfg, na_strings = c("refused", "")),
+               "non-empty patterns")
+  expect_error(create_agents_from_data(frame, 5, cfg, na_strings = 9), "non-empty patterns")
+})
+
+test_that("a plain frame of real answers renders as before", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  frame <- data.frame(age = c(34, 61), occupation = c("accountant", "school administrator"),
+                      `How often do you work remotely?` = c("three days a week", "never"),
+                      check.names = FALSE, stringsAsFactors = FALSE)
+  expect_silent(agents <- create_agents_from_data(frame, 2, cfg,
+                                                  demographic_cols = c("age", "occupation")))
+  expect_identical(agents$P1$persona_description, generate_persona(
+    list(age = "34", occupation = "accountant"),
+    list(`How often do you work remotely?` = "three days a week")))
+  expect_identical(agents$P2$persona_description, generate_persona(
+    list(age = "61", occupation = "school administrator"),
+    list(`How often do you work remotely?` = "never")))
+  expect_true(all(persona_rendering_report(agents)$status == "rendered"))
+})
+
+test_that("SPSS user-defined missing values in a frame are left out", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  frame <- data.frame(age = c(30, 40, 50))
+  frame$favor <- haven::labelled_spss(c(1, 8, 2), c(Favor = 1, Oppose = 2, "No opinion" = 8),
+                                      na_values = 8)
+  expect_message(agents <- create_agents_from_data(frame, 3, cfg, demographic_cols = "age"),
+                 "1 answer\\(s\\) were left out.*\\(favor\\)")
+  report <- persona_rendering_report(agents)
+  favor <- report[report$variable == "favor", ]
+  expect_identical(favor$text, c("Favor", NA, "Oppose"))
+  expect_identical(favor$reason[[2]], "missing value: No opinion (user-defined missing value)")
+  expect_false(grepl("No opinion", agents$P2$persona_description))
+})
+
+test_that("a pre-rendered persona panel keeps its text and its fields as given", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  panel <- data.frame(persona_id = c("a", "b"),
+                      persona = c("A renter who rides the evening bus.", "A retired driver."),
+                      view = c("-9. Refused", "Agree"), stringsAsFactors = FALSE)
+  panel$party <- haven::labelled(c(1, -8), c("1. Democrat" = 1, "-8. Don't know" = -8))
+  expect_silent(agents <- create_agents_from_data(panel, 2, cfg, demographic_cols = character()))
+  expect_identical(agents$P1$persona_description, "A renter who rides the evening bus.")
+  expect_identical(agents$P1$survey_responses$view, "-9. Refused")
+  expect_null(attr(agents, "rendering_report"))
+})
+
+test_that("open-ended text in a survey file that mentions missing-data words is kept", {
+  d <- data.frame(AGE = c(30, 40, 50),
+                  WHY = c("My landlord refused to fix the heat all winter, so I moved.",
+                          "Refused", "-9. Refused"),
+                  stringsAsFactors = FALSE)
+  path <- tempfile(fileext = ".dta"); on.exit(unlink(path))
+  haven::write_dta(d, path)
+  agents <- suppressMessages(create_agents_from_survey(
+    3, path, LLMR::llm_config("openai", "example-model"), demographic_vars = c(age = "AGE"),
+    survey_vars = "WHY", question_wording = c(WHY = "Why did you move?")))
+  why <- persona_rendering_report(agents)
+  why <- why[why$variable == "WHY", ]
+  expect_identical(why$status, c("rendered", "dropped", "dropped"))
+  expect_identical(why$text[[1]], d$WHY[[1]])
+})

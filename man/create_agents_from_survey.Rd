@@ -201,8 +201,10 @@ naming the variable and code. Supply its label in \code{value_labels}.
 }
 
 A variable without value labels is shown as stored, with numbers written
-out in full ("100000"); an empty value, or one matching \code{na_strings}, is
-left out.
+out in full ("100000"). An empty value is left out, and so is a value that
+matches \code{na_strings} and reads as a label: one that starts with a numeric
+code ("-9. Refused") or has at most six words. Longer text, such as an
+open-ended answer that mentions refusing or missing something, is kept.
 
 Answers left out as missing values are announced in a message. Requested
 variables that are not in the file are left out of every persona, and a

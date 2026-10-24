@@ -172,8 +172,10 @@ direct_agents <- create_agents(
 
 `create_agents_from_data()` accepts respondent rows already in memory.
 Demographic columns are rendered as background and the remaining columns as
-survey responses. Values are used as supplied, so coded values should be
-decoded before this call.
+survey responses. Columns with value labels, as `haven` reads them, are
+rendered by the rules of `create_agents_from_survey()` described below. Text
+and factor values are shown as given, except missing-data labels such as
+"-9. Refused" or "Don't know", which are left out.
 
 ```r
 respondents <- data.frame(

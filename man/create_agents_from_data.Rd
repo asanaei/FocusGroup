@@ -11,6 +11,8 @@ create_agents_from_data(
   demographic_cols = NULL,
   rows = NULL,
   weights = NULL,
+  na_strings = fg_default_na_strings(),
+  scale_template = .fg_default_scale_template,
   .runner = NULL
 )
 }
@@ -27,8 +29,19 @@ a small set of common demographic column names found in \code{data}.}
 
 \item{rows, weights}{See \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}. Here \code{rows} refers to
 the rows of \code{data}, and a predicate receives the demographics frame with
-its columns relabeled as they appear in the personas. Integer positions
-are kept in the order given.}
+its columns relabeled as they appear in the personas and holding the
+text rendered for each field. Integer positions are kept in the order
+given.}
+
+\item{na_strings}{Character vector of regular expressions, matched ignoring
+case, that mark a text or factor value, or a value label, as missing, as
+in \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}. The default is
+\code{\link[=fg_default_na_strings]{fg_default_na_strings()}}; \code{character()} leaves out only \code{NA} and empty
+values.}
+
+\item{scale_template}{The sentence that states an answer on a scale whose
+endpoints alone are labeled, for columns with value labels; see
+\code{\link[=create_agents_from_survey]{create_agents_from_survey()}}. Templates are named by column.}
 
 \item{.runner}{Optional function used instead of live model calls and stored
 on every agent.}
@@ -47,8 +60,7 @@ Like \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} but s
 memory (for example \link{anes_2024_personas}). Demographic columns are
 rendered as background; the remaining columns are rendered as survey responses,
 keyed by their question wording when the frame carries a \code{dictionary} attribute
-(see \code{\link[LLMR:llm_persona_split]{LLMR::llm_persona_split()}}), else by their column names. Values are taken
-as-is (decode and clean them first if they are still coded). Columns whose
+(see \code{\link[LLMR:llm_persona_split]{LLMR::llm_persona_split()}}), else by their column names. Columns whose
 names identify respondents (\code{id}, \code{caseid}, \code{respondent_id}, \code{respid},
 \code{persona_id}, \code{uid}, \code{record_id}, or \code{row_id}, in any case and with or
 without spaces, dots, hyphens, or underscores, as in \code{ID}, \code{CaseID}, or
@@ -57,6 +69,31 @@ and listed in the rendering report as dropped. The same holds for those
 columns in a data frame given to \code{\link[=create_agents]{create_agents()}}.
 }
 \details{
+Values are rendered according to their column:
+\itemize{
+\item A column with value labels (class \code{haven_labelled}, as
+\code{\link[haven:read_dta]{haven::read_dta()}} and \code{\link[haven:read_spss]{haven::read_sav()}} return them) is rendered by
+the rules described under Rendering answers in
+\code{\link[=create_agents_from_survey]{create_agents_from_survey()}}: a code is shown as its label; a number
+between the labeled endpoints of a scale is shown in the sentence of
+\code{scale_template}; a label matching \code{na_strings} and a negative code
+without a label are left out; and a field that holds numbers is shown
+as numbers. The same warnings are given, and the answers read as they
+do when the same data are read from a file by
+\code{\link[=create_agents_from_survey]{create_agents_from_survey()}}. SPSS user-defined missing values, which
+\code{\link[haven:read_spss]{haven::read_sav()}} keeps with \code{user_na = TRUE}, are left out.
+\item Text and factor values are shown as given, except missing-data labels.
+A value is one when it matches \code{na_strings} and reads as a label: it
+starts with a numeric code ("-9. Refused", "-3. RESTRICTED") or has at
+most six words. Longer text that mentions such words, as an open-ended
+answer may ("My landlord refused to fix the heat all winter"), is kept.
+\item Numbers are shown in full ("100000"); \code{na_strings} does not apply to them.
+}
+
+Every value left out is recorded in the rendering report with its reason,
+and those left out as missing-data labels or codes are announced in a
+message naming the columns. An \code{NA} is left out without a message.
+
 A frame of class \code{silicon_panel}, or a frame with both \code{persona} and
 \code{persona_id} columns, is treated as a pre-rendered persona panel. Its
 \code{persona} text becomes each participant's direct persona description;

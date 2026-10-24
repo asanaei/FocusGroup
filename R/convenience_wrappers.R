@@ -1903,8 +1903,10 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #'   naming the variable and code. Supply its label in `value_labels`.
 #'
 #' A variable without value labels is shown as stored, with numbers written
-#' out in full ("100000"); an empty value, or one matching `na_strings`, is
-#' left out.
+#' out in full ("100000"). An empty value is left out, and so is a value that
+#' matches `na_strings` and reads as a label: one that starts with a numeric
+#' code ("-9. Refused") or has at most six words. Longer text, such as an
+#' open-ended answer that mentions refusing or missing something, is kept.
 #'
 #' Answers left out as missing values are announced in a message. Requested
 #' variables that are not in the file are left out of every persona, and a
@@ -2277,14 +2279,36 @@ create_agents_from_survey <- function(n_participants,
 #' memory (for example [anes_2024_personas]). Demographic columns are
 #' rendered as background; the remaining columns are rendered as survey responses,
 #' keyed by their question wording when the frame carries a `dictionary` attribute
-#' (see [LLMR::llm_persona_split()]), else by their column names. Values are taken
-#' as-is (decode and clean them first if they are still coded). Columns whose
+#' (see [LLMR::llm_persona_split()]), else by their column names. Columns whose
 #' names identify respondents (`id`, `caseid`, `respondent_id`, `respid`,
 #' `persona_id`, `uid`, `record_id`, or `row_id`, in any case and with or
 #' without spaces, dots, hyphens, or underscores, as in `ID`, `CaseID`, or
 #' `resp_id`) are not rendered: they are kept in the `source_ids` attribute
 #' and listed in the rendering report as dropped. The same holds for those
 #' columns in a data frame given to [create_agents()].
+#'
+#' Values are rendered according to their column:
+#' * A column with value labels (class `haven_labelled`, as
+#'   [haven::read_dta()] and [haven::read_sav()] return them) is rendered by
+#'   the rules described under Rendering answers in
+#'   [create_agents_from_survey()]: a code is shown as its label; a number
+#'   between the labeled endpoints of a scale is shown in the sentence of
+#'   `scale_template`; a label matching `na_strings` and a negative code
+#'   without a label are left out; and a field that holds numbers is shown
+#'   as numbers. The same warnings are given, and the answers read as they
+#'   do when the same data are read from a file by
+#'   [create_agents_from_survey()]. SPSS user-defined missing values, which
+#'   [haven::read_sav()] keeps with `user_na = TRUE`, are left out.
+#' * Text and factor values are shown as given, except missing-data labels.
+#'   A value is one when it matches `na_strings` and reads as a label: it
+#'   starts with a numeric code ("-9. Refused", "-3. RESTRICTED") or has at
+#'   most six words. Longer text that mentions such words, as an open-ended
+#'   answer may ("My landlord refused to fix the heat all winter"), is kept.
+#' * Numbers are shown in full ("100000"); `na_strings` does not apply to them.
+#'
+#' Every value left out is recorded in the rendering report with its reason,
+#' and those left out as missing-data labels or codes are announced in a
+#' message naming the columns. An `NA` is left out without a message.
 #'
 #' A frame of class `silicon_panel`, or a frame with both `persona` and
 #' `persona_id` columns, is treated as a pre-rendered persona panel. Its
@@ -2300,8 +2324,17 @@ create_agents_from_survey <- function(n_participants,
 #'   a small set of common demographic column names found in `data`.
 #' @param rows,weights See [create_agents_from_survey()]. Here `rows` refers to
 #'   the rows of `data`, and a predicate receives the demographics frame with
-#'   its columns relabeled as they appear in the personas. Integer positions
-#'   are kept in the order given.
+#'   its columns relabeled as they appear in the personas and holding the
+#'   text rendered for each field. Integer positions are kept in the order
+#'   given.
+#' @param na_strings Character vector of regular expressions, matched ignoring
+#'   case, that mark a text or factor value, or a value label, as missing, as
+#'   in [create_agents_from_survey()]. The default is
+#'   [fg_default_na_strings()]; `character()` leaves out only `NA` and empty
+#'   values.
+#' @param scale_template The sentence that states an answer on a scale whose
+#'   endpoints alone are labeled, for columns with value labels; see
+#'   [create_agents_from_survey()]. Templates are named by column.
 #' @param .runner Optional function used instead of live model calls and stored
 #'   on every agent.
 #' @details
@@ -2326,9 +2359,13 @@ create_agents_from_survey <- function(n_participants,
 create_agents_from_data <- function(data, n_participants, config,
                                     demographic_cols = NULL,
                                     rows = NULL, weights = NULL,
+                                    na_strings = fg_default_na_strings(),
+                                    scale_template = .fg_default_scale_template,
                                     .runner = NULL) {
   stopifnot(is.data.frame(data))
   .fg_validate_config(config)
+  na_strings <- .fg_check_na_strings(na_strings)
+  scale_template <- .fg_check_template(scale_template)
 
   wv <- .fg_resolve_weights(weights, data)
 
@@ -2368,11 +2405,10 @@ create_agents_from_data <- function(data, n_participants, config,
   survey_cols <- setdiff(names(data), c(demographic_cols, drop_cols,
                                         reserved_panel_cols, id_cols))
 
-  to_char <- function(df) {
-    if (!ncol(df)) return(data.frame(row.names = seq_len(nrow(df))))
-    as.data.frame(lapply(df, function(x) {
-      v <- .fg_value_text(x); v[!nzchar(v)] <- NA; v
-    }), stringsAsFactors = FALSE, check.names = FALSE)
+  unused <- setdiff(names(scale_template)[nzchar(names(scale_template))], names(data))
+  if (length(unused)) {
+    warning("`scale_template` names columns that are not in `data`, so its entries ",
+            "for them are not used: ", paste(unused, collapse = ", "), ".", call. = FALSE)
   }
 
   # Render with the human question wording, not the tidy column handle, when the
@@ -2396,12 +2432,38 @@ create_agents_from_data <- function(data, n_participants, config,
   fields <- rbind(field_keys(demographic_cols, "demographic"),
                   field_keys(survey_cols, "item"))
 
-  demo_df <- to_char(data[, demographic_cols, drop = FALSE])
-  names(demo_df) <- fields$question[fields$kind == "demographic"]
-  survey_df <- if (length(survey_cols)) {
-    s <- to_char(data[, survey_cols, drop = FALSE])
-    names(s) <- fields$question[fields$kind == "item"]; s
-  } else NULL
+  # The answer text of every field, by the rules of the survey renderer for
+  # labelled columns and as given otherwise. A pre-rendered panel brings its
+  # own persona text; its columns are kept as given, as reporting fields.
+  rendered <- lapply(fields$variable, function(variable) {
+    col <- data[[variable]]
+    if (is_silicon_panel) {
+      text <- .fg_value_text(col)
+      text[!nzchar(text)] <- NA
+      return(list(text = text))
+    }
+    out <- if (inherits(col, "haven_labelled")) {
+      .fg_user_missing(.fg_render_column(col, variable, na_strings, NULL,
+                                         .fg_template_for(scale_template, variable)), col)
+    } else if (is.character(col) || is.factor(col)) {
+      .fg_render_plain(as.character(col), na_strings)
+    } else {
+      .fg_render_plain(col, character())
+    }
+    # An NA is the frame's own record of a missing value; it is reported as
+    # dropped but not announced.
+    out$issue[out$reason %in% "no value"] <- NA_character_
+    out
+  })
+  frame_of <- function(kind) {
+    j <- which(fields$kind == kind)
+    if (!length(j)) return(data.frame(row.names = seq_len(nrow(data))))
+    out <- as.data.frame(lapply(rendered[j], `[[`, "text"), stringsAsFactors = FALSE)
+    names(out) <- fields$question[j]
+    out
+  }
+  demo_df <- frame_of("demographic")
+  survey_df <- if (length(survey_cols)) frame_of("item") else NULL
 
   agents <- .fg_agents_from_frames(
     demo_df, survey_df, n_participants, config,
@@ -2412,19 +2474,8 @@ create_agents_from_data <- function(data, n_participants, config,
   agents <- .fg_roster_provenance(agents, data, attr(agents, "source_rows"))
   if (is_silicon_panel) return(agents)
 
-  # The values are rendered as given, so the report records each one as shown
-  # or, when it is missing or empty, as dropped. Identifier columns are
-  # recorded as dropped.
-  rendered <- lapply(c(as.list(demo_df), as.list(survey_df)), function(v) {
-    none <- .fg_no_value(v)
-    data.frame(code = v, text = ifelse(none, NA_character_, v),
-               rendered_as = ifelse(none, NA_character_, "value"),
-               status = ifelse(none, "dropped", "rendered"),
-               reason = ifelse(none, "no value", NA_character_),
-               template = NA_character_,
-               issue = ifelse(none, "missing", NA_character_), flag = v,
-               stringsAsFactors = FALSE)
-  })
+  # The report records each value as shown or, with the reason, as dropped.
+  # Identifier columns are recorded as dropped.
   if (length(id_cols)) {
     fields <- rbind(fields, data.frame(
       kind = id_kinds, variable = id_cols, question = id_cols,
@@ -2437,7 +2488,8 @@ create_agents_from_data <- function(data, n_participants, config,
   }
   source_rows <- attr(agents, "source_rows")
   report <- .fg_rendering_report(names(source_rows), source_rows, fields, rendered)
-  .fg_attach_report(agents, .fg_check_report(report, agents))
+  .fg_rendering_conditions(.fg_check_report(report, agents), source = "data")
+  .fg_attach_report(agents, report)
 }
 
  

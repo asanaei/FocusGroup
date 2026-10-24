@@ -135,6 +135,50 @@
   grepl(paste(na_strings, collapse = "|"), x, ignore.case = TRUE)
 }
 
+# Whether values that carry no value label, such as the text of a decoded
+# frame, are missing-data labels: they match `na_strings` and read as a
+# label, which means they start with a numeric code ("-9. Refused") or have
+# at most six words. Longer text that mentions such words, as an open-ended
+# answer may ("My landlord refused to fix the heat all winter"), is an
+# answer.
+.fg_is_missing_value <- function(x, na_strings) {
+  x <- as.character(x)
+  coded <- grepl("^\\s*-?[0-9]+\\.\\s", x)
+  short <- lengths(strsplit(trimws(x), "\\s+")) <= 6L
+  .fg_is_missing_label(x, na_strings) & (coded | short)
+}
+
+# Validate `na_strings`: NULL or a character vector of non-empty patterns. An
+# empty pattern would match every value and leave every answer out.
+.fg_check_na_strings <- function(na_strings) {
+  if (is.null(na_strings)) return(character())
+  if (!is.character(na_strings) || anyNA(na_strings) || any(!nzchar(na_strings))) {
+    stop("`na_strings` must be a character vector of non-empty patterns.", call. = FALSE)
+  }
+  na_strings
+}
+
+# SPSS user-defined missing values, which haven keeps as values when a file
+# is read with `user_na = TRUE`, are left out of `out`, the rendering of the
+# labelled column `col`, as they are when the file is read without them.
+.fg_user_missing <- function(out, col) {
+  if (!inherits(col, "haven_labelled_spss")) return(out)
+  values <- as.vector(unclass(col))
+  user <- !is.na(values) & is.na(col)
+  if (!any(user)) return(out)
+  labels <- attr(col, "labels", exact = TRUE)
+  label <- names(labels)[match(values[user], unname(labels))]
+  shown <- ifelse(is.na(label), out$code[user], label)
+  out$text[user] <- NA_character_
+  out$rendered_as[user] <- NA_character_
+  out$status[user] <- "dropped"
+  out$template[user] <- NA_character_
+  out$reason[user] <- paste("missing value:", shown, "(user-defined missing value)")
+  out$issue[user] <- "missing"
+  out$flag[user] <- out$code[user]
+  out
+}
+
 .fg_no_value <- function(x) {
   is.na(x) | !nzchar(trimws(x)) | x == "NA"
 }
@@ -403,22 +447,24 @@
 
 # `n` rows of answers left out for want of a value.
 .fg_dropped_rows <- function(n, reason = "no value", issue = "missing") {
-  data.frame(code = rep(NA_character_, n), text = NA_character_,
-             rendered_as = NA_character_, status = "dropped", reason = reason,
-             template = NA_character_, issue = issue, flag = NA_character_,
+  none <- rep(NA_character_, n)
+  data.frame(code = none, text = none, rendered_as = none,
+             status = rep("dropped", n), reason = rep(reason, n),
+             template = none, issue = rep(issue, n), flag = none,
              stringsAsFactors = FALSE)
 }
 
 # A column without value labels: the stored values, with numbers written out
-# in full and `na_strings` applied.
+# in full and `na_strings` applied to the values that read as labels.
 .fg_render_plain <- function(col, na_strings) {
   values <- .fg_value_text(col)
-  out <- data.frame(code = values, text = values, rendered_as = "value",
-                    status = "rendered", reason = NA_character_,
-                    template = NA_character_, issue = NA_character_, flag = values,
-                    stringsAsFactors = FALSE)
+  n <- length(values)
+  out <- data.frame(code = values, text = values, rendered_as = rep("value", n),
+                    status = rep("rendered", n), reason = rep(NA_character_, n),
+                    template = rep(NA_character_, n), issue = rep(NA_character_, n),
+                    flag = values, stringsAsFactors = FALSE)
   none <- .fg_no_value(values)
-  flagged <- !none & .fg_is_missing_label(values, na_strings)
+  flagged <- !none & .fg_is_missing_value(values, na_strings)
   out$text[none | flagged] <- NA_character_
   out$rendered_as[none | flagged] <- NA_character_
   out$status[none | flagged] <- "dropped"
@@ -592,8 +638,16 @@
 
 # Warn about the drawn answers that were replaced, flagged, or inferred to be
 # missing, naming the variable, the code, and the participants. Answers left
-# out as missing values are announced in a message.
-.fg_rendering_conditions <- function(report) {
+# out as missing values are announced in a message. `source` says where the
+# labels come from: a survey file, whose labels `value_labels` replaces, or
+# the labelled columns of a data frame, whose labels are changed in the data.
+.fg_rendering_conditions <- function(report, source = c("file", "data")) {
+  source <- match.arg(source)
+  holder <- if (source == "file") "the file" else "the column"
+  supply <- function(what) {
+    if (source == "file") sprintf("Supply %s in `value_labels`", what) else
+      sprintf("Add %s to the column's value labels", what)
+  }
   describe <- function(rows) {
     if (!nrow(rows)) return(character())
     key <- ifelse(rows$rendered_as %in% "scale",
@@ -606,13 +660,13 @@
   issue <- report$issue
   code <- describe(report[issue %in% "code", , drop = FALSE])
   if (length(code)) {
-    warning("Shown as the bare code because the file has no value label for it: ",
-            .fg_list_items(code), ". Supply labels in `value_labels`.", call. = FALSE)
+    warning("Shown as the bare code because ", holder, " has no value label for it: ",
+            .fg_list_items(code), ". ", supply("labels"), ".", call. = FALSE)
   }
   long <- describe(report[issue %in% "long", , drop = FALSE])
   if (length(long)) {
     warning("Labels exactly 80 characters long may have been cut short: ",
-            .fg_list_items(long), ". Supply the full labels in `value_labels`.",
+            .fg_list_items(long), ". ", supply("the full labels"), ".",
             call. = FALSE)
   }
   negative_label <- describe(report[issue %in% "negative_label", , drop = FALSE])
@@ -620,15 +674,18 @@
     warning(paste(
       "Labels of negative codes are shown as answers, though some releases,",
       "the ANES and WVS among them, use negative codes for missing data: "),
-      .fg_list_items(negative_label), paste(
-        ". Add their wording to `na_strings` to leave them out, or supply the",
-        "labels in `value_labels` to keep them."), call. = FALSE)
+      .fg_list_items(negative_label),
+      ". Add their wording to `na_strings` to leave them out",
+      if (source == "file") ", or supply the labels in `value_labels` to keep them." else
+        "; otherwise they stay as shown.", call. = FALSE)
   }
   negative <- describe(report[issue %in% "negative", , drop = FALSE])
   if (length(negative)) {
     warning("Negative codes without a value label were taken as missing and left out: ",
-            .fg_list_items(negative),
-            ". Label them in `value_labels` if they are answers.", call. = FALSE)
+            .fg_list_items(negative), ". ",
+            if (source == "file") "Label them in `value_labels`" else
+              "Add their labels to the column's value labels",
+            " if they are answers.", call. = FALSE)
   }
   missing <- report[issue %in% "missing", , drop = FALSE]
   if (nrow(missing)) {
