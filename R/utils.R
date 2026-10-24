@@ -525,9 +525,11 @@ format_conversation_history <- function(conversation_log,
 }
 
 # The labels an agent might write for itself at the start of a reply: its
-# handle and ID, and for the moderator also "MOD" and "Moderator".
+# handle (its ID only when it has none), and for the moderator also "MOD" and
+# "Moderator". An agent never sees its ID beside a handle, and under
+# permuted handles its ID is another agent's handle, which is content.
 .fg_self_labels <- function(agent) {
-  labels <- c(.fg_agent_label(agent), agent$id)
+  labels <- .fg_agent_label(agent)
   if (isTRUE(agent$is_moderator)) labels <- c(labels, "MOD", "Moderator")
   unique(labels)
 }

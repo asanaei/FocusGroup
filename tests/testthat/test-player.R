@@ -473,6 +473,29 @@ test_that("strip_speaker_prefix drops only the speaker's own label, and the titl
                         unlist(stripped$steps[[1]]$lines))))
 })
 
+test_that("with permuted handles only the speaker's handle counts as its own label", {
+  x <- .player_fixture()
+  permuted <- c(P1 = "P2", P2 = "P3", P3 = "P4", P4 = "P1")
+  at <- match(names(permuted), x$participants$id)
+  x$participants$handle[at] <- unname(permuted)
+  x$metadata$handles$handle[match(names(permuted), x$metadata$handles$agent_id)] <-
+    unname(permuted)
+  tr <- x$transcript
+  turns <- tr$speaker_id %in% names(permuted)
+  tr$handle[turns] <- unname(permuted[tr$speaker_id[turns]])
+  rows <- which(tr$speaker_id == "P2")
+  original <- tr$text
+  # P2, shown as P3, answers the participant shown as P2, then labels itself.
+  tr$text[[rows[1]]] <- paste("P2: you make a fair point.", original[[rows[1]]])
+  tr$text[[rows[2]]] <- paste("P3:", original[[rows[2]]])
+  x$transcript <- tr
+  texts <- function(p) vapply(Filter(function(s) s$kind %in% .player_message_kinds, p$steps),
+                              `[[`, character(1), "text")
+  out <- texts(.player_build(x, strip_speaker_prefix = TRUE)$payload)
+  expect_identical(out[[rows[1]]], tr$text[[rows[1]]])
+  expect_identical(out[[rows[2]]], original[[rows[2]]])
+})
+
 test_that("a missing record stops with an error naming it", {
   x <- .player_fixture()
   drop <- function(name) { y <- x; y[[name]] <- NULL; y }

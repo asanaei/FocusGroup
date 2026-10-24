@@ -38,8 +38,9 @@ shows every step at once, for printing and archives.}
 \item{strip_speaker_prefix}{\code{FALSE} (the default) shows every message as
 recorded. \code{TRUE} drops a speaker label that the model wrote at the start
 of its own line, such as \code{"**MOD:**"} in a moderator line or \code{"P3:"} in
-P3's reply, never another speaker's label; the title page says so and
-counts the lines changed.}
+the reply of the participant whose handle is P3, never another speaker's
+label; a speaker's own label is its handle, not its ID. The title page
+says so and counts the lines changed.}
 
 \item{open}{Open the file with \code{\link[utils:browseURL]{utils::browseURL()}}. The default opens it
 in an interactive session.}

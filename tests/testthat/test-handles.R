@@ -283,6 +283,50 @@ test_that("in flat mode each participant is told its handle, and the moderator i
   }
 })
 
+test_that("an agent's own label is its handle, so another speaker's handle is kept", {
+  runner <- function(experiments, ...) {
+    messages <- experiments$messages[[1]]
+    prompt <- .hd_prompt(messages)
+    you <- sub(".*In this discussion you are ([^.]+)\\..*", "\\1", prompt)
+    experiments$response_text <- if (grepl("Summary:$", prompt)) {
+      "A short summary."
+    } else if (grepl("MODERATOR", prompt, fixed = TRUE)) {
+      "**MOD:** Which hours matter most to you?"
+    } else if (identical(you, "P3")) {
+      "P2: you make a fair point about the evening hours."
+    } else {
+      sprintf("%s: evening hours help me after my shift ends.", you)
+    }
+    experiments
+  }
+  agents <- create_agents(3, .hd_config(), direct_persona_descriptions = c("A.", "B.", "C."),
+                          .runner = runner)
+  fg <- FocusGroup$new(
+    topic = "library hours", purpose = "Test.", agents = agents, moderator_id = "MOD",
+    turn_taking_flow = create_conversation_flow("round_robin", agents, "MOD"),
+    question_script = list(list(phase = "engagement_question", text = "Which hours?")),
+    max_participant_responses = 3, call_on_silent = "none",
+    handles = c(P1 = "P2", P2 = "P3", P3 = "P1"))
+  fg$run_simulation(final_summary = FALSE)
+  log <- fg$conversation_log
+  said <- function(id) Filter(function(m) identical(m$speaker_id, id), log)[[1]]
+  # Agent P2, shown as P3, addresses the agent shown as P2: the label stays.
+  expect_identical(said("P2")$text, "P2: you make a fair point about the evening hours.")
+  expect_null(said("P2")$metadata$self_label_removed)
+  # Agents P1 and P3 wrote their own handles, P2 and P1, which are removed.
+  expect_identical(said("P1")$text, "evening hours help me after my shift ends.")
+  expect_true(said("P1")$metadata$self_label_removed)
+  expect_identical(said("P3")$text, "evening hours help me after my shift ends.")
+  expect_identical(said("MOD")$text, "Which hours matter most to you?")
+
+  labels <- FocusGroup:::.fg_self_labels
+  expect_identical(labels(fg$agents$P2), "P3")
+  expect_identical(labels(fg$agents$MOD), c("Moderator", "MOD"))
+  # An agent outside a session answers to its ID.
+  loose <- FGAgent$new("teacher", list(direct_persona_description = "A."), .hd_config())
+  expect_identical(labels(loose), "teacher")
+})
+
 test_that("identifier columns stay out of persona text and are reported", {
   cfg <- .hd_config()
   data <- data.frame(id = c("R-101", "R-102"), respondent_id = c(9001L, 9002L),
