@@ -735,7 +735,9 @@
 #' holds several values, of which the persona shows the first. It is
 #' "dropped" when the persona leaves it out, which happens when there is no
 #' answer to show: no value, a value whose label matches `na_strings` or
-#' is empty, a negative code without a label, a record field that does not
+#' is empty, a value without a label that matches `na_strings` and reads as
+#' a label (see [create_agents_from_data()]), a negative code without a
+#' label, an SPSS user-defined missing value, a record field that does not
 #' hold a single value, or a variable that is not in the file. An identifier
 #' is dropped too, with the reason "identifier column": a column whose name
 #' identifies respondents (`id`, `caseid`, `respondent_id`, `respid`,

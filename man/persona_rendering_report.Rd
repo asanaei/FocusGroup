@@ -57,7 +57,9 @@ negative codes for missing data; or a field of a supplied record that
 holds several values, of which the persona shows the first. It is
 "dropped" when the persona leaves it out, which happens when there is no
 answer to show: no value, a value whose label matches \code{na_strings} or
-is empty, a negative code without a label, a record field that does not
+is empty, a value without a label that matches \code{na_strings} and reads as
+a label (see \code{\link[=create_agents_from_data]{create_agents_from_data()}}), a negative code without a
+label, an SPSS user-defined missing value, a record field that does not
 hold a single value, or a variable that is not in the file. An identifier
 is dropped too, with the reason "identifier column": a column whose name
 identifies respondents (\code{id}, \code{caseid}, \code{respondent_id}, \code{respid},
