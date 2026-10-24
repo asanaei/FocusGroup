@@ -52,6 +52,7 @@ reference:
       - create_agents_from_survey
       - persona_rendering_report
       - fg_default_na_strings
+      - anes_2024_personas
 
   - title: Import and analyze transcripts
     contents:
