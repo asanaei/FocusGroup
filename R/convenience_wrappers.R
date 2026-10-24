@@ -305,8 +305,12 @@ NULL
 #' A label
 #' a speaker writes for itself at the start of its reply (`**MOD:**`,
 #' `P3:`) is removed, and the message carries
-#' `metadata$self_label_removed = TRUE`; the reply as returned stays in
-#' `calls`.
+#' `metadata$self_label_removed = TRUE`. A short opening self-introduction
+#' ("As a teacher, ", "As a retired nurse, ") is removed too, and the
+#' message carries `metadata$preamble_removed = TRUE`; a longer opening
+#' clause, or one that belongs to the statement ("As a teacher I grade
+#' papers at night, ...", "As a result, ..."), is kept. In both cases the
+#' reply as returned stays in `calls`.
 #'
 #' The estimate counts one output for each moderator turn the model writes,
 #' one for each participant response a question round allows, one for each
@@ -368,8 +372,9 @@ NULL
 #'     lines (`verbatim`), injected messages (`injected`, `injection`),
 #'     call-on lines (`call_on`, a list of `point`, `participant`, and
 #'     `handle`), the replies to them (`called_on`), replies to a moderator
-#'     line that addressed the speaker (`addressed`), and replies whose
-#'     self-label was removed (`self_label_removed`).}
+#'     line that addressed the speaker (`addressed`), replies whose
+#'     self-label was removed (`self_label_removed`), and replies whose
+#'     opening self-introduction was removed (`preamble_removed`).}
 #'   \item{summary}{The final summary. It is `NA` when the final summary call
 #'     failed, and `character(0)` in a partial result that stopped before it
 #'     or in a session run with `final_summary = FALSE`.}

@@ -174,6 +174,9 @@ FGAgent <- R6::R6Class("FGAgent",
     #'   A label the agent wrote for itself at the start of the reply, such as
     #'   `P3:` or `**MOD:**`, is removed from `text`, and `metadata` then
     #'   holds `self_label_removed = TRUE`; another speaker's label is kept.
+    #'   A short opening self-introduction ("As a retired nurse, ") is
+    #'   removed too, and `metadata` then holds `preamble_removed = TRUE`; a
+    #'   longer opening clause, or one that is part of the statement, is kept.
     #'   The agent's token fields are updated even when the retry fails.
     generate_utterance = function(topic,
                                   conversation_history_string,
@@ -278,14 +281,8 @@ FGAgent <- R6::R6Class("FGAgent",
       labels <- .fg_self_labels(self)
       unlabeled <- .fg_strip_self_label(trimws(original_text), labels)
       self_label_removed <- unlabeled$removed
-      cleaned <- .fg_strip_role_preamble(unlabeled$text)
-      if (!nzchar(cleaned)) cleaned <- unlabeled$text
-      # Keep the longer/non-empty between cleaned and original
-      if (nchar(cleaned) >= 20 || nchar(original_text) == 0) {
-        utterance_text <- cleaned
-      } else {
-        utterance_text <- unlabeled$text
-      }
+      utterance_text <- .fg_without_preamble(unlabeled$text)
+      preamble_removed <- !identical(utterance_text, unlabeled$text)
       .fg_note_call(response_obj, cleaned_text = utterance_text)
 
       # Fallback: retry once only when the model was actually cut off, returned
@@ -331,7 +328,9 @@ FGAgent <- R6::R6Class("FGAgent",
         )
         cand <- .fg_strip_self_label(trimws(.fg_response_text(response_obj2)), labels)
         self_label_removed <- cand$removed
-        cand <- .fg_strip_role_preamble(cand$text)
+        stripped <- .fg_without_preamble(cand$text)
+        preamble_removed <- !identical(stripped, cand$text)
+        cand <- stripped
         .fg_note_call(response_obj2, cleaned_text = cand)
         retry_incomplete <- !nzchar(cand) ||
           identical(.fg_response_finish(response_obj2), "length") ||
@@ -355,7 +354,9 @@ FGAgent <- R6::R6Class("FGAgent",
         duration_s    = .fg_response_field(final_response_obj, "duration_s", NA_real_),
         provider      = self$config$provider %||% NA_character_,
         model         = self$config$model %||% NA_character_,
-        metadata      = if (isTRUE(self_label_removed)) list(self_label_removed = TRUE) else list()
+        metadata      = c(if (isTRUE(self_label_removed)) list(self_label_removed = TRUE),
+                          if (isTRUE(preamble_removed)) list(preamble_removed = TRUE),
+                          list())
       )
 
       self$history <- c(self$history, list(list(topic = topic, text = utterance_text, timestamp = Sys.time(), phase = current_phase)))

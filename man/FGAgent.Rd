@@ -208,6 +208,9 @@ whose usage was incomplete. The other fields describe the final reply.
 A label the agent wrote for itself at the start of the reply, such as
 \verb{P3:} or \verb{**MOD:**}, is removed from \code{text}, and \code{metadata} then
 holds \code{self_label_removed = TRUE}; another speaker's label is kept.
+A short opening self-introduction ("As a retired nurse, ") is
+removed too, and \code{metadata} then holds \code{preamble_removed = TRUE}; a
+longer opening clause, or one that is part of the statement, is kept.
 The agent's token fields are updated even when the retry fails.
 }
 }

@@ -38,7 +38,7 @@ test_that("discourse openings survive cleaning and persona introductions do not"
 
   stripped <- c(
     "As a teacher, I see students who need a quiet place after school.",
-    "As a retired nurse who worked nights, I value the late opening hours.",
+    "As a retired nurse, I value the late opening hours.",
     "As an immigrant, I relied on the library to learn about my new city.",
     "As the mother of two, I need weekend hours more than weekday ones."
   )
@@ -51,6 +51,64 @@ test_that("discourse openings survive cleaning and persona introductions do not"
   for (i in seq_along(stripped)) {
     expect_identical(.detail_utterance(.detail_agent(stripped[[i]])), expected[[i]])
   }
+})
+
+test_that("only a short introduction is removed, never the participant's own words", {
+  # Longer clauses, clauses with a pronoun or a clause word, a time of life,
+  # a group, and "As the" before a verb are the participant's statement.
+  kept <- c(
+    "As a teacher I grade papers at night, so evening hours matter.",
+    "As a retired nurse who worked nights, I value the late opening hours.",
+    "As a nurse who works nights, I want the branch open past ten.",
+    "As a single mother of three kids, I need the weekend hours most.",
+    "As the city grows, the branch needs longer hours on weekdays.",
+    "As a kid, I spent every Saturday morning at the old library.",
+    "As a family, we go to the branch on Sunday afternoons.",
+    "As a teacher. I grade papers, so evenings matter to me.",
+    "Evening hours matter, as a teacher would tell you right away."
+  )
+  for (text in kept) {
+    expect_identical(.detail_utterance(.detail_agent(text)), text)
+  }
+  # A short introduction goes; what is left must still be a reply.
+  expect_identical(.detail_utterance(.detail_agent(
+    "As a small business owner, I close at six and cannot get there.")),
+    "I close at six and cannot get there.")
+  expect_identical(.detail_utterance(.detail_agent("As the youngest, I mostly study there.")),
+                   "I mostly study there.")
+  expect_identical(.detail_utterance(.detail_agent("As a teacher, yes, I agree.")),
+                   "As a teacher, yes, I agree.")
+})
+
+test_that("a removed introduction is marked on the message, and the reply as returned is kept", {
+  runner <- function(experiments, ...) {
+    prompt <- paste(vapply(experiments$messages[[1]], function(m) m$content, ""),
+                    collapse = "\n")
+    experiments$response_text <- if (grepl("Summary:$", prompt)) {
+      "A summary."
+    } else if (grepl("experienced focus group moderator", prompt, fixed = TRUE)) {
+      "As a group, which hours matter most to you?"
+    } else {
+      "As a teacher, I think evening hours matter because people work days."
+    }
+    experiments
+  }
+  result <- run_focus_group(
+    topic = "library hours", config = LLMR::llm_config("openai", "example-model"),
+    n_participants = 2, guide = list(Engagement = "Which hours matter?", Closing = "Close."),
+    flow = "round_robin", max_participant_responses = 1, call_on_silent = "none",
+    verbose = FALSE, .runner = runner)
+  tr <- result$transcript
+  spoken <- tr[!tr$is_moderator & tr$speaker_id != "System", ]
+  expect_gt(nrow(spoken), 0L)
+  expect_true(all(startsWith(spoken$text, "I think evening hours")))
+  expect_true(all(vapply(spoken$metadata, function(m) isTRUE(m$preamble_removed), logical(1))))
+  calls <- result$calls[result$calls$call_type == "participant", ]
+  expect_true(all(startsWith(calls$raw_text, "As a teacher, I think")))
+  moderator <- tr[tr$is_moderator & tr$phase != "closing", ]
+  expect_gt(nrow(moderator), 0L)
+  expect_true(all(startsWith(moderator$text, "As a group, which hours")))
+  expect_false(any(vapply(moderator$metadata, function(m) isTRUE(m$preamble_removed), logical(1))))
 })
 
 test_that("participation balance lists participants who never spoke", {

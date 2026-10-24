@@ -1115,9 +1115,16 @@ parse_score_0_10 <- function(text) {
 }
 
 # Remove a leading persona self-introduction ("As a retired teacher, ...")
-# from a participant's reply. The same grammatical form also opens ordinary
-# discourse ("As a result, ...", "As the saying goes, ..."), and those openings
-# are content, so a clause whose head is a discourse word, or one that
+# from a participant's reply. Only a short clause is removed: "As a" or "As
+# an" with one to four words and a comma, or "As the" with one word or a
+# phrase with "of" ("As the youngest,", "As the mother of two,"). A longer
+# clause, or one with a pronoun or a clause word in it ("As a teacher I
+# grade papers at night, ...", "As a nurse who works nights, ..."), is the
+# participant's own statement and the reply is kept as written; so is "As
+# the city grows, ...". The same grammatical form also opens ordinary
+# discourse ("As a result, ...", "As the saying goes, ...") and states a
+# time of life or a group ("As a child, ...", "As a family, ..."), and those
+# openings are content, so a clause whose head is such a word, or one that
 # reports what someone said, is kept.
 .fg_discourse_as <- paste0(
   "^As\\s+(",
@@ -1126,6 +1133,7 @@ parse_score_0_10 <- function(text) {
   "starting\\s+point|follow-up|final\\s+(thought|point|note)|",
   "quick\\s+(note|aside|reminder)|bonus|counterpoint|practical\\s+matter|",
   "point\\s+of|society|group|community|country|nation|team|precaution|",
+  "family|household|couple|kid|child|teen|teenager|youngster|",
   "compromise|baseline|case\\s+in\\s+point)\\b",
   "|the\\s+(saying|old\\s+saying|proverb|expression|phrase|name|title|",
   "moderator|question|discussion|conversation|group|others?|previous|last|",
@@ -1135,13 +1143,37 @@ parse_score_0_10 <- function(text) {
   "argued|argues|shows|showed)\\b",
   ")")
 
+.fg_role_intro <- paste0(
+  "^As\\s+(?:an?|the)\\s+",
+  "((?:[a-z0-9][a-z0-9'-]*\\s+){0,3}[a-z0-9][a-z0-9'-]*)\\s*,\\s*")
+
+.fg_intro_stopwords <- c(
+  "i", "i'm", "i've", "i'd", "i'll", "me", "my", "we", "we're", "we've", "us",
+  "our", "you", "you're", "your", "he", "him", "his", "she", "her", "they",
+  "they're", "them", "their", "it", "it's", "its", "who", "whom", "whose",
+  "which", "that", "where", "when", "while", "because", "since", "so", "if")
+
 .fg_strip_role_preamble <- function(text) {
   text <- as.character(text)
-  intro <- grepl("^As\\s+(an?|the)\\b[^,]*,", text, ignore.case = TRUE, perl = TRUE) &
+  hit <- regexec(.fg_role_intro, text, ignore.case = TRUE, perl = TRUE)
+  clause <- vapply(regmatches(text, hit), function(m) if (length(m)) m[[2]] else NA_character_,
+                   character(1))
+  words <- strsplit(tolower(clause), "\\s+")
+  article_the <- grepl("^As\\s+the\\s", text, ignore.case = TRUE, perl = TRUE)
+  phrase <- vapply(words, function(w) length(w) == 1L || "of" %in% w, logical(1))
+  intro <- !is.na(clause) &
+    !vapply(words, function(w) any(w %in% .fg_intro_stopwords), logical(1)) &
+    (!article_the | phrase) &
     !grepl(.fg_discourse_as, text, ignore.case = TRUE, perl = TRUE)
-  text[intro] <- sub("^As\\s+(an?|the)\\b[^,]*,\\s*", "", text[intro],
-                     ignore.case = TRUE, perl = TRUE)
+  text[intro] <- sub(.fg_role_intro, "", text[intro], ignore.case = TRUE, perl = TRUE)
   text
+}
+
+# A reply with a leading persona introduction removed, unless what would
+# remain is shorter than 20 characters, in which case it is kept whole.
+.fg_without_preamble <- function(text) {
+  cleaned <- .fg_strip_role_preamble(text)
+  if (!is.na(cleaned) && nchar(cleaned) >= 20L) cleaned else text
 }
 
 # Word count that a blank string cannot inflate: an empty or whitespace-only

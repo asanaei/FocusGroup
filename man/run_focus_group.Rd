@@ -162,8 +162,9 @@ and the list-column \code{metadata}, which marks, among others, delivered
 lines (\code{verbatim}), injected messages (\code{injected}, \code{injection}),
 call-on lines (\code{call_on}, a list of \code{point}, \code{participant}, and
 \code{handle}), the replies to them (\code{called_on}), replies to a moderator
-line that addressed the speaker (\code{addressed}), and replies whose
-self-label was removed (\code{self_label_removed}).}
+line that addressed the speaker (\code{addressed}), replies whose
+self-label was removed (\code{self_label_removed}), and replies whose
+opening self-introduction was removed (\code{preamble_removed}).}
 \item{summary}{The final summary. It is \code{NA} when the final summary call
 failed, and \code{character(0)} in a partial result that stopped before it
 or in a session run with \code{final_summary = FALSE}.}
@@ -278,8 +279,12 @@ question was put to it, and the reply carries \code{metadata$addressed = TRUE}.
 A label
 a speaker writes for itself at the start of its reply (\verb{**MOD:**},
 \verb{P3:}) is removed, and the message carries
-\code{metadata$self_label_removed = TRUE}; the reply as returned stays in
-\code{calls}.
+\code{metadata$self_label_removed = TRUE}. A short opening self-introduction
+("As a teacher, ", "As a retired nurse, ") is removed too, and the
+message carries \code{metadata$preamble_removed = TRUE}; a longer opening
+clause, or one that belongs to the statement ("As a teacher I grade
+papers at night, ...", "As a result, ..."), is kept. In both cases the
+reply as returned stays in \code{calls}.
 
 The estimate counts one output for each moderator turn the model writes,
 one for each participant response a question round allows, one for each
