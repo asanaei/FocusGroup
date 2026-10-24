@@ -191,13 +191,18 @@ record_agents <- create_agents_from_data(
 )
 ```
 
-A data frame with `persona` and `persona_id` columns is treated as a
-pre-rendered persona panel. This includes `LLMR::anes_2024_personas`:
+A data frame with `persona` and `persona_id` columns, such as a
+`silicon_panel` from LLMRpanel, is treated as a pre-rendered persona panel,
+and its `persona` text is used as given.
+
+The package ships `anes_2024_personas`, profiles of 100 respondents to the
+American National Election Studies 2024 Time Series Study, with the question
+behind each column in its `dictionary` attribute. `create_agents()` draws its
+participants from it when no records are supplied, and
+`create_agents_from_data()` accepts any subset of its rows and columns:
 
 ```r
-data(anes_2024_personas, package = "LLMR")
-
-panel_agents <- create_agents_from_data(
+anes_agents <- create_agents_from_data(
   anes_2024_personas,
   n_participants = 6,
   config = config

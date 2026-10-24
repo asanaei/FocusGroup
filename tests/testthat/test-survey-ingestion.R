@@ -78,9 +78,7 @@ test_that("the `rows` predicate restricts the eligible pool", {
   expect_true(all(ages == "55+"))
 })
 
-test_that("create_agents_from_data works on the shared LLMR persona dataset", {
-  skip_if_not_installed("LLMR")
-  data(anes_2024_personas, package = "LLMR")
+test_that("create_agents_from_data works on the bundled persona dataset", {
   cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
   ag <- create_agents_from_data(anes_2024_personas, n_participants = 5, config = cfg)
   expect_length(ag, 6L)
@@ -90,6 +88,39 @@ test_that("create_agents_from_data works on the shared LLMR persona dataset", {
   expect_true(nchar(p$persona_description) > 200)
   expect_true(grepl("Background:", p$persona_description))
   expect_true(grepl("Question:", p$persona_description))
+})
+
+test_that("create_agents() and the Studio draw from the package's own ANES dataset", {
+  cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+  expect_identical(FocusGroup:::.fg_personas(), anes_2024_personas)
+
+  agents <- create_agents(nrow(anes_2024_personas), config = cfg)
+  report <- persona_rendering_report(agents)
+  expect_setequal(unique(report$variable), attr(anes_2024_personas, "demographic_fields"))
+  # The 2026-05-19 release replaced the community-type field.
+  expect_true("demo_rural_urban_identity" %in% report$variable)
+  expect_false("demo_community_type" %in% report$variable)
+  # Every value shown is the dataset's value for the row drawn.
+  rows <- attr(agents, "source_rows")
+  shown <- report[report$status == "rendered", ]
+  expected <- mapply(function(id, column) anes_2024_personas[[column]][[rows[[id]]]],
+                     shown$agent_id, shown$variable, USE.NAMES = FALSE)
+  expect_identical(shown$text, expected)
+})
+
+test_that("personas from the bundled dataset state scales and thermometers in full", {
+  cfg <- LLMR::llm_config("openai", "gpt-4o-mini")
+  agents <- create_agents_from_data(anes_2024_personas, nrow(anes_2024_personas), cfg)
+  personas <- vapply(Filter(function(a) !isTRUE(a$is_moderator), agents),
+                     function(a) a$persona_description, character(1))
+  lines <- unlist(strsplit(personas, "\n"))
+  scale <- "^  Answer: [1-7] on a scale from 1 \\([^()]+\\) to 7 \\([^()]+\\)$"
+  expect_gt(sum(grepl(scale, lines)), 100L)
+  expect_gt(sum(grepl("^  Answer: [0-9]+ on a 0-100 feeling thermometer$", lines)), 1000L)
+  answers <- sub("^  Answer: ", "", grep("^  Answer: ", lines, value = TRUE))
+  expect_false(any(grepl("^-?[0-9]+\\. |^NA$|[{}]|^\\s*$", answers)))
+  expect_false(any(.fg_is_missing_label(answers, fg_default_na_strings())))
+  expect_false(any(grepl("Background:[^\n]*(on a scale|thermometer)", personas)))
 })
 
 test_that("silicon panel personas pass through as direct descriptions", {

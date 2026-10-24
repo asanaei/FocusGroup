@@ -239,5 +239,5 @@ agents$P1$persona_description
 \seealso{
 \code{\link[=create_agents_from_data]{create_agents_from_data()}} for an in-memory data frame,
 \code{\link[=persona_rendering_report]{persona_rendering_report()}} for the record of each persona, and
-\code{LLMR::anes_2024_personas} for a ready-made example.
+\link{anes_2024_personas} for a ready-made example.
 }

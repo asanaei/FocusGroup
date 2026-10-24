@@ -44,7 +44,7 @@ and column, the value shown or that it was missing; see
 }
 \description{
 Like \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} but starting from a data frame already in
-memory (for example \code{LLMR::anes_2024_personas}). Demographic columns are
+memory (for example \link{anes_2024_personas}). Demographic columns are
 rendered as background; the remaining columns are rendered as survey responses,
 keyed by their question wording when the frame carries a \code{dictionary} attribute
 (see \code{\link[LLMR:llm_persona_split]{LLMR::llm_persona_split()}}), else by their column names. Values are taken
@@ -70,7 +70,7 @@ Sampling and the validation of \code{weights} follow
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
 agents <- create_agents_from_data(
-  LLMR::anes_2024_personas, n_participants = 6, config = cfg
+  anes_2024_personas, n_participants = 6, config = cfg
 )
 agents$P1$persona_description
 }

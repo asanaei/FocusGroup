@@ -131,7 +131,7 @@ test_that("a bare create_agents draws real ANES respondents", {
   personas <- vapply(participants, function(a) a$persona_description,
                      character(1))
   expect_true(all(nzchar(personas)))
-  demo_fields <- LLMR::llm_persona_demographic_fields(LLMR::anes_2024_personas)
+  demo_fields <- LLMR::llm_persona_demographic_fields(anes_2024_personas)
   expect_true(length(demo_fields) > 0)
   # and no invented survey battery about technology or privacy
   expect_false(any(grepl("tech_usage_comfort|privacy_concern_level",

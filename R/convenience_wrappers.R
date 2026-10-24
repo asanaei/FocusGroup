@@ -1102,7 +1102,7 @@ print.focus_group_result <- function(x, ...) {
 #'   by agent ID. When the participants are drawn from the bundled ANES
 #'   records, the list carries the `source_rows` attribute described in
 #'   [create_agents_from_survey()], giving the rows of
-#'   `LLMR::anes_2024_personas` that were drawn. Unless the personas are
+#'   [anes_2024_personas] that were drawn. Unless the personas are
 #'   given in `direct_persona_descriptions`, the list also carries a
 #'   `rendering_report` attribute recording each field supplied for each
 #'   participant and whether the persona shows it; see
@@ -1148,7 +1148,7 @@ create_agents <- function(n_participants, config, demographics = NULL,
   # records which rows were drawn.
   if (is.null(demographics) && is.null(survey_responses) &&
       is.null(direct_persona_descriptions)) {
-    personas <- LLMR::anes_2024_personas
+    personas <- FocusGroup::anes_2024_personas
     if (n_participants > nrow(personas)) {
       stop(sprintf(paste(
         "%d participants requested but the bundled ANES example holds %d",
@@ -1927,7 +1927,7 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #'   so read them from the list as returned.
 #' @seealso [create_agents_from_data()] for an in-memory data frame,
 #'   [persona_rendering_report()] for the record of each persona, and
-#'   `LLMR::anes_2024_personas` for a ready-made example.
+#'   [anes_2024_personas] for a ready-made example.
 #' @examples
 #' # A small labeled file stands in for a survey release; the call is the same
 #' # against a full ANES, GSS, or WVS file.
@@ -2274,7 +2274,7 @@ create_agents_from_survey <- function(n_participants,
 #' Create agents from an in-memory data frame of respondents
 #'
 #' Like [create_agents_from_survey()] but starting from a data frame already in
-#' memory (for example `LLMR::anes_2024_personas`). Demographic columns are
+#' memory (for example [anes_2024_personas]). Demographic columns are
 #' rendered as background; the remaining columns are rendered as survey responses,
 #' keyed by their question wording when the frame carries a `dictionary` attribute
 #' (see [LLMR::llm_persona_split()]), else by their column names. Values are taken
@@ -2319,7 +2319,7 @@ create_agents_from_survey <- function(n_participants,
 #' cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
 #'                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
 #' agents <- create_agents_from_data(
-#'   LLMR::anes_2024_personas, n_participants = 6, config = cfg
+#'   anes_2024_personas, n_participants = 6, config = cfg
 #' )
 #' agents$P1$persona_description
 #' @export

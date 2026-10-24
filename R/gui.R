@@ -434,8 +434,8 @@ run_focus_studio <- function(...) {
 
 # ---- ANES persona helpers (for the Run tab's participant picker) ------------
 
-# The example personas frame, from LLMR (the shared home).
-.fg_personas <- function() LLMR::anes_2024_personas
+# The example personas frame shipped with the package.
+.fg_personas <- function() FocusGroup::anes_2024_personas
 
 # Restrict the fields rendered into a persona while retaining the data
 # dictionary and demographic classification used by create_agents_from_data().

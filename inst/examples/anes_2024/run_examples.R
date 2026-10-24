@@ -1,13 +1,12 @@
 # Example: run focus groups from the bundled ANES-derived personas.
 #
-# This uses the shipped `anes_2024_personas` data frame (100 real ANES 2024
+# This uses `anes_2024_personas`, shipped with FocusGroup (100 real ANES 2024
 # respondents, diversity-sampled, demographics coarsened, attitudes intact). No
 # external file is needed, and no ANES variable codes are hard-coded: the persona
 # fields and their question wording travel with the data. To run against a raw
 # survey file instead, see create_agents_from_survey().
 
 library(FocusGroup)
-data(anes_2024_personas, package = "LLMR")
 
 cfg <- LLMR::llm_config("openai", "gpt-4o-mini")   # any LLMR provider works
 
