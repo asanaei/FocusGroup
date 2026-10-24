@@ -402,6 +402,11 @@ test_that("a probe answer is read as one whole number on its scale, or not at al
   expect_identical(read("I\u2019d rate it 5 out of 7 \u2014 leaning in favor"), 5)
   expect_identical(read("3\u20134"), NA_real_)
   expect_identical(read("\u22122", -3, 3), -2)
+  # Persian and Arabic-Indic digits are digits; a decimal comma is a decimal.
+  expect_identical(read("\u06f5"), 5)
+  expect_identical(read("\u0666 out of 7"), 6)
+  expect_identical(read("4,5"), NA_real_)
+  expect_identical(read("We need 1,000 more books; 6"), 6)
 })
 
 test_that("fg_probe() takes a scale of two whole numbers", {

@@ -55,7 +55,8 @@ restatement of the scale ("1-7:", "on a scale of 1 to 7", "from 1
 one whole number from \code{lo} to \code{hi}. An answer with no number, with two
 different numbers ("3 or 4"), with a fraction of a point ("4.5"), with a
 number outside the scale ("-2"), or on another scale ("6/10" on a 1 to 7
-scale) is not read, and neither are numbers written in words ("seven").
+scale) is not read, and neither are numbers written in words ("seven");
+Arabic-Indic and Persian digits are read as digits.
 Such an answer is followed by one re-ask in the same private exchange,
 worded by the \code{participant_probe_reask} template, asking for one number
 from \code{lo} to \code{hi} alone. An empty reply to the re-ask is not retried, and

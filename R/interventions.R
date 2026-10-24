@@ -196,7 +196,8 @@ print.fg_injection <- function(x, ...) {
 #' one whole number from `lo` to `hi`. An answer with no number, with two
 #' different numbers ("3 or 4"), with a fraction of a point ("4.5"), with a
 #' number outside the scale ("-2"), or on another scale ("6/10" on a 1 to 7
-#' scale) is not read, and neither are numbers written in words ("seven").
+#' scale) is not read, and neither are numbers written in words ("seven");
+#' Arabic-Indic and Persian digits are read as digits.
 #' Such an answer is followed by one re-ask in the same private exchange,
 #' worded by the `participant_probe_reask` template, asking for one number
 #' from `lo` to `hi` alone. An empty reply to the re-ask is not retried, and
@@ -283,6 +284,8 @@ print.fg_probe <- function(x, ...) {
 #   counts as its numerator, and "out of 7" alone is removed; any other
 #   denominator ("6/10" on a 1-7 scale) means the answer was given on
 #   another scale, and no number is read;
+# * Arabic-Indic and Persian digits are digits, and a comma between digits
+#   is a thousands separator ("1,000") or a decimal comma ("4,5");
 # * digits joined to letters are not numbers ("P3", "V241", "2024s",
 #   "7-point", "9pm"), nor, on a scale whose ends lie between -999 and 999,
 #   are numbers of four or more digits, which are years or counts ("2024",
@@ -294,14 +297,24 @@ print.fg_probe <- function(x, ...) {
 # Numbers written in words ("seven") are not read.
 .fg_parse_number <- function(text, lo, hi) {
   if (length(text) != 1L || is.na(text)) return(NA_real_)
-  # Dashes and the minus sign as "-"; fixed matching works in every locale.
+  # Dashes and the minus sign as "-", and Arabic-Indic and Persian digits as
+  # digits; fixed matching works in every locale.
   x <- enc2utf8(as.character(text))
   for (dash in c("\u2010", "\u2011", "\u2012", "\u2013", "\u2014", "\u2015", "\u2212")) {
     x <- gsub(dash, "-", x, fixed = TRUE)
   }
+  for (d in 0:9) {
+    x <- gsub(intToUtf8(0x0660 + d), d, x, fixed = TRUE)
+    x <- gsub(intToUtf8(0x06F0 + d), d, x, fixed = TRUE)
+  }
+  x <- gsub(intToUtf8(0x066B), ".", x, fixed = TRUE)
+  x <- gsub(intToUtf8(0x066C), ",", x, fixed = TRUE)
   x <- tolower(x)
   x <- gsub("[*_`~#>|]", " ", x)
+  # A comma between digits groups thousands ("1,000") or, otherwise, marks
+  # a decimal ("4,5").
   x <- gsub("(?<=[0-9]),(?=[0-9]{3}\\b)", "", x, perl = TRUE)
+  x <- gsub("(?<=[0-9]),(?=[0-9])", ".", x, perl = TRUE)
   num <- "[0-9]+(?:\\.[0-9]+)?"
   start <- "(?<![a-z0-9.])"
   end <- "(?![a-z0-9]|\\.[0-9])"
