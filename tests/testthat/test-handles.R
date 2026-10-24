@@ -352,6 +352,34 @@ test_that("identifier columns stay out of persona text and are reported", {
   report <- persona_rendering_report(agents)
   expect_identical(unique(report$reason[report$variable == "persona_id"]), "identifier column")
   expect_identical(agents$P1$demographics$persona_id, "x7")
+
+  # Identifier names are matched in any case and with their common variants.
+  agents <- create_agents(2, cfg, demographics = data.frame(
+    ID = c("R-201", "R-202"), CaseID = c(5501L, 5502L), age = c(30, 41)))
+  personas <- vapply(agents[1:2], function(a) a$persona_description, character(1))
+  expect_false(any(grepl("R-20|550[12]|ID", personas)))
+  expect_true(all(grepl("age: ", personas, fixed = TRUE)))
+  report <- persona_rendering_report(agents)
+  expect_true(all(report$reason[report$variable %in% c("ID", "CaseID")] == "identifier column"))
+  agents <- create_agents_from_data(data.frame(
+    Resp.ID = c("a1", "a2"), row_id = 1:2, age = c("30", "41")), 2, cfg,
+    demographic_cols = "age")
+  personas <- vapply(agents[1:2], function(a) a$persona_description, character(1))
+  expect_false(any(grepl("a[12]|Resp|row_id", personas)))
+  expect_identical(names(attr(agents, "source_ids")), c("Resp.ID", "row_id"))
+  is_id <- FocusGroup:::.fg_is_identifier
+  expect_true(all(is_id(c("id", "ID", "CaseID", "case_id", "Case ID", "respondent_id",
+                          "RespID", "resp_id", "respid", "persona_id", "UID", "record_id",
+                          "Row.ID", "row-id"))))
+  # Hard negatives: names that contain "id" but name no identifier are
+  # rendered.
+  expect_false(any(is_id(c("idea", "ideology", "paid", "kid_count", "valid", "Iduna",
+                           "household_id_type", "id2", NA))))
+  agents <- create_agents(2, cfg, demographics = data.frame(
+    ideology = c("liberal", "conservative"), paid = c("yes", "no")))
+  personas <- vapply(agents[1:2], function(a) a$persona_description, character(1))
+  expect_true(all(grepl("ideology: ", personas, fixed = TRUE)))
+  expect_true(all(grepl("paid: ", personas, fixed = TRUE)))
 })
 
 test_that("an automatically chosen survey variable that differs in every row is left out", {
@@ -362,7 +390,8 @@ test_that("an automatically chosen survey variable that differs in every row is 
   }
   d <- data.frame(
     AGE = lab(c(1L, 2L, 3L, 2L), c("18-29" = 1, "30-49" = 2, "50+" = 3), "Age group"),
-    CASEID = lab(c(240001, 240002, 240003, 240004), label = "Case ID"),
+    V200 = lab(c(240001, 240002, 240003, 240004), label = "Case ID"),
+    CaseID = lab(c(7001, 7002, 7003, 7003), label = "Household"),
     PARTY = lab(c(1L, 2L, 1L, 2L), c("Democrat" = 1, "Republican" = 2), "Party"),
     RANK = lab(c(1L, 2L, 3L, 4L), c("One" = 1, "Two" = 2, "Three" = 3, "Four" = 4), "Rank"),
     INCOME = lab(c(50000, 62000, 50000, 71000), label = "Income in dollars"))
@@ -371,9 +400,11 @@ test_that("an automatically chosen survey variable that differs in every row is 
   cfg <- .hd_config()
   msgs <- testthat::capture_messages(suppressWarnings(
     agents <- create_agents_from_survey(4, f, cfg, demographic_vars = c(age = "AGE"))))
-  expect_true(any(grepl("respondent identifiers.*CASEID", msgs)))
+  expect_true(any(grepl("respondent identifiers.*V200", msgs)))
   personas <- vapply(agents[1:4], function(a) a$persona_description, character(1))
   expect_false(any(grepl("24000[1-4]|Case ID", personas)))
+  # A variable named as an identifier is left out by its name alone.
+  expect_false(any(grepl("700[1-3]|Household", personas)))
   # A labeled item and an unlabeled number with a repeated value are kept.
   expect_true(all(grepl("Rank", personas, fixed = TRUE)))
   expect_true(all(grepl("Income in dollars", personas, fixed = TRUE)))
@@ -391,11 +422,17 @@ test_that("an automatically chosen survey variable that differs in every row is 
   expect_true(distinct(240001:240040, "V240001"))
   expect_false(distinct(c(30:59, 59), "V9"))
   report <- persona_rendering_report(agents)
-  expect_true(all(report$reason[report$variable == "CASEID"] == "identifier column"))
-  # Named in `survey_vars`, the variable is rendered.
+  expect_true(all(report$reason[report$variable %in% c("V200", "CaseID")] ==
+                    "identifier column"))
+  # Named in `survey_vars`, a variable found by its values is rendered; one
+  # named as an identifier is not.
   suppressWarnings(named <- create_agents_from_survey(
-    4, f, cfg, demographic_vars = c(age = "AGE"), survey_vars = c("CASEID", "PARTY")))
-  expect_true(any(grepl("24000", vapply(named[1:4], function(a) a$persona_description, ""))))
+    4, f, cfg, demographic_vars = c(age = "AGE"), survey_vars = c("V200", "CaseID", "PARTY")))
+  shown <- vapply(named[1:4], function(a) a$persona_description, "")
+  expect_true(any(grepl("24000", shown)))
+  expect_false(any(grepl("700[1-3]|Household", shown)))
+  expect_true(all(persona_rendering_report(named)$reason[
+    persona_rendering_report(named)$variable == "CaseID"] == "identifier column"))
 })
 
 test_that("an imported transcript keeps its speakers' names and numbers its items", {

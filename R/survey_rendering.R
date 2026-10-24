@@ -680,8 +680,10 @@
 #' answer to show: no value, a value whose label matches `na_strings` or
 #' is empty, a negative code without a label, a record field that does not
 #' hold a single value, or a variable that is not in the file. An identifier
-#' is dropped too, with the reason "identifier column": a column named `id`,
-#' `respondent_id`, or `persona_id`, or, among the items
+#' is dropped too, with the reason "identifier column": a column whose name
+#' identifies respondents (`id`, `caseid`, `respondent_id`, `respid`,
+#' `persona_id`, `uid`, `record_id`, or `row_id`, in any case and with or
+#' without separators, as in `ID` or `CaseID`), or, among the items
 #' [create_agents_from_survey()] chooses when `survey_vars` is `NULL`, a
 #' variable that looks like a case ID, as described there. The agents
 #' would otherwise read the respondent's ID; the roster keeps it in

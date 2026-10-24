@@ -59,8 +59,10 @@ holds several values, of which the persona shows the first. It is
 answer to show: no value, a value whose label matches \code{na_strings} or
 is empty, a negative code without a label, a record field that does not
 hold a single value, or a variable that is not in the file. An identifier
-is dropped too, with the reason "identifier column": a column named \code{id},
-\code{respondent_id}, or \code{persona_id}, or, among the items
+is dropped too, with the reason "identifier column": a column whose name
+identifies respondents (\code{id}, \code{caseid}, \code{respondent_id}, \code{respid},
+\code{persona_id}, \code{uid}, \code{record_id}, or \code{row_id}, in any case and with or
+without separators, as in \code{ID} or \code{CaseID}), or, among the items
 \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} chooses when \code{survey_vars} is \code{NULL}, a
 variable that looks like a case ID, as described there. The agents
 would otherwise read the respondent's ID; the roster keeps it in

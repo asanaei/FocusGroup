@@ -1197,6 +1197,10 @@ create_agents <- function(n_participants, config, demographics = NULL,
 
   agents <- list()
   report <- list()
+  # Frames passed on by the other constructors were screened for identifiers
+  # under their own column names.
+  screened_demographics <- isTRUE(attr(demographics, "focusgroup_screened"))
+  screened_survey <- isTRUE(attr(survey_responses, "focusgroup_screened"))
 
   # Create participants
 
@@ -1221,11 +1225,11 @@ create_agents <- function(n_participants, config, demographics = NULL,
 
     # Identifier columns stay with the raw record but never enter the
     # persona, which the agents read.
-    shown_demographics <- agent_demographics[
-      !names(agent_demographics) %in% .fg_identifier_columns]
-    shown_survey <- if (!is.null(agent_survey)) {
-      agent_survey[!names(agent_survey) %in% .fg_identifier_columns]
-    }
+    shown_demographics <- if (screened_demographics) agent_demographics else
+      .fg_without_identifiers(agent_demographics)
+    shown_survey <- if (!is.null(agent_survey) && !screened_survey) {
+      .fg_without_identifiers(agent_survey)
+    } else agent_survey
     persona <- if (!is.null(direct_persona_descriptions)) {
       direct_persona_descriptions[
         ((i - 1L) %% length(direct_persona_descriptions)) + 1L
@@ -1269,8 +1273,12 @@ create_agents <- function(n_participants, config, demographics = NULL,
   )
 
   if (is.null(direct_persona_descriptions)) {
-    agents <- .fg_attach_report(
-      agents, .fg_check_report(.fg_mark_identifiers(.fg_bind_report(report)), agents))
+    report <- .fg_bind_report(report)
+    if ((!is.null(demographics) && !screened_demographics) ||
+        (!is.null(survey_responses) && !screened_survey)) {
+      report <- .fg_mark_identifiers(report)
+    }
+    agents <- .fg_attach_report(agents, .fg_check_report(report, agents))
   }
   return(agents)
 }
@@ -1709,8 +1717,13 @@ fg_default_na_strings <- function() .fg_default_na_strings
     } else draw()
   } else idx
 
+  # The frames hold the fields the caller chose for the personas, under the
+  # labels the personas show, with identifier columns already left out; a
+  # label such as "Case ID" is not a column name to screen again.
   demo_sample <- demo_df[take, , drop = FALSE]
+  attr(demo_sample, "focusgroup_screened") <- TRUE
   survey_sample <- if (!is.null(survey_df)) survey_df[take, , drop = FALSE] else NULL
+  if (!is.null(survey_sample)) attr(survey_sample, "focusgroup_screened") <- TRUE
   persona_sample <- if (!is.null(direct_persona_descriptions)) {
     direct_persona_descriptions[take]
   } else {
@@ -1760,8 +1773,11 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #'   is left out with a message: a variable without value labels whose values
 #'   are whole numbers or codes without spaces and differ in every row, in a
 #'   file of at least 30 rows or under a name or label that reads as an
-#'   identifier ("id", "case", "respondent", "serial"). Variables named `id`, `respondent_id`, or
-#'   `persona_id` are never rendered.
+#'   identifier ("id", "case", "respondent", "serial"). A variable whose
+#'   name identifies respondents (`id`, `caseid`, `respondent_id`, `respid`,
+#'   `persona_id`, `uid`, `record_id`, or `row_id`, in any case and with or
+#'   without spaces, dots, hyphens, or underscores, as in `ID`, `CaseID`, or
+#'   `resp_id`) is never rendered.
 #' @param rows Optional row selector restricting the eligible respondents before
 #'   sampling: integer positions of rows in the file, a logical vector with one
 #'   value per row in the file, or a predicate `function(df) -> logical` over the
@@ -1899,10 +1915,10 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #' @return A named list of `FGAgent` objects (participants + moderator), keyed
 #'   by agent ID. Two attributes record which respondents were drawn. The
 #'   `source_rows` attribute is an integer vector of their row positions in the
-#'   file, named by participant ID. When the file has columns named `id`,
-#'   `respondent_id`, or `persona_id`, the `source_ids` attribute is a data
-#'   frame of those columns for the drawn respondents, with participant IDs as
-#'   row names. The moderator appears in neither. A third attribute,
+#'   file, named by participant ID. When the file has columns whose names
+#'   identify respondents (as described for `survey_vars`), the `source_ids`
+#'   attribute is a data frame of those columns for the drawn respondents,
+#'   with participant IDs as row names. The moderator appears in neither. A third attribute,
 #'   `rendering_report`, records for each participant and each requested field
 #'   and item the text shown or the reason it was left out; read it with
 #'   [persona_rendering_report()]. Subsetting the list drops the attributes,
@@ -2012,7 +2028,7 @@ create_agents_from_survey <- function(n_participants,
   requested <- c(unname(demographic_vars), unname(survey_vars))
   # Identifiers never enter a persona: the columns named as identifiers and,
   # among automatically chosen items, variables that look like a case ID.
-  identifier_vars <- intersect(requested, .fg_identifier_columns)
+  identifier_vars <- unique(requested[.fg_is_identifier(requested)])
   if (auto_survey) {
     distinct <- Filter(function(v) {
       v %in% names(raw_lab) && .fg_distinct_in_every_row(raw_lab[[v]], v)
@@ -2192,8 +2208,23 @@ create_agents_from_survey <- function(n_participants,
 }
 
 # Columns that identify a respondent. They are recorded in a roster's
-# `source_ids` and never rendered into a persona.
-.fg_identifier_columns <- c("id", "respondent_id", "persona_id")
+# `source_ids` and never rendered into a persona. A name is compared in lower
+# case and without spaces, dots, hyphens, or underscores, so that "ID",
+# "CaseID", "case_id", and "Resp.ID" are identifiers.
+.fg_identifier_keys <- c("id", "caseid", "respondentid", "respid", "personaid", "uid",
+                         "recordid", "rowid")
+
+.fg_is_identifier <- function(names) {
+  if (!length(names)) return(logical())
+  names <- as.character(names)
+  !is.na(names) & tolower(gsub("[[:space:]._-]+", "", names)) %in% .fg_identifier_keys
+}
+
+# A record without its identifier fields; a record without names is kept.
+.fg_without_identifiers <- function(record) {
+  if (is.null(names(record))) return(record)
+  record[!.fg_is_identifier(names(record))]
+}
 
 # Whether a survey variable looks like a case identifier: no value labels, no
 # missing value, a different value in every row, and values that are codes
@@ -2216,7 +2247,7 @@ create_agents_from_survey <- function(n_participants,
 
 # Report rows for identifier columns left out of the personas.
 .fg_mark_identifiers <- function(report) {
-  hit <- report$variable %in% .fg_identifier_columns & report$status == "dropped"
+  hit <- .fg_is_identifier(report$variable) & report$status == "dropped"
   report$reason[hit] <- "identifier column"
   report$issue[hit] <- NA_character_
   report
@@ -2229,7 +2260,7 @@ create_agents_from_survey <- function(n_participants,
 .fg_roster_provenance <- function(agents, data, rows) {
   ids <- names(agents)[!vapply(agents, function(a) isTRUE(a$is_moderator), logical(1))]
   attr(agents, "source_rows") <- stats::setNames(as.integer(rows), ids)
-  columns <- intersect(.fg_identifier_columns, names(data))
+  columns <- names(data)[.fg_is_identifier(names(data))]
   if (length(columns)) {
     source_ids <- as.data.frame(data[rows, columns, drop = FALSE])
     rownames(source_ids) <- ids
@@ -2245,11 +2276,13 @@ create_agents_from_survey <- function(n_participants,
 #' rendered as background; the remaining columns are rendered as survey responses,
 #' keyed by their question wording when the frame carries a `dictionary` attribute
 #' (see [LLMR::llm_persona_split()]), else by their column names. Values are taken
-#' as-is (decode and clean them first if they are still coded). Columns named
-#' `id`, `respondent_id`, or `persona_id` identify respondents and are not
-#' rendered: they are kept in the `source_ids` attribute and listed in the
-#' rendering report as dropped. The same holds for those columns in a data
-#' frame given to [create_agents()].
+#' as-is (decode and clean them first if they are still coded). Columns whose
+#' names identify respondents (`id`, `caseid`, `respondent_id`, `respid`,
+#' `persona_id`, `uid`, `record_id`, or `row_id`, in any case and with or
+#' without spaces, dots, hyphens, or underscores, as in `ID`, `CaseID`, or
+#' `resp_id`) are not rendered: they are kept in the `source_ids` attribute
+#' and listed in the rendering report as dropped. The same holds for those
+#' columns in a data frame given to [create_agents()].
 #'
 #' A frame of class `silicon_panel`, or a frame with both `persona` and
 #' `persona_id` columns, is treated as a pre-rendered persona panel. Its
@@ -2324,7 +2357,7 @@ create_agents_from_data <- function(data, n_participants, config,
   # a sampling-weight column and a score/sort column are not persona facts,
   # and an identifier column would show the respondent's ID to the agents
   weight_col <- if (is.character(weights) && length(weights) == 1L) weights else character(0)
-  id_cols <- setdiff(intersect(.fg_identifier_columns, names(data)),
+  id_cols <- setdiff(names(data)[.fg_is_identifier(names(data))],
                      c(reserved_panel_cols, weight_col))
   id_kinds <- ifelse(id_cols %in% demographic_cols, "demographic", "item")
   demographic_cols <- setdiff(intersect(demographic_cols, names(data)),
