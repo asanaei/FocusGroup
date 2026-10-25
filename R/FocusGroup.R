@@ -2160,13 +2160,14 @@ FocusGroup <- R6::R6Class("FocusGroup",
         }
         if (isTRUE(injection$as_turn)) {
           if (!identical(injection$at$type, "before_turn")) {
-            stop("An injection from participant '", given, "' is that participant's ",
-                 "turn, so it goes at fg_before_turn(); found ", format(injection$at), ".",
-                 call. = FALSE)
+            stop("An injection from '", given, "', a participant's ID or handle, is ",
+                 "that participant's turn, so it goes at fg_before_turn(); found ",
+                 format(injection$at), ".", call. = FALSE)
           }
           if (!identical(injection$visibility, "shared")) {
-            stop("An injection from participant '", given, "' is a turn of the ",
-                 "discussion and must have visibility \"shared\".", call. = FALSE)
+            stop("An injection from '", given, "', a participant's ID or handle, is a ",
+                 "turn of the discussion and must have visibility \"shared\".",
+                 call. = FALSE)
           }
         } else if (!identical(injection$from, "moderator") &&
                    grepl("^p[0-9]+$", tolower(injection$from))) {
