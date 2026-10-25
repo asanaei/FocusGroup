@@ -390,3 +390,16 @@ test_that("a nested data frame of metadata is refused naming the source rows", {
   expect_error(suppressWarnings(focus_group_from_transcript(d)),
                "metadata.*not a list.*source row\\(s\\) 1, 3, 4")
 })
+
+test_that("the player shows a session read from its file as it shows the result", {
+  result <- .sf_result()
+  path <- tempfile(fileext = ".fg.jsonl")
+  writeLines(format(result), path)
+  data_of <- function(x) {
+    page <- fg_player(x, file = tempfile(fileext = ".html"), open = FALSE)
+    html <- paste(readLines(page, warn = FALSE), collapse = "\n")
+    regmatches(html, regexec('<script id="fg-data" type="application/json">(.*?)</script>',
+                             html))[[1]][[2]]
+  }
+  expect_identical(data_of(focus_group_from_transcript(path)), data_of(result))
+})

@@ -219,6 +219,13 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   branch <- if (!is.null(arm)) {
     c(list(arm = arm, role = "arm"), fg$records$info$branch %||% list())
   }
+  # A session read from a file keeps the provenance its configurations
+  # would give.
+  if (!is.null(fg$records$info$recorded)) {
+    result <- .fg_object_result(fg)
+    if (!is.null(branch)) result$metadata$branch <- branch
+    return(result)
+  }
   .fg_focus_group_result(
     fg, flow_name, fg$message_mode %||% NA_character_, n, NA_integer_,
     run_meta = list(branch = branch))
