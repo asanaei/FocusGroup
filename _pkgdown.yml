@@ -54,8 +54,9 @@ reference:
       - fg_default_na_strings
       - anes_2024_personas
 
-  - title: Import and analyze transcripts
+  - title: Session files, imported transcripts, and analysis
     contents:
+      - format.focus_group_result
       - focus_group_from_transcript
       - analyze_focus_group
 
