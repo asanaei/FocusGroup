@@ -2339,9 +2339,9 @@ create_agents_from_survey <- function(n_participants,
 # Columns that identify a respondent. They are recorded in a roster's
 # `source_ids` and never rendered into a persona. A name is compared in lower
 # case and without spaces, dots, hyphens, or underscores, so that "ID",
-# "CaseID", "case_id", and "Resp.ID" are identifiers.
+# "CaseID", "case_id", "Resp.ID", and Qualtrics' "ResponseId" are identifiers.
 .fg_identifier_keys <- c("id", "caseid", "respondentid", "respid", "personaid", "uid",
-                         "recordid", "rowid")
+                         "recordid", "rowid", "responseid")
 
 .fg_is_identifier <- function(names) {
   if (!length(names)) return(logical())

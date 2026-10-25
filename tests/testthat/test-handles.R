@@ -368,6 +368,7 @@ test_that("identifier columns stay out of persona text and are reported", {
   expect_false(any(grepl("a[12]|Resp|row_id", personas)))
   expect_identical(names(attr(agents, "source_ids")), c("Resp.ID", "row_id"))
   is_id <- FocusGroup:::.fg_is_identifier
+  expect_true(all(is_id(c("ResponseId", "response_id"))))
   expect_true(all(is_id(c("id", "ID", "CaseID", "case_id", "Case ID", "respondent_id",
                           "RespID", "resp_id", "respid", "persona_id", "UID", "record_id",
                           "Row.ID", "row-id"))))
