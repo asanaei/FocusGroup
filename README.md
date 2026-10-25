@@ -380,6 +380,39 @@ is followed by a panel saying that the participant was called on by name and
 no desire scores were asked, and then by that participant's
 reply.](man/figures/player.png)
 
+## Save a session and continue it
+
+`format()` writes a finished session as a session file: one JSON object per
+line, one row of the record each, with no configuration, key, or runner.
+`focus_group_from_transcript()` reads such a file back into a new session,
+and `run_focus_group_arms()` continues a recorded session from a participant
+turn, once per arm. An injection from a participant at `fg_before_turn(t)` is
+that participant's turn t, so a counterfactual such as "what if P2 had said
+this instead" is one arm, and a `NULL` arm lets the models speak again from
+the same point.
+
+```r
+writeLines(format(result), "library.fg.jsonl")
+fg <- focus_group_from_transcript("library.fg.jsonl")
+arms <- run_focus_group_arms(
+  fg, config,
+  arms = list(
+    as_recorded = NULL,
+    objection = fg_injection("Longer hours would cost two weekday programs.",
+                             at = fg_before_turn(2), from = "P2")),
+  seed = 110)
+fg_player(arms)
+```
+
+Every arm starts from the record's state just before turn t: the messages,
+the guide item, the turns already taken, the turn-taking rule's state, and
+the interim summary then in force. The file format is described for
+language models in `system.file("fg-session-spec.md", package =
+"FocusGroup")`, so a model can turn a raw transcript into a file the reader
+accepts; the reader reports every problem it finds at once. A human
+transcript continued this way is a model's continuation of a human
+discussion, not what those people would have said.
+
 ## Use Focus Studio
 
 `run_focus_studio()` starts the optional Shiny interface. Its Run tab starts

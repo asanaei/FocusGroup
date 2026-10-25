@@ -1,3 +1,128 @@
+# FocusGroup 0.5.6
+
+## The bundled ANES personas
+
+* FocusGroup now ships `anes_2024_personas`, rebuilt from the ANES 2024 Time
+  Series Full Release of May 19, 2026, and `create_agents()` and Focus Studio
+  draw from it instead of LLMR's copy. The earlier build turned every
+  unlabeled code into a missing value, so the six seven-point scales that
+  label only their endpoints lost their middle answers; it kept four
+  immigration-policy labels cut at 80 characters, put spouses' answers into
+  two respondents' fields, dropped renters and people who never attend
+  religious services through skip patterns, and ordered answer categories
+  alphabetically when it chose the respondents and fit the ideology score.
+  The rebuilt data write every answer of those scales as "5 on a scale from 1
+  (...) to 7 (...)" and every thermometer as "70 on a 0-100 feeling
+  thermometer", give full labels from the codebook, replace items not in this
+  release (paper-only and GSS items) with all-mode items or drop them, and
+  carry verbatim question wording in the dictionary. Only 26 of the earlier
+  100 respondents remain, so results built on the old data will differ.
+  LLMRpanel 0.6.3 ships an identical copy. The data remain a diversity
+  sample, not representative, and its selection favors atypical respondents;
+  the help page gives figures.
+
+## Personas from data
+
+* `create_agents_from_data()` renders columns with value labels by the rules
+  of `create_agents_from_survey()` (labels, the scale sentence, missing codes,
+  numeric fields, warnings), so a labelled frame and the same file give the
+  same personas, and gains `na_strings` and `scale_template`. Missing-data
+  labels such as "-9. Refused" in text and factor columns, and SPSS
+  user-defined missing values, are left out with the reason in
+  `persona_rendering_report()` and a message. `create_agents()` screens the
+  frames it is given the same way and gains `na_strings`; it no longer fails
+  on factor columns.
+
+* A value without a numeric code counts as a missing-data label only when it
+  says nothing but wording `na_strings` matches ("Refused to answer", "I
+  don't know"); answers that use such words ("I keep missing the bus") are
+  kept.
+
+* Identifier columns are recognized in any case and in common variants (ID,
+  CaseID, case_id, respondent_id, respid, resp_id, persona_id, uid,
+  record_id, row_id, ResponseId) and are never rendered into personas.
+
+## Session files and continuation
+
+* `format()` of a `focus_group_result` returns the lines of a session file,
+  `writeLines(format(result), "session.fg.jsonl")`: one JSON object per line,
+  one row of the record each, with no configuration, key, or runner.
+  `focus_group_from_transcript()` reads such a file, a vector of its lines, a
+  result, or a FocusGroup back into a new session, reports every problem it
+  finds at once in an error of class `focusgroup_format_error`, and gains
+  `personas`. `inst/fg-session-spec.md` describes the format for converting a
+  raw transcript with a language model. Data-frame input works as before.
+
+* `run_focus_group_arms()` continues a recorded session when its first
+  argument is a FocusGroup or a result: each arm starts from the record's
+  state just before `fg_before_turn(t)`, rebuilt from the record (messages,
+  guide item, turns taken, the turn-taking rule's state, the interim summary
+  in force). Settings the record fixes cannot be passed again.
+
+* An injection from a participant's ID or handle at `fg_before_turn(t)` is
+  that participant's turn t, recorded with the routing rule `"injected"`; it
+  takes the place of the turn the session was about to give, recorded in
+  `injections$replaced`. At a call-on turn, a line from someone other than
+  the participant called on takes no one's place, and the participant called
+  on still answers. Outside voices named like "P4" are refused.
+
+* Results gain `metadata$guide`, `metadata$flow_params`,
+  `participants$communication_style`, and `injections$as_turn` and
+  `$replaced`. `analyze_focus_group()` and Focus Studio accept a result whose
+  `focus_group` is `NULL` by rebuilding it from the record.
+
+* `seed` now leaves the caller's random-number state as it was.
+
+## Probe answers as numbers
+
+* `fg_probe()` gains `scale = c(lo, hi)`. Each answer is read as one whole
+  number on that scale into the new `value` column of `probes` (restated
+  ranges, fractions such as "5/7", and markup are handled; two numbers, a
+  number out of range, or a number in words give `NA`); an answer that cannot
+  be read is asked again once through the new template
+  `participant_probe_reask`; `attempts` counts the calls; the estimate counts
+  the re-asks; an answer still unread draws a warning.
+
+## Corrections
+
+* `summarize_focus_group()` sends messages to the model as recorded. It used
+  to replace names inside the text, which credited statements to the wrong
+  participant under permuted handles and corrupted IDs and names that are
+  ordinary words ("teacher", "May").
+
+* Neutral handles never take another agent's ID, the moderator's included.
+
+* `analyze_themes()` calls the provider unless given `.runner`, as
+  `summarize()` does; it no longer falls back to the session's runner.
+
+* A provider's retries no longer draw from R's random-number stream, so a
+  retry does not change later speaker draws or the common random numbers of
+  arms.
+
+* In flat message mode each participant is told its handle; a turn the
+  moderator's question gave to a participant carries a cue in both modes; the
+  flat template asks participants to address others by their labels.
+
+* Self-label removal, in the engine and in `fg_player()`, treats an agent's
+  handle as its own label, not its ID.
+
+* The reply cleaner no longer deletes a participant's words: it removes only
+  a short opening self-introduction ("As a retired nurse,"), marks it with
+  `metadata$preamble_removed`, and keeps longer clauses ("As a teacher I
+  grade papers at night, ...") as written.
+
+* A custom flow that chooses no participant or the moderator records no
+  routing row.
+
+* A moderator question that opens with a handle and a colon ("P2: what do
+  you think?"), or a short follow-up naming one participant ("And P3?",
+  "What about P3?"), gives that participant the floor.
+
+* `FocusGroup$new()` validates `max_participant_responses`.
+
+* `summarize_focus_group()` and `fg_turns()` accept the list returned by
+  `FocusGroup$run_arms()`.
+
 # FocusGroup 0.5.5
 
 ## Calling on silent participants
