@@ -104,7 +104,16 @@
   session = "plan",
   # A desire-based flow keeps its last scores, scoring path, and whether it
   # has warned about a failed score; none of them decides a later turn.
-  flow = c("last_desire_scores", "last_scoring_mode", "failure_message_emitted"))
+  flow = c("last_desire_scores", "last_scoring_mode", "failure_message_emitted"),
+  # An agent's model configuration and runner are not part of the record:
+  # a continuation supplies them. Its own history and token counters record
+  # the calls it made, which a rebuilt session did not make.
+  agent = c("config", ".runner", "history", "tokens_sent_agent", "tokens_received_agent",
+            "tokens_total_agent", "usage_unknown_agent"),
+  # Times differ between two runs: the start of the record, and the time of
+  # each message and call. The messages a call sent are not written to a
+  # session file.
+  times = c("started", "timestamp"), calls = "messages")
 
 .cont_fields <- function(env, drop) {
   out <- as.list(env, all.names = TRUE)
@@ -126,10 +135,9 @@
   transcript <- FocusGroup:::.fg_transcript_data(fg$conversation_log)
   transcript$timestamp <- NULL
   calls <- FocusGroup:::.fg_calls_data(fg$records$calls)
-  calls$messages <- NULL
-  calls$timestamp <- NULL
+  calls <- calls[setdiff(names(calls), c(.cont_exempt$calls, .cont_exempt$times))]
   info <- fg$records$info
-  info$started <- NULL
+  info <- info[setdiff(names(info), .cont_exempt$times)]
   list(
     private = private,
     flow_class = class(flow),
@@ -147,7 +155,7 @@
     final_summary = fg$final_summary,
     message_mode = fg$message_mode,
     handles = fg$handles,
-    agent_handles = vapply(fg$agents, function(a) a$handle, character(1)),
+    agents = lapply(fg$agents, .cont_fields, drop = .cont_exempt$agent),
     call_on_silent = fg$call_on_silent,
     transcript = transcript,
     routing = FocusGroup:::.fg_routing_data(fg$records$routing),
