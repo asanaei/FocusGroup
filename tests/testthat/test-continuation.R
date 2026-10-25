@@ -393,9 +393,10 @@ test_that("a continuation checks every argument before any call", {
 })
 
 test_that("a continuation restores the caller's random-number state and reproduces under a seed", {
-  record <- .cont_record(flow = "probabilistic")
   set.seed(5)
   before <- .Random.seed
+  record <- .cont_record(flow = "probabilistic")
+  expect_identical(.Random.seed, before)
   a <- .cont_arms(record)
   expect_identical(.Random.seed, before)
   b <- .cont_arms(record)
