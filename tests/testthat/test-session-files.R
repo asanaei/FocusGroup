@@ -288,7 +288,7 @@ test_that("a byte-order mark, Windows line endings, and blank lines are accepted
   ok <- c('{"type":"participant","id":"Chair","is_moderator":true}',
           '{"type":"participant","id":"Ana"}',
           '{"type":"message","speaker_id":"Chair","text":"Which hours matter?"}',
-          '{"type":"message","speaker_id":"Ana","text":"Evenings, café."}')
+          '{"type":"message","speaker_id":"Ana","text":"Evenings, caf\u00e9."}')
   path <- tempfile(fileext = ".jsonl")
   con <- file(path, "wb")
   writeBin(c(as.raw(c(0xef, 0xbb, 0xbf)),
@@ -298,7 +298,7 @@ test_that("a byte-order mark, Windows line endings, and blank lines are accepted
   fg <- focus_group_from_transcript(path)
   expect_identical(fg$moderator_id, "Chair")
   expect_identical(vapply(fg$conversation_log, `[[`, character(1), "text"),
-                   c("Which hours matter?", "Evenings, café."))
+                   c("Which hours matter?", "Evenings, caf\u00e9."))
   expect_identical(focus_group_from_transcript(paste(ok, collapse = "\r\n"))$conversation_log,
                    fg$conversation_log)
   # Only a .jsonl path is read; other files are read into R first.
@@ -413,4 +413,91 @@ test_that("a message without an item belongs to the item before it", {
   fg <- focus_group_from_transcript(lines)
   expect_identical(vapply(fg$conversation_log, `[[`, integer(1), "item"), c(1L, 1L, 2L, 2L))
   expect_identical(length(fg$question_script), 2L)
+})
+
+test_that("a file's settings survive reading it again, though it records no run", {
+  lines <- c(
+    paste0('{"type":"session","topic":"library hours","flow":"desire_based",',
+           '"flow_params":{"min_desire_threshold":4.0,"on_desire_failure":"random"},',
+           '"max_participant_responses":3,',
+           '"call_on_silent":{"points":["item:2"],"items":[2]}}'),
+    '{"type":"participant","id":"Chair","is_moderator":true}',
+    '{"type":"participant","id":"Ana","persona":"A nurse."}',
+    '{"type":"participant","id":"Ben","persona":"A baker."}',
+    '{"type":"item","item":1,"phase":"engagement_question","text":"Which hours?"}',
+    '{"type":"item","item":2,"phase":"exploration_question","text":"What would you change?"}',
+    '{"type":"message","speaker_id":"Chair","text":"Which hours matter?","item":1}',
+    '{"type":"message","speaker_id":"Ana","text":"Evenings.","item":1}',
+    '{"type":"message","speaker_id":"Chair","text":"What would you change?","item":2}',
+    '{"type":"message","speaker_id":"Ben","text":"Weekends.","item":2}')
+  fg <- focus_group_from_transcript(lines)
+  again <- focus_group_from_transcript(fg)
+  for (x in list(fg, again)) {
+    expect_s3_class(x$turn_taking_flow, "DesireBasedFlow")
+    expect_identical(x$max_participant_responses, 3L)
+    expect_identical(x$question_script[[2]],
+                     list(phase = "exploration_question", text = "What would you change?"))
+    expect_identical(x$call_on_silent, list(points = "item:2", items = 2L))
+  }
+  # Such a file is a transcript: the player has no records to show.
+  expect_error(fg_player(fg, open = FALSE), "no `records`")
+})
+
+test_that("malformed settings and roles are reported as problems of the file", {
+  base <- c('{"type":"participant","id":"Chair","is_moderator":true}',
+            '{"type":"participant","id":"Ana"}',
+            '{"type":"message","speaker_id":"Chair","text":"Which hours?"}',
+            '{"type":"message","speaker_id":"Ana","text":"Evenings.","duration_s":1e400}')
+  problem <- function(session, lines = base) {
+    .sf_problems(c(session, lines))
+  }
+  p <- problem('{"type":"session","call_on_silent":"end"}')
+  expect_identical(p$field, c("call_on_silent", "duration_s"))
+  p <- .sf_problems(c('{"type":"session","call_on_silent":{"point":["end"],"item":[1]}}',
+                      base[1:3]))
+  expect_match(p$problem, "points.*items")
+  p <- .sf_problems(c('{"type":"session","call_on_silent":{"points":["item:9"],"items":[9]}}',
+                      base[1:3]))
+  expect_match(p$problem, "beyond the 1 item")
+  p <- .sf_problems(c('{"type":"session","branch":{"prefix_messages":{"a":[1,2]}}}', base[1:3]))
+  expect_identical(p$field, "branch")
+  p <- .sf_problems(c('{"type":"session","message_mode":"weird"}', base[1:3]))
+  expect_identical(p$field, "message_mode")
+  p <- .sf_problems(c(base[1:2], '{"type":"message","speaker_id":"Chair","text":"Q?","text":"R?"}'))
+  expect_match(p$problem, "given twice")
+  p <- .sf_problems(c(base[1:2],
+                      '{"type":"message","speaker_id":"Chair","text":"Q?","is_moderator":false}'))
+  expect_match(p$problem, "as not the moderator's")
+  p <- .sf_problems(c('{"type":"item","item":1,"phase":"generic_discussion"}', base[1:2],
+                      base[3], base[3], '{"type":"message","speaker_id":"Ana","text":"A."}'))
+  expect_match(p$problem[[1]], "beyond the 1 item")
+  # A `versions` object is not read as the format's version.
+  fg <- focus_group_from_transcript(c('{"type":"session","versions":{"R":"4.5.0"}}', base[1:3]))
+  expect_s3_class(fg, "FocusGroup")
+  # A roster that marks no moderator takes one named as such.
+  fg <- focus_group_from_transcript(c('{"type":"participant","id":"Moderator"}',
+                                      '{"type":"participant","id":"Ana"}',
+                                      '{"type":"message","speaker_id":"Moderator","text":"Q?"}',
+                                      '{"type":"message","speaker_id":"Ana","text":"A."}'))
+  expect_identical(fg$moderator_id, "Moderator")
+  expect_identical(names(fg$agents), c("Moderator", "Ana"))
+})
+
+test_that("a message without a round takes the round before it", {
+  fg <- focus_group_from_transcript(c(
+    '{"type":"message","speaker_id":"Moderator","text":"Which hours?","round":1}',
+    '{"type":"message","speaker_id":"Ana","text":"Evenings."}',
+    '{"type":"message","speaker_id":"Moderator","text":"Who is left out?","round":2}',
+    '{"type":"message","speaker_id":"Ana","text":"Shift workers."}'))
+  expect_identical(vapply(fg$conversation_log, `[[`, integer(1), "round"), c(1L, 1L, 2L, 2L))
+})
+
+test_that("key-like values in the messages of failed calls are not written", {
+  result <- .sf_result(flow = "round_robin")
+  result$calls$error[[2]] <- "POST https://proxy.example.org/v1?key=URL-SECRET-456 failed (sk-FIXTURE-SECRET-123)"
+  result$metadata$failure <- list(phase = "closing", message = "Bearer abcdefghijkl rejected")
+  text <- paste(format(result), collapse = "\n")
+  expect_false(grepl("SECRET", text, fixed = TRUE))
+  expect_false(grepl("abcdefghijkl", text, fixed = TRUE))
+  expect_true(grepl("key=<redacted>", text, fixed = TRUE))
 })

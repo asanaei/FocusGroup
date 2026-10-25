@@ -487,3 +487,66 @@ test_that("the interim summary in force at the cut is the one the record holds",
   fresh$.__enclos_env__$private$position_at(3L)
   expect_null(fresh$current_conversation_summary)
 })
+
+test_that("the prefix keeps every call made before the cut, a probe's re-ask included", {
+  unsure <- function(experiments, ...) {
+    messages <- experiments$messages[[1]]
+    last <- messages[[length(messages)]]$content
+    if (grepl("could not read one number", last, fixed = TRUE)) {
+      experiments$response_text <- ""
+      return(experiments)
+    }
+    if (grepl("private question", .cont_prompt(messages), fixed = TRUE)) {
+      experiments$response_text <- "I am not sure."
+      return(experiments)
+    }
+    .cont_runner(experiments, ...)
+  }
+  record <- suppressWarnings(.cont_record(
+    runner = unsure, probes = fg_probe("From 1 to 7?", at = fg_before_turn(3), scale = c(1, 7))))
+  turn_3 <- record$transcript$message_id[record$transcript$speaker_id %in% c("P1", "P2", "P3")][3]
+  before <- max(record$calls$call_id[record$calls$call_id <
+                                       min(record$calls$call_id[record$calls$message_id %in% turn_3])])
+  out <- .cont_arms(record, t = 3L)
+  expect_identical(out$arms$same$metadata$branch$prefix_calls, before)
+  expect_identical(out$prefix$calls$call_id, seq_len(before))
+  # The prefix and its arms read back as written.
+  for (x in list(out$prefix, out$arms$changed)) {
+    lines <- format(x)
+    expect_identical(format(FocusGroup:::.fg_object_result(focus_group_from_transcript(lines))),
+                     lines)
+  }
+})
+
+test_that("a transcript file continues under the settings it gives", {
+  lines <- c(
+    paste0('{"type":"session","topic":"library hours","flow":"desire_based",',
+           '"max_participant_responses":2}'),
+    '{"type":"participant","id":"Chair","is_moderator":true,"persona":"A moderator."}',
+    '{"type":"participant","id":"Ana","persona":"A nurse."}',
+    '{"type":"participant","id":"Ben","persona":"A baker."}',
+    '{"type":"item","item":1,"phase":"engagement_question","text":"Which hours?"}',
+    '{"type":"item","item":2,"phase":"exploration_question","text":"What would you change?"}',
+    '{"type":"message","speaker_id":"Chair","text":"Which hours matter?","item":1}',
+    '{"type":"message","speaker_id":"Ana","text":"Evenings.","item":1}',
+    '{"type":"message","speaker_id":"Ben","text":"Mornings.","item":1}')
+  rec <- .cont_recorder()
+  out <- run_focus_group_arms(
+    focus_group_from_transcript(lines), config = .cont_config(),
+    arms = list(same = NULL, changed = fg_injection("Weekends.", fg_before_turn(2),
+                                                    from = "Ben")),
+    final_summary = FALSE, verbose = FALSE, .runner = rec$runner)
+  same <- out$arms$same
+  expect_identical(same$metadata$flow, "desire_based")
+  expect_true(all(same$routing$rule[-1] %in% c("highest_score", "threshold_lowered",
+                                               "highest_below_threshold", "addressed")))
+  # Item 2 is not delivered as written: the moderator writes its line.
+  expect_true(any(same$calls$call_type == "moderator"))
+})
+
+test_that("a called-on turn whose item is no call-on point stops the continuation", {
+  record <- .cont_record()
+  record$metadata$call_on_silent <- list(points = character(), items = integer())
+  fg <- focus_group_from_transcript(record)
+  expect_error(fg$.__enclos_env__$private$position_at(3L), "not a call-on point")
+})

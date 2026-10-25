@@ -2452,9 +2452,26 @@ FocusGroup <- R6::R6Class("FocusGroup",
                            character(1))
       summaries <- which(call_types %in% "interim_summary" & call_rounds < round &
                            vapply(calls, function(x) is.na(x$error %||% NA), logical(1)))
+      # The calls of one probe answer are consecutive calls by one agent with
+      # attempts 1, 2, ...; the answer names one of them, and the last is
+      # the one that counts here.
+      attempt_of <- vapply(calls, function(x) as.integer(x$attempt %||% 1L) %|NA|% 1L,
+                           integer(1))
+      agent_of <- vapply(calls, function(x) as.character(x$agent_id %||% NA_character_),
+                         character(1))
+      probe_end <- function(p) {
+        at <- match(as.integer(p$call_id %||% NA_integer_), call_ids)
+        if (is.na(at)) return(0L)
+        while (at < length(calls) && identical(call_types[[at + 1L]], "probe") &&
+               identical(agent_of[[at + 1L]], agent_of[[at]]) &&
+               attempt_of[[at + 1L]] == attempt_of[[at]] + 1L) {
+          at <- at + 1L
+        }
+        call_ids[[at]]
+      }
       last_call <- max(c(0L,
         call_ids[!is.na(call_messages) & call_messages < id_t],
-        vapply(probes, function(p) as.integer(p$call_id %||% 0L) %|NA|% 0L, integer(1)),
+        vapply(probes, probe_end, integer(1)),
         call_ids[summaries]), na.rm = TRUE)
       calls <- calls[!is.na(call_ids) & call_ids <= last_call]
 
@@ -2475,7 +2492,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
       self$total_tokens_sent <- sum(sent, na.rm = TRUE)
       self$total_tokens_received <- sum(rec, na.rm = TRUE)
       self$total_tokens <- sum(total, na.rm = TRUE)
-      self$calls_usage_unknown <- sum(is.na(total) | is.na(sent) | is.na(rec))
+      self$calls_usage_unknown <- as.double(sum(is.na(total) | is.na(sent) | is.na(rec)))
       self$final_summary <- NULL
       attr(self, "session_status") <- NULL
 
@@ -2577,6 +2594,10 @@ FocusGroup <- R6::R6Class("FocusGroup",
         if (any(in_j)) max(ids[in_j]) else 0L
       } else 0L
       call_on <- NULL
+      if (calling_on && !k %in% items) {
+        stop("Participant turn ", t, " answers a call-on line, but guide item ", k,
+             " is not a call-on point of the record.", call. = FALSE)
+      }
       if (calling_on) {
         lines <- which(vapply(prefix, function(m) {
           identical(m$speaker_id, self$moderator_id) && !is.null(m$metadata$call_on) &&

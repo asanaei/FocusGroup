@@ -51,9 +51,12 @@ is \code{{}}. Times are written in UTC to the microsecond
 (\code{"2026-10-24T14:30:00.25Z"}). Every character outside ASCII is written as
 a \verb{\\uXXXX} escape, so the file is plain ASCII.
 
-The file never holds a model configuration, an API key, an endpoint, or a
-runner: \code{metadata} holds none, and the recorded call settings are the
-allowlisted model parameters. \code{\link[=saveRDS]{saveRDS()}} of the result, by contrast,
+The file holds no model configuration and no runner, and so no key or
+endpoint from a configuration: \code{metadata} holds none, and the recorded
+call settings are the allowlisted model parameters. The message of a
+failed call is written as recorded, except that key-like values in it
+(the values of query parameters such as \verb{key=}, bearer tokens, and
+strings of the form of an API key) are replaced by \verb{<redacted>}. \code{\link[=saveRDS]{saveRDS()}} of the result, by contrast,
 saves \code{focus_group}, which holds the configuration (and so any literal
 key or private endpoint in it) and the runner; set \code{result$focus_group <- NULL} first to save the record alone. \code{\link[=analyze_focus_group]{analyze_focus_group()}} and the
 Studio rebuild the session object of such a result from its tables.

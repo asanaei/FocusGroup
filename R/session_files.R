@@ -38,9 +38,12 @@
 #' (`"2026-10-24T14:30:00.25Z"`). Every character outside ASCII is written as
 #' a `\uXXXX` escape, so the file is plain ASCII.
 #'
-#' The file never holds a model configuration, an API key, an endpoint, or a
-#' runner: `metadata` holds none, and the recorded call settings are the
-#' allowlisted model parameters. [saveRDS()] of the result, by contrast,
+#' The file holds no model configuration and no runner, and so no key or
+#' endpoint from a configuration: `metadata` holds none, and the recorded
+#' call settings are the allowlisted model parameters. The message of a
+#' failed call is written as recorded, except that key-like values in it
+#' (the values of query parameters such as `key=`, bearer tokens, and
+#' strings of the form of an API key) are replaced by `<redacted>`. [saveRDS()] of the result, by contrast,
 #' saves `focus_group`, which holds the configuration (and so any literal
 #' key or private endpoint in it) and the runner; set `result$focus_group <-
 #' NULL` first to save the record alone. [analyze_focus_group()] and the
@@ -93,6 +96,14 @@ format.focus_group_result <- function(x, ...) {
     }, character(1), USE.NAMES = FALSE)
   }
 
+  # An error message can quote a request; key-like values in it are not
+  # written.
+  if (is.list(meta$failure) && is.character(meta$failure$message)) {
+    meta$failure$message <- .fg_redact_secrets(meta$failure$message)
+  }
+  if (is.data.frame(x$calls) && is.character(x$calls$error)) {
+    x$calls$error <- .fg_redact_secrets(x$calls$error)
+  }
   session <- c(list(type = "session", format = "fg-session", version = 1L),
                meta[setdiff(names(meta), c("guide", "handles"))])
   if (length(x$summary)) session["summary"] <- list(as.character(x$summary)[[1]])
@@ -117,6 +128,17 @@ format.focus_group_result <- function(x, ...) {
     .fg_table_lines("call", x$calls, .fg_calls_data(list())[
       setdiff(names(.fg_calls_data(list())), "messages")]))
   lines
+}
+
+# Text with key-like values replaced by "<redacted>": the values of query
+# parameters such as `key=` and `api_key=`, bearer tokens, and strings of the
+# forms of OpenAI and Google API keys.
+.fg_redact_secrets <- function(x) {
+  x <- gsub(paste0("(?i)([?&](?:api[_-]?key|key|token|access[_-]?token|auth|",
+                   "signature|sig)=)[^&\\s\"'#]+"), "\\1<redacted>", x, perl = TRUE)
+  x <- gsub("(?i)(bearer\\s+)[A-Za-z0-9._~+/=-]{8,}", "\\1<redacted>", x, perl = TRUE)
+  x <- gsub("\\bsk-[A-Za-z0-9_-]{8,}", "<redacted>", x, perl = TRUE)
+  gsub("\\bAIza[0-9A-Za-z_-]{20,}", "<redacted>", x, perl = TRUE)
 }
 
 # The columns of `participants`, as an empty table.
@@ -510,7 +532,9 @@ format.focus_group_result <- function(x, ...) {
     },
     num = {
       if (is.null(value)) return(NA_real_)
-      if (!is.numeric(value) || !is_scalar(value)) return(bad("must be a number"))
+      if (!is.numeric(value) || !is_scalar(value) || !is.finite(value)) {
+        return(bad("must be a finite number"))
+      }
       as.double(value)
     },
     bool = {
@@ -547,18 +571,18 @@ format.focus_group_result <- function(x, ...) {
     named_numbers = {
       if (is.null(value)) return(NULL)
       if (!is.list(value) || is.null(names(value)) ||
-          !all(vapply(value, function(v) is.null(v) || (is.numeric(v) && is_scalar(v)),
-                      logical(1)))) {
-        return(bad("must be an object of numbers"))
+          !all(vapply(value, function(v) is.null(v) || (is.numeric(v) && is_scalar(v) &&
+                                                         is.finite(v)), logical(1)))) {
+        return(bad("must be an object of finite numbers"))
       }
       vapply(value, function(v) if (is.null(v)) NA_real_ else as.double(v), numeric(1))
     },
     numbers_object = {
       if (is.null(value)) return(NULL)
       if (!is.list(value) || (length(value) && is.null(names(value))) ||
-          !all(vapply(value, function(v) is.null(v) || (is.numeric(v) && is_scalar(v)),
-                      logical(1)))) {
-        return(bad("must be an object of numbers"))
+          !all(vapply(value, function(v) is.null(v) || (is.numeric(v) && is_scalar(v) &&
+                                                         is.finite(v)), logical(1)))) {
+        return(bad("must be an object of finite numbers"))
       }
       lapply(value, function(v) if (is.null(v)) NA_real_ else as.double(v))
     },
@@ -589,25 +613,45 @@ format.focus_group_result <- function(x, ...) {
       if (!is.list(value) || (length(value) && is.null(names(value)))) {
         return(bad("must be an object"))
       }
-      out <- .fg_json_decode(value)
-      for (name in intersect(c("arm", "role", "point", "prefix_hash"), names(out))) {
-        if (is.logical(out[[name]])) out[[name]] <- as.character(out[[name]])
-      }
-      for (name in intersect(c("prefix_messages", "prefix_last_message_id", "prefix_calls"),
-                             names(out))) {
-        out[[name]] <- as.integer(out[[name]])
+      out <- list()
+      for (name in names(value)) {
+        kind <- if (name %in% c("prefix_messages", "prefix_last_message_id", "prefix_calls")) {
+          "int"
+        } else if (name %in% c("arm", "role", "point", "prefix_hash")) "string" else NA
+        if (is.na(kind)) return(bad(paste0("has an unknown element '", name, "'")))
+        failed <- FALSE
+        v <- .fg_read_field(value[[name]], kind, function(problem) {
+          failed <<- TRUE
+          NULL
+        })
+        if (failed) return(bad(paste0("element '", name, "' ",
+                                      if (kind == "int") "must be a whole number" else
+                                        "must be a string")))
+        out[name] <- list(v)
       }
       out
     },
     call_on = {
       if (is.null(value)) return(list(points = character(), items = integer()))
-      points <- .fg_read_field(value$points, "strings", bad)
-      items <- value$items
+      if (!is.list(value) || (length(value) && is.null(names(value))) ||
+          length(setdiff(names(value), c("points", "items"))) ||
+          (length(value) && !all(c("points", "items") %in% names(value)))) {
+        return(bad("must be an object with `points` and `items`"))
+      }
+      failed <- FALSE
+      points <- .fg_read_field(value[["points"]], "strings", function(problem) {
+        failed <<- TRUE
+        NULL
+      })
+      if (failed) return(bad("`points` must be an array of strings"))
+      items <- value[["items"]]
       items <- if (is.null(items) || (is.list(items) && !length(items))) integer() else
-        if (is.list(items) && all(vapply(items, whole, logical(1)))) {
+        if (is.list(items) && is.null(names(items)) &&
+            all(vapply(items, function(v) whole(v) && v >= 1, logical(1)))) {
           as.integer(unlist(items))
-        } else if (whole(items)) as.integer(items) else return(bad("items must be whole numbers"))
-      if (is.null(points) || length(points) != length(items)) {
+        } else if (whole(items) && items >= 1) as.integer(items) else
+          return(bad("`items` must be guide item numbers"))
+      if (length(points) != length(items)) {
         return(bad("must give one point for each item"))
       }
       list(points = points, items = items)
@@ -657,7 +701,7 @@ format.focus_group_result <- function(x, ...) {
 # problem is reported at once.
 .fg_parse_session <- function(lines) {
   problems <- .fg_problems()
-  if (length(lines)) lines[[1]] <- sub("^﻿", "", lines[[1]])
+  if (length(lines)) lines[[1]] <- sub("^\ufeff", "", lines[[1]])
   lines <- sub("\r$", "", lines)
   rows <- which(nzchar(trimws(lines)))
   if (!length(rows)) {
@@ -677,6 +721,8 @@ format.focus_group_result <- function(x, ...) {
       problems$add(i, "", "is not a JSON object with a `type`.")
       next
     }
+    twice <- unique(names(value)[duplicated(names(value))])
+    for (name in twice) problems$add(i, name, "is given twice.")
     parsed[[i]] <- value
   }
   if (length(failed)) {
@@ -754,10 +800,15 @@ format.focus_group_result <- function(x, ...) {
   if (length(out$session) > 1L) {
     for (r in out$session[-1]) problems$add(r$.row, "type", "is a second session line.")
   }
-  version <- if (length(out$session)) out$session[[1]]$version else NA
+  version <- if (length(out$session)) out$session[[1]][["version"]] else NA
   if (isTRUE(version > 1L)) {
     problems$add(out$session[[1]]$.row, "version", paste0(
       "is ", version, "; this version of FocusGroup reads version 1."))
+  }
+  mode <- if (length(out$session)) out$session[[1]][["message_mode"]] else NA
+  if (!is.null(mode) && !is.na(mode) && !mode %in% c("roleflip", "flat")) {
+    problems$add(out$session[[1]]$.row, "message_mode",
+                 "must be \"roleflip\" or \"flat\".")
   }
   if (!length(out$message)) problems$add(NA, "", "The file has no message line.")
 
@@ -884,6 +935,17 @@ format.focus_group_result <- function(x, ...) {
     is_mod <- vapply(roster, function(r) isTRUE(r$is_moderator) ||
                        identical(r$role, "moderator"), logical(1))
     mod <- if (any(is_mod)) ids[is_mod][[1]] else NA_character_
+    if (is.na(mod) && is.null(moderator_id)) {
+      # A roster that marks no moderator: the messages marked as the
+      # moderator's, or a speaker named as one.
+      marked <- unique(speaker[flagged])
+      found <- if (length(marked) == 1L) marked else ids[tolower(trimws(ids)) %in% aliases]
+      if (length(found) > 1L) {
+        problems$add(NA, "", paste("More than one speaker matches a moderator alias;",
+                                   "supply `moderator_id`."))
+      }
+      if (length(found)) mod <- found[[1]]
+    }
     if (!is.null(moderator_id)) {
       if (!is.na(mod) && !identical(mod, moderator_id)) {
         problems$add(roster[[which(is_mod)[1]]]$.row, "is_moderator", paste0(
@@ -947,6 +1009,11 @@ format.focus_group_result <- function(x, ...) {
     problems$add(msgs[[j]]$.row, "is_moderator", paste0(
       "marks a message by '", speaker[[j]], "', who is not the moderator, as the moderator's."))
   }
+  unflagged <- vapply(msgs, function(r) identical(r$is_moderator, FALSE), logical(1))
+  for (j in which(unflagged & speaker == mod)) {
+    problems$add(msgs[[j]]$.row, "is_moderator", paste0(
+      "marks a message by the moderator '", mod, "' as not the moderator's."))
+  }
   participant_ids <- setdiff(ids, mod)
   for (j in which(as_turn & !speaker %in% participant_ids)) {
     problems$add(msgs[[j]]$.row, "metadata", paste0(
@@ -972,6 +1039,7 @@ format.focus_group_result <- function(x, ...) {
   item[speaker == "System" & !has_item] <- 0L
   has_round <- vapply(msgs, function(r) "round" %in% names(r), logical(1))
   if (!any(has_round)) round <- item
+  for (j in which(is.na(round))) round[j] <- if (j == 1L) 0L else round[j - 1L]
 
   # The guide: the item lines, or one verbatim item for each moderator line.
   the_topic <- topic %||% (if (given("topic")) session$topic) %||% .fg_placeholder_topic
@@ -991,6 +1059,18 @@ format.focus_group_result <- function(x, ...) {
     })
     if (!length(guide)) guide <- list(list(phase = "generic_discussion", text = the_topic))
   }
+  for (j in which(item > length(guide))) {
+    problems$add(msgs[[j]]$.row, "item", sprintf(
+      "is %d, beyond the %d item(s) of the guide; give each message its item.",
+      item[[j]], length(guide)))
+  }
+  beyond <- setdiff(session$call_on_silent$items, seq_along(guide))
+  if (length(beyond)) {
+    problems$add(session$.row, "call_on_silent", paste0(
+      "names item(s) ", paste(beyond, collapse = ", "), " beyond the ", length(guide),
+      " item(s) of the guide."))
+  }
+  problems$stop_if_any()
 
   # The log.
   handle_of <- stats::setNames(ids, ids)
@@ -1125,40 +1205,54 @@ format.focus_group_result <- function(x, ...) {
   fg$records$probes <- strip(parsed$probe)
   fg$records$injections <- strip(parsed$injection)
   fg$records$calls <- strip(parsed$call)
-  if (length(parsed$session) && any(c("versions", "started") %in% names(session))) {
-    branch <- session$branch
-    fg$records$info <- list(
-      started = session$started %||% as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"),
-      versions = session$versions,
-      message_mode = fg$message_mode,
-      standing_rules = session$standing_rules,
-      disclosure = session$disclosure %||% NA_character_,
-      final_summary = session$final_summary %||% TRUE,
-      branch = if (!is.null(branch)) branch[setdiff(names(branch), c("arm", "role"))],
-      recorded = list(
-        flow = flow_name,
-        n_participants = session$n_participants %||% length(participant_ids),
-        estimated_calls = session$estimated_calls %||% NA_integer_,
-        seed = session$seed %||% NA_integer_,
-        on_desire_failure = session$on_desire_failure %||% NA_character_,
-        provider = session$provider %||% NA_character_,
-        model = session$model %||% NA_character_,
-        call_settings = session$call_settings,
-        branch = branch,
-        participants = data.frame(
-          id = ids,
-          provider = vapply(roster, function(r) r$provider %||% NA_character_, character(1)),
-          model = vapply(roster, function(r) r$model %||% NA_character_, character(1)),
-          stringsAsFactors = FALSE)))
+  # What the file records beyond the session object: the provenance of a
+  # run, or, for a transcript that records none, the settings chosen for it.
+  run <- length(parsed$session) > 0L && any(c("versions", "started") %in% names(session))
+  branch <- session$branch
+  line_field <- function(id, name) {
+    v <- line_of[[id]][[name]]
+    if (is.null(v)) NA_character_ else v
   }
+  info <- list(
+    started = session$started %||% as.POSIXct(NA_real_, origin = "1970-01-01", tz = "UTC"),
+    versions = session$versions,
+    message_mode = fg$message_mode,
+    standing_rules = session$standing_rules,
+    disclosure = session$disclosure %||% NA_character_,
+    final_summary = session$final_summary %||% TRUE,
+    branch = if (!is.null(branch)) branch[setdiff(names(branch), c("arm", "role"))],
+    recorded = list(
+      flow = flow_name,
+      n_participants = session$n_participants %||% length(participant_ids),
+      estimated_calls = session$estimated_calls %||% NA_integer_,
+      seed = session$seed %||% NA_integer_,
+      on_desire_failure = session$on_desire_failure %||% NA_character_,
+      provider = session$provider %||% NA_character_,
+      model = session$model %||% NA_character_,
+      call_settings = session$call_settings,
+      branch = branch,
+      participants = data.frame(
+        id = ids,
+        provider = vapply(ids, line_field, character(1), name = "provider", USE.NAMES = FALSE),
+        model = vapply(ids, line_field, character(1), name = "model", USE.NAMES = FALSE),
+        stringsAsFactors = FALSE)))
+  if (!run) {
+    info <- c(list(source = "transcript"),
+              info[setdiff(names(info), .fg_run_fields)])
+  }
+  fg$records$info <- info
   fg
 }
 
+# The metadata that describe a run: absent from a transcript.
+.fg_run_fields <- c("started", "versions", "standing_rules", "disclosure")
+
 # A FocusGroup as a focus_group_result, for writing. The settings and
 # provenance a session read from a file keeps in `records$info$recorded`
-# stand in for those its agents' configurations would give. An object that
-# never ran a session, as from a transcript, is written as a transcript:
-# its topic and purpose, roster, and messages.
+# stand in for those its agents' configurations would give. An object
+# imported from a data frame is written as a transcript: its topic and
+# purpose, roster, and messages; one read from a transcript file keeps the
+# settings it was read with.
 .fg_object_result <- function(fg) {
   info <- fg$records$info %||% list()
   rec <- info$recorded %||% list()
@@ -1178,6 +1272,10 @@ format.focus_group_result <- function(x, ...) {
   if (!length(info)) {
     result$metadata <- result$metadata[c("topic", "purpose")]
     return(result)
+  }
+  # A transcript read from a file records no run.
+  if (identical(info$source, "transcript")) {
+    result$metadata <- result$metadata[setdiff(names(result$metadata), .fg_run_fields)]
   }
   unconfigured <- vapply(fg$agents, function(a) is.null(a$config), logical(1))
   if (all(unconfigured) && length(rec)) {

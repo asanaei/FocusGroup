@@ -206,7 +206,8 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
     stop("The FocusGroup object holds no session; call run_simulation() first.",
          call. = FALSE)
   }
-  if (is.null(fg$records) || !length(fg$records$info)) {
+  if (is.null(fg$records) || !length(fg$records$info) ||
+      identical(fg$records$info$source, "transcript")) {
     stop("The FocusGroup object has no `records` of a session it ran, which ",
          "fg_player() needs; imported transcripts and objects saved by ",
          "FocusGroup 0.5.3 and earlier have none.", call. = FALSE)
