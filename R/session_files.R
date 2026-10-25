@@ -486,29 +486,29 @@ format.focus_group_result <- function(x, ...) {
   }
   md <- fix(md, c(usage_unknown = "double", flow = "character", fallback = "character",
                   threshold = "double", selected_id = "character"))
-  if (is.list(md$injection)) {
-    md$injection <- fix(md$injection, c(label = "character", arm = "character",
+  if (is.list(md[["injection"]])) {
+    md[["injection"]] <- fix(md[["injection"]], c(label = "character", arm = "character",
                                         point = "character", from = "character",
                                         visibility = "character",
                                         cut_after_message_id = "integer",
                                         as_turn = "logical", replaced = "character"))
   }
-  if (is.list(md$call_on)) {
-    md$call_on <- fix(md$call_on, c(point = "character", participant = "character",
+  if (is.list(md[["call_on"]])) {
+    md[["call_on"]] <- fix(md[["call_on"]], c(point = "character", participant = "character",
                                     handle = "character"))
   }
-  if (is.list(md$desire_scoring_failure)) {
-    failure <- fix(md$desire_scoring_failure, c(reason = "character",
+  if (is.list(md[["desire_scoring_failure"]])) {
+    failure <- fix(md[["desire_scoring_failure"]], c(reason = "character",
                                                 fallback = "character"))
     for (name in intersect(c("candidates", "failed"), names(failure))) {
       value <- failure[[name]]
       failure[[name]] <- if (is.list(value) && !length(value)) character() else
         as_type(value, "character")
     }
-    md$desire_scoring_failure <- failure
+    md[["desire_scoring_failure"]] <- failure
   }
-  if (is.list(md$scores)) {
-    md$scores <- lapply(md$scores, function(v) as_type(v, "double"))
+  if (is.list(md[["scores"]])) {
+    md[["scores"]] <- lapply(md[["scores"]], function(v) as_type(v, "double"))
   }
   md
 }
