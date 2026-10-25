@@ -13,7 +13,8 @@
   out <- list()
   for (col in names(row)) {
     v <- row[[col]]
-    if (length(v) && !is.na(v) && nzchar(v) && !identical(as.character(v), "NA")) {
+    if (length(v) && !is.na(v) && nzchar(as.character(v)) &&
+        !identical(as.character(v), "NA")) {
       out[[col]] <- .fg_value_text(v)
     }
   }

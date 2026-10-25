@@ -1156,6 +1156,16 @@ print.focus_group_result <- function(x, ...) {
 #'   participant personas. When supplied, these descriptions are used directly
 #'   and are recycled in order if necessary. Demographics and survey responses
 #'   remain attached as raw reporting fields.
+#' @param na_strings Character vector of regular expressions, matched ignoring
+#'   case, that mark a text or factor value of `demographics` or
+#'   `survey_responses` as a missing-data label, which the persona leaves
+#'   out, as [create_agents_from_data()] does: a value that starts with a
+#'   numeric code and matches ("-9. Refused"), or one that says nothing but
+#'   the matched wording ("Refused to answer", "Don't know"). Answers that use
+#'   such words ("I keep missing the bus") are kept, and numbers are never
+#'   read this way. Each value left out is recorded in the rendering report,
+#'   with a message naming the fields. The default is
+#'   [fg_default_na_strings()]; `character()` turns the screening off.
 #' @param .runner Optional function used instead of live model calls and stored
 #'   on every agent.
 #'
@@ -1188,9 +1198,11 @@ print.focus_group_result <- function(x, ...) {
 #' @export
 create_agents <- function(n_participants, config, demographics = NULL,
                           survey_responses = NULL,
-                          direct_persona_descriptions = NULL, .runner = NULL) {
+                          direct_persona_descriptions = NULL,
+                          na_strings = fg_default_na_strings(), .runner = NULL) {
 
   .fg_validate_config(config)
+  na_strings <- .fg_check_na_strings(na_strings)
 
   if (!is.numeric(n_participants) || length(n_participants) != 1L ||
       is.na(n_participants) || !is.finite(n_participants) ||
@@ -1287,11 +1299,14 @@ create_agents <- function(n_participants, config, demographics = NULL,
     }
 
     # Identifier columns stay with the raw record but never enter the
-    # persona, which the agents read.
+    # persona, which the agents read, and neither do the missing-data labels
+    # of a frame's text and factor columns.
     shown_demographics <- if (screened_demographics) agent_demographics else
-      .fg_without_identifiers(agent_demographics)
+      .fg_without_missing(.fg_without_identifiers(agent_demographics),
+                          demographics, na_strings)
     shown_survey <- if (!is.null(agent_survey) && !screened_survey) {
-      .fg_without_identifiers(agent_survey)
+      .fg_without_missing(.fg_without_identifiers(agent_survey), survey_responses,
+                          na_strings)
     } else agent_survey
     persona <- if (!is.null(direct_persona_descriptions)) {
       direct_persona_descriptions[
@@ -1341,9 +1356,52 @@ create_agents <- function(n_participants, config, demographics = NULL,
         (!is.null(survey_responses) && !screened_survey)) {
       report <- .fg_mark_identifiers(report)
     }
-    agents <- .fg_attach_report(agents, .fg_check_report(report, agents))
+    report <- .fg_mark_missing(report, list(
+      demographic = if (!screened_demographics) demographics,
+      item = if (!screened_survey) survey_responses), na_strings)
+    .fg_check_report(report, agents)
+    # A value left out as a missing-data label is announced; an NA is not.
+    announced <- report
+    announced$issue[!grepl("^missing value: ", announced$reason)] <- NA_character_
+    .fg_rendering_conditions(announced, source = "data")
+    agents <- .fg_attach_report(agents, report)
   }
   return(agents)
+}
+
+# The fields of a record without the values that are missing-data labels:
+# text and factor values of a supplied frame that `.fg_is_missing_value()`
+# reads as missing under `na_strings`. Numbers, and records that are not
+# rows of a frame, are kept as they are.
+.fg_without_missing <- function(fields, frame, na_strings) {
+  if (!is.data.frame(frame) || !length(fields) || !length(na_strings)) return(fields)
+  text <- names(frame)[vapply(frame, function(col) is.character(col) || is.factor(col),
+                              logical(1))]
+  check <- intersect(names(fields), text)
+  if (!length(check)) return(fields)
+  values <- vapply(fields[check], function(v) as.character(v)[1], character(1))
+  drop <- check[.fg_is_missing_value(values, na_strings)]
+  fields[setdiff(names(fields), drop)]
+}
+
+# Record, in the report of supplied records, the fields left out as
+# missing-data labels, with their reason, as create_agents_from_data() does.
+.fg_mark_missing <- function(report, frames, na_strings) {
+  if (!nrow(report) || !length(na_strings)) return(report)
+  for (kind in names(frames)) {
+    frame <- frames[[kind]]
+    if (!is.data.frame(frame)) next
+    text <- names(frame)[vapply(frame, function(col) is.character(col) || is.factor(col),
+                                logical(1))]
+    rows <- which(report$kind == kind & report$status == "dropped" &
+                    report$variable %in% text & !is.na(report$code) &
+                    report$reason %in% "no value")
+    if (!length(rows)) next
+    missing <- rows[.fg_is_missing_value(report$code[rows], na_strings)]
+    report$reason[missing] <- paste("missing value:", report$code[missing])
+    report$issue[missing] <- "missing"
+  }
+  report
 }
 
 #' Analyze Focus Group Results
