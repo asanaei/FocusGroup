@@ -2369,6 +2369,241 @@ FocusGroup <- R6::R6Class("FocusGroup",
       invisible(NULL)
     },
 
+    # ---- Continuing a recorded session ----------------------------------------
+
+    # Put the session in the state it was in just before participant turn
+    # `t` (the t-th message by a participant on the roster), as a session
+    # run with this record would be when paused at fg_before_turn(t). The
+    # log and records the object holds are the record: the log is cut to the
+    # messages before that turn, the records to the selections, probes,
+    # injections, and calls made before it, and the engine state is set from
+    # them: the guide item, its stage (a turn or a call-on), the responses on
+    # the item, the call-on queue and mark, an addressed participant, the
+    # points passed, the question in force, and the interim summary in force.
+    # The turn-taking flow is made anew from its recorded type and parameters
+    # and is told of every moderator line and participant turn of the prefix,
+    # as the session told it; the round-robin position is that of the last
+    # rotation pick, or, in a record without selections, that of the last
+    # speaker. A custom flow cannot be rebuilt. Token counters are those of
+    # the calls kept.
+    position_at = function(t, final_summary = TRUE) {
+      flow_name <- .fg_flow_name(self$turn_taking_flow)
+      if (!flow_name %in% c("round_robin", "probabilistic", "desire_based")) {
+        stop("A session with the custom turn-taking flow '", flow_name, "' cannot be ",
+             "continued: its state cannot be rebuilt from the record.", call. = FALSE)
+      }
+      flow_params <- .fg_flow_params(self$turn_taking_flow)
+      log <- self$conversation_log
+      record <- self$records %||% .fg_empty_records()
+      participant_ids <- setdiff(names(self$agents), self$moderator_id)
+      speaker <- vapply(log, function(m) as.character(m$speaker_id %||% NA_character_),
+                        character(1))
+      is_mod <- vapply(log, function(m) identical(m$speaker_id, self$moderator_id),
+                       logical(1))
+      is_turn <- !is_mod & speaker %in% participant_ids
+      turn_rows <- which(is_turn)
+      if (t > length(turn_rows)) {
+        stop("The record has ", length(turn_rows), " participant turn(s), so it cannot ",
+             "be continued from turn ", t, ".", call. = FALSE)
+      }
+      cut <- turn_rows[[t]]
+      turn_msg <- log[[cut]]
+      prefix <- log[seq_len(cut - 1L)]
+      id_t <- as.integer(turn_msg$message_id)
+      ids <- vapply(prefix, function(m) as.integer(m$message_id), integer(1))
+      item_of <- function(m) as.integer(m$item %||% NA_integer_)
+      k <- item_of(turn_msg)
+      script <- self$question_script
+      if (is.na(k) || k < 1L || k > length(script)) {
+        stop("Participant turn ", t, " belongs to no item of the guide.", call. = FALSE)
+      }
+      details <- script[[k]]
+      round <- as.integer(turn_msg$round %||% k)
+      kind_of <- function(m) {
+        inj <- m$metadata$injection
+        if (isTRUE(m$metadata$as_turn)) inj$replaced %||% "flow" else
+          if (isTRUE(m$metadata$called_on)) "called_on" else "turn"
+      }
+      calling_on <- identical(kind_of(turn_msg), "called_on")
+
+      # The records made before the turn: the picks of the earlier turns, the
+      # probes asked before it, the injections delivered before it, and the
+      # calls up to the last of them.
+      turn_of <- function(x) as.integer(x$turn %||% NA_integer_)
+      routing <- Filter(function(r) isTRUE(turn_of(r) < t), record$routing)
+      probes <- Filter(function(p) isTRUE(turn_of(p) <= t), record$probes)
+      injections <- Filter(function(i) {
+        isTRUE(i$delivered) && isTRUE(as.integer(i$message_id) %in% ids)
+      }, record$injections)
+      calls <- record$calls
+      call_ids <- vapply(calls, function(x) as.integer(x$call_id %||% NA_integer_), integer(1))
+      call_messages <- vapply(calls, function(x) as.integer(x$message_id %||% NA_integer_),
+                              integer(1))
+      call_rounds <- vapply(calls, function(x) as.integer(x$round %||% NA_integer_), integer(1))
+      call_types <- vapply(calls, function(x) as.character(x$call_type %||% NA_character_),
+                           character(1))
+      summaries <- which(call_types %in% "interim_summary" & call_rounds < round &
+                           vapply(calls, function(x) is.na(x$error %||% NA), logical(1)))
+      last_call <- max(c(0L,
+        call_ids[!is.na(call_messages) & call_messages < id_t],
+        vapply(probes, function(p) as.integer(p$call_id %||% 0L) %|NA|% 0L, integer(1)),
+        call_ids[summaries]), na.rm = TRUE)
+      calls <- calls[!is.na(call_ids) & call_ids <= last_call]
+
+      private$start_records(final_summary)
+      self$conversation_log <- prefix
+      self$records$routing <- routing
+      self$records$probes <- probes
+      self$records$injections <- injections
+      self$records$calls <- calls
+      count <- function(name) {
+        vapply(calls, function(x) as.numeric(x[[name]] %||% NA_real_)[1], numeric(1))
+      }
+      sent <- count("sent_tokens")
+      rec <- count("rec_tokens")
+      total <- count("total_tokens")
+      total <- ifelse(is.na(total), ifelse(is.na(sent) | is.na(rec), NA_real_, sent + rec),
+                      total)
+      self$total_tokens_sent <- sum(sent, na.rm = TRUE)
+      self$total_tokens_received <- sum(rec, na.rm = TRUE)
+      self$total_tokens <- sum(total, na.rm = TRUE)
+      self$calls_usage_unknown <- sum(is.na(total) | is.na(sent) | is.na(rec))
+      self$final_summary <- NULL
+      attr(self, "session_status") <- NULL
+
+      # The interim summary in force: the last one made before this round.
+      if (length(summaries)) {
+        last <- record$calls[[summaries[[length(summaries)]]]]
+        private$last_summary_round <- as.integer(last$round)
+        self$current_conversation_summary <- as.character(last$cleaned_text)
+      } else {
+        private$last_summary_round <- -Inf
+        self$current_conversation_summary <- NULL
+      }
+
+      # The points passed: the start, each item's line, and each turn up to t.
+      fired <- "start"
+      announced <- 0L
+      turns <- 0L
+      for (m in c(prefix, list(turn_msg))) {
+        if (identical(m$speaker_id, "System")) next
+        j <- item_of(m)
+        if (!is.na(j) && j > announced) {
+          fired <- c(fired, paste0("after_item:", seq.int(announced + 1L, j)))
+          announced <- j
+        }
+        if (m$speaker_id %in% participant_ids) {
+          turns <- turns + 1L
+          fired <- c(fired, paste0("before_turn:", turns))
+        }
+      }
+
+      # The flow, told of the prefix as the session told it.
+      flow <- create_conversation_flow(flow_name, self$agents, self$moderator_id,
+                                       flow_params = flow_params)
+      handles <- vapply(participant_ids, private$handle_of, character(1))
+      addressed <- NULL
+      responses <- 0L
+      for (m in prefix) {
+        if (identical(m$speaker_id, self$moderator_id)) {
+          if (is.function(flow$note_moderator_turn)) flow$note_moderator_turn()
+          target <- if (is.null(m$metadata$call_on)) {
+            .fg_addressee(as.character(m$text), handles)
+          } else NA_character_
+          addressed <- if (!is.na(target)) {
+            list(participant = target, message_id = as.integer(m$message_id))
+          }
+        } else if (m$speaker_id %in% participant_ids) {
+          flow$update_state_post_selection(m$speaker_id, self)
+          kind <- kind_of(m)
+          if (!identical(kind, "called_on")) {
+            addressed <- NULL
+            if (identical(item_of(m), k)) responses <- responses + 1L
+          }
+        }
+      }
+      own <- Filter(function(r) identical(turn_of(r), as.integer(t)), record$routing)
+      rule <- if (length(own)) as.character(own[[1]]$rule) else NA_character_
+      if (identical(rule, "addressed")) {
+        addressed <- list(participant = as.character(own[[1]]$selected_id),
+                          message_id = as.integer(own[[1]]$trigger_message_id))
+      } else if (!is.na(rule) && !rule %in% c("called_on", "injected")) {
+        addressed <- NULL
+      } else if (identical(rule, "injected") && identical(kind_of(turn_msg), "flow")) {
+        addressed <- NULL
+      }
+      if (inherits(flow, "RoundRobinFlow")) {
+        rotation <- Filter(function(r) identical(r$rule, "rotation"), routing)
+        position <- if (length(rotation)) {
+          as.integer(rotation[[length(rotation)]]$position)
+        } else if (!length(record$routing) && t > 1L) {
+          last <- speaker[turn_rows[[t - 1L]]]
+          match(last, participant_ids)
+        } else 0L
+        flow$.__enclos_env__$private$current_participant_index <- as.numeric(position)
+      }
+      # A desire-based flow keeps the notes of its last selection, which the
+      # turn it chose carries in its metadata.
+      if (inherits(flow, "DesireBasedFlow")) {
+        chosen <- Filter(function(r) !r$rule %in% c("called_on", "addressed", "injected"),
+                         routing)
+        if (length(chosen)) {
+          at <- match(as.integer(chosen[[length(chosen)]]$message_id), ids)
+          md <- if (!is.na(at)) prefix[[at]]$metadata else list()
+          keys <- c("flow", "fallback", "threshold", "scores", "selected_id",
+                    "desire_scoring_failure")
+          notes <- md[intersect(names(md), keys)]
+          flow$selection_metadata <- if (length(notes)) notes
+        }
+      }
+      self$turn_taking_flow <- flow
+
+      # The call-on stage in progress, and the mark of the previous point.
+      points <- self$call_on_silent
+      items <- as.integer(points$items %||% integer())
+      earlier <- items[items < k]
+      mark <- if (length(earlier)) {
+        j <- max(earlier)
+        in_j <- vapply(prefix, function(m) identical(item_of(m), j), logical(1))
+        if (any(in_j)) max(ids[in_j]) else 0L
+      } else 0L
+      call_on <- NULL
+      if (calling_on) {
+        lines <- which(vapply(prefix, function(m) {
+          identical(m$speaker_id, self$moderator_id) && !is.null(m$metadata$call_on) &&
+            identical(item_of(m), k)
+        }, logical(1)))
+        before <- prefix[seq_len(lines[[1]] - 1L)]
+        spoke <- unlist(lapply(before, function(m) {
+          if (isTRUE(as.integer(m$message_id) > mark)) m$speaker_id
+        }))
+        call_on <- list(item = k, point = points$points[[match(k, items)]],
+                        queue = setdiff(participant_ids, spoke),
+                        position = length(lines), line_logged = TRUE,
+                        line_message_id = as.integer(prefix[[lines[[length(lines)]]]]$message_id))
+      }
+
+      private$current_phase_index <- as.numeric(k)
+      private$current_round <- round
+      private$participant_turns <- as.integer(t - 1L)
+      private$pending_calls <- integer()
+      private$arm <- NULL
+      private$fired <- fired
+      private$plan <- list(injections = list(), probes = list(),
+                           pause_at = paste0("before_turn:", t))
+      private$state <- list(stage = if (calling_on) "call_on" else "turn",
+                            num_rounds = NULL, details = details, item = k,
+                            responses = responses, ended_by = NA_character_,
+                            call_on = call_on, call_on_mark = as.integer(mark),
+                            addressed = addressed)
+      attr(self, "execution_phase") <- details$phase
+      self$current_question_text <- if (!is.null(details$text) && nzchar(details$text)) {
+        details$text
+      } else if (details$phase %in% .fg_question_phases) self$topic
+      private$claim_handles()
+      invisible(self)
+    },
+
     # Warn about, and record, the planned injections and probes a finished
     # session never reached.
     report_undelivered = function() {
