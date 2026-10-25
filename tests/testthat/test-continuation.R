@@ -236,3 +236,245 @@ test_that("the state rebuilt at every turn, in memory and from its file, equals 
                     "highest_below_threshold", "addressed", "called_on", "injected") %in%
                     rules))
 })
+
+# ---- Counterfactual arms from a record ---------------------------------------------
+
+# A runner that keeps every request and replies by the prompt alone.
+.cont_recorder <- function() {
+  env <- new.env()
+  env$requests <- list()
+  env$runner <- function(experiments, ...) {
+    env$requests[[length(env$requests) + 1L]] <- experiments$messages[[1]]
+    .cont_runner(experiments, ...)
+  }
+  env
+}
+
+.cont_record <- function(flow = "round_robin", runner = .cont_runner, ...) {
+  run_focus_group(
+    topic = "library hours", config = .cont_config(), n_participants = 3,
+    guide = list(Opening = "Welcome, everyone.",
+                 Engagement = c("Which library hours matter most to you?",
+                                "Who is left out by the current hours?"),
+                 Exploration = "What would you change first?",
+                 Closing = "Thank you all; this closes the session."),
+    flow = flow, max_participant_responses = 2, moderator_verbatim = c(1, 5),
+    seed = 110, verbose = FALSE, .runner = runner, ...)
+}
+
+.cont_arms <- function(record, t = 3L, runner = .cont_runner, ...) {
+  run_focus_group_arms(
+    record, config = .cont_config(),
+    arms = list(same = NULL,
+                changed = fg_injection("I say the evening hours should stay, whatever it costs.",
+                                       at = fg_before_turn(t), from = "P2")),
+    seed = 110, verbose = FALSE, .runner = runner, ...)
+}
+
+test_that("a regenerated arm sends the recorded prompts and, under round robin, repeats the record", {
+  record <- .cont_record()
+  rec <- .cont_recorder()
+  out <- .cont_arms(record, t = 3L, runner = rec$runner)
+  same <- out$arms$same
+  tr <- record$transcript
+  turns <- which(tr$speaker_id %in% c("P1", "P2", "P3"))
+  cut <- turns[[3]]
+  expect_identical(out$metadata$prefix_messages, cut - 1L)
+  # The first call after the cut sends the messages the recorded call for
+  # turn 3 sent.
+  recorded <- record$calls[record$calls$message_id %in% tr$message_id[[cut]], ]
+  expect_identical(rec$requests[[1]], recorded$messages[[1]])
+  # And the regenerated arm repeats the recorded remainder, call for call.
+  cols <- c("message_id", "speaker_id", "handle", "text", "item", "round", "phase")
+  expect_identical(same$transcript[, cols], tr[, cols])
+  later <- record$calls[record$calls$call_id > out$arms$same$metadata$branch$prefix_calls, ]
+  arm_calls <- same$calls[same$calls$call_id > same$metadata$branch$prefix_calls, ]
+  expect_identical(arm_calls$messages, later$messages)
+  expect_identical(same$summary, record$summary)
+  expect_identical(same$routing[, c("turn", "rule", "selected_id", "message_id")],
+                   record$routing[, c("turn", "rule", "selected_id", "message_id")])
+
+  # The changed arm says the injected text as turn 3, and both arms share
+  # the prefix.
+  changed <- out$arms$changed
+  ctr <- changed$transcript
+  expect_identical(ctr$text[[cut]], "I say the evening hours should stay, whatever it costs.")
+  expect_identical(ctr$speaker_id[[cut]], "P2")
+  expect_true(ctr$metadata[[cut]]$as_turn)
+  expect_identical(changed$routing$rule[[3]], "injected")
+  # Turn 3 answers the call-on line for the participant round robin left
+  # out of item 2, and the injected turn takes its place.
+  expect_identical(record$routing$rule[[3]], "called_on")
+  expect_identical(changed$injections$replaced, "called_on")
+  expect_identical(changed$metadata$branch$prefix_hash, same$metadata$branch$prefix_hash)
+  expect_identical(out$metadata$prefix_hash,
+                   FocusGroup:::.fg_prefix_hash(record$focus_group$conversation_log[seq_len(cut - 1L)]))
+  expect_identical(ctr[seq_len(cut - 1L), cols], tr[seq_len(cut - 1L), cols])
+  expect_true(all(c(same$metadata$complete, changed$metadata$complete)))
+  # The prefix's records are kept: its picks, and the calls made before the cut.
+  expect_identical(changed$routing$turn, seq_len(nrow(changed$routing)))
+  expect_identical(nrow(out$prefix$calls), same$metadata$branch$prefix_calls)
+  expect_identical(out$prefix$calls$call_id, record$calls$call_id[seq_len(nrow(out$prefix$calls))])
+})
+
+test_that("a session file written and read back continues the same way", {
+  record <- .cont_record()
+  path <- tempfile(fileext = ".fg.jsonl")
+  writeLines(format(record), path)
+  fg <- focus_group_from_transcript(path)
+  a <- .cont_arms(fg)
+  b <- .cont_arms(record)
+  for (arm in c("same", "changed")) {
+    expect_identical(a$arms[[arm]]$transcript[, c("speaker_id", "text")],
+                     b$arms[[arm]]$transcript[, c("speaker_id", "text")])
+  }
+})
+
+test_that("a continuation checks every argument before any call", {
+  record <- .cont_record()
+  calls <- 0L
+  counting <- function(experiments, ...) {
+    calls <<- calls + 1L
+    .cont_runner(experiments, ...)
+  }
+  arms <- list(same = NULL, changed = fg_injection("Text.", fg_before_turn(3), from = "P2"))
+  go <- function(...) run_focus_group_arms(record, config = .cont_config(), verbose = FALSE,
+                                           .runner = counting, ...)
+  expect_error(go(arms = arms, flow = "desire_based"), "fixes `flow`")
+  expect_error(go(arms = arms, n_participants = 4, handles = "ids"),
+               "fixes `n_participants`, `handles`")
+  expect_error(run_focus_group_arms(record, arms = arms), "config")
+  expect_error(go(arms = list(a = NULL, b = fg_injection("Text.", fg_after_item(2)))),
+               "fg_before_turn")
+  expect_error(go(arms = list(a = NULL, b = fg_injection("Text.", fg_before_turn(40),
+                                                         from = "P2"))),
+               "beyond")
+  expect_error(go(arms = list(a = NULL, b = list(
+    fg_injection("Text.", fg_before_turn(3), from = "P2"),
+    fg_injection("Late.", fg_after_item(2), from = "Guest")))), "before the branch point")
+  expect_error(go(arms = list(a = NULL, b = list(
+    fg_injection("Text.", fg_before_turn(3), from = "P2"),
+    fg_injection("Later.", fg_after_item(4), from = "P1")))), "participant's turn")
+  expect_error(go(arms = list(a = NULL, b = fg_injection("Text.", fg_before_turn(3),
+                                                         from = "P7"))),
+               "named like a participant")
+  expect_error(go(arms = arms, probes = fg_probe("Q?", at = fg_after_item(2))),
+               "already passed")
+  expect_error(go(arms = arms, max_tokens_config = list(desire = 0)), "positive whole")
+  custom <- record
+  custom$metadata$flow <- "FirstFlow"
+  expect_error(run_focus_group_arms(custom, config = .cont_config(), arms = arms,
+                                    verbose = FALSE, .runner = counting), "custom")
+  human <- focus_group_from_transcript(data.frame(
+    speaker = c("Moderator", "Ana", "Ben", "Moderator", "Ana"),
+    text = c("Which hours matter?", "Evenings.", "Mornings.", "Who is left out?",
+             "Shift workers.")))
+  expect_error(run_focus_group_arms(human, config = .cont_config(), verbose = FALSE,
+                                    arms = list(a = NULL, b = fg_injection(
+                                      "Text.", fg_before_turn(2), from = "Ben")),
+                                    .runner = counting), "no topic")
+  topical <- focus_group_from_transcript(human, topic = "library hours")
+  expect_error(run_focus_group_arms(topical, config = .cont_config(), verbose = FALSE,
+                                    arms = list(a = NULL, b = fg_injection(
+                                      "Text.", fg_before_turn(2), from = "Ben")),
+                                    .runner = counting), "Ana, Ben have no persona")
+  expect_identical(calls, 0L)
+  # The estimate is checked for a live run.
+  expect_error(run_focus_group_arms(record, config = .cont_config(), arms = arms,
+                                    max_calls = 1, verbose = FALSE), "max_calls")
+})
+
+test_that("a continuation restores the caller's random-number state and reproduces under a seed", {
+  record <- .cont_record(flow = "probabilistic")
+  set.seed(5)
+  before <- .Random.seed
+  a <- .cont_arms(record)
+  expect_identical(.Random.seed, before)
+  b <- .cont_arms(record)
+  expect_identical(a$arms$same$transcript$text, b$arms$same$transcript$text)
+  expect_identical(a$arms$changed$routing$selected_id, b$arms$changed$routing$selected_id)
+})
+
+test_that("the player and the summaries read arms continued with an injected turn", {
+  record <- .cont_record(flow = "desire_based")
+  out <- .cont_arms(record, t = 4L)
+  pages <- fg_player(out, file = tempfile(), open = FALSE)
+  expect_identical(names(pages), c("same", "changed"))
+  turns <- fg_turns(out)
+  expect_identical(turns$rule[turns$segment == "changed" & turns$injected], "injected")
+  stub <- .sum_runner()
+  summary <- summarize_focus_group(out, .cont_config(), .runner = stub$runner)
+  expect_identical(summary$metadata$segments, c("prefix", "same", "changed"))
+  changed <- stub$prompts[summary$calls$segment == "changed"]
+  expect_true(any(grepl("I say the evening hours should stay, whatever it costs.",
+                        changed, fixed = TRUE)))
+  expect_false(any(grepl("I say the evening hours should stay",
+                         stub$prompts[summary$calls$segment == "same"], fixed = TRUE)))
+})
+
+test_that("a human transcript continues with the personas given", {
+  lines <- c(
+    '{"type":"session","topic":"library hours"}',
+    '{"type":"participant","id":"Chair","is_moderator":true}',
+    '{"type":"participant","id":"Ana"}',
+    '{"type":"participant","id":"Ben"}',
+    '{"type":"message","speaker_id":"Chair","text":"Which hours matter most to you?"}',
+    '{"type":"message","speaker_id":"Ana","text":"Evenings, after work."}',
+    '{"type":"message","speaker_id":"Ben","text":"Mornings, before the crowds."}',
+    '{"type":"message","speaker_id":"Chair","text":"Who is left out by the current hours?"}',
+    '{"type":"message","speaker_id":"Ben","text":"Shift workers, mostly."}',
+    '{"type":"message","speaker_id":"Ana","text":"And parents."}',
+    '{"type":"message","speaker_id":"Chair","text":"Thank you all."}')
+  fg <- focus_group_from_transcript(lines, personas = c(Ana = "A nurse who works days.",
+                                                         Ben = "A baker who works nights."))
+  rec <- .cont_recorder()
+  out <- run_focus_group_arms(
+    fg, config = .cont_config(),
+    arms = list(same = NULL,
+                changed = fg_injection("Honestly, weekends matter more to me.",
+                                       at = fg_before_turn(2), from = "Ben")),
+    final_summary = FALSE, verbose = FALSE, .runner = rec$runner)
+  for (arm in out$arms) {
+    tr <- arm$transcript
+    expect_true(arm$metadata$complete)
+    # The later moderator lines are the recorded ones, delivered as written.
+    expect_identical(tr$text[tr$speaker_id == "Chair"],
+                     c("Which hours matter most to you?",
+                       "Who is left out by the current hours?", "Thank you all."))
+    expect_identical(sum(tr$speaker_id %in% c("Ana", "Ben")), 4L)
+  }
+  changed <- out$arms$changed$transcript
+  expect_identical(changed$text[[3]], "Honestly, weekends matter more to me.")
+  # Round robin continues from the last speaker: after Ana comes Ben, whose
+  # turn the injection takes; the next item opens with Ana.
+  expect_identical(out$arms$same$transcript$speaker_id[3], "Ben")
+  expect_match(.cont_prompt(rec$requests[[1]]), "A baker who works nights.", fixed = TRUE)
+  expect_false(any(grepl("placeholder", vapply(rec$requests, .cont_prompt, character(1)))))
+  expect_identical(nrow(out$arms$same$calls), 3L)
+})
+
+test_that("the interim summary in force at the cut is the one the record holds", {
+  record <- .cont_record()
+  calls <- record$calls
+  row <- calls[1, ]
+  row$call_id <- nrow(calls) + 1L
+  row$call_type <- "interim_summary"
+  row$round <- 1L
+  row$cleaned_text <- "Earlier, the group agreed that evenings matter."
+  row$message_id <- NA_integer_
+  # A record whose calls hold an interim summary made after round 1.
+  record$calls <- rbind(calls, row)
+  fg <- focus_group_from_transcript(record)
+  priv <- fg$.__enclos_env__$private
+  priv$position_at(3L)
+  expect_identical(fg$current_conversation_summary,
+                   "Earlier, the group agreed that evenings matter.")
+  expect_identical(priv$last_summary_round, 1L)
+  rec <- .cont_recorder()
+  .cont_arms(record, t = 3L, runner = rec$runner)
+  expect_match(.cont_prompt(rec$requests[[1]]),
+               "Summary of earlier discussion: Earlier, the group agreed", fixed = TRUE)
+  fresh <- focus_group_from_transcript(.cont_record())
+  fresh$.__enclos_env__$private$position_at(3L)
+  expect_null(fresh$current_conversation_summary)
+})

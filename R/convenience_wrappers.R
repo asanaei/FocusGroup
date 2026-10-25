@@ -687,7 +687,11 @@ run_focus_group <- function(topic, config, n_participants = 6,
     )
   }
 
-  if (!is.null(seed)) withr::local_seed(as.integer(seed), .local_envir = seed_env)
+  if (!is.null(seed)) {
+    # local_seed() alone does not put the caller's state back.
+    withr::local_preserve_seed(.local_envir = seed_env)
+    withr::local_seed(as.integer(seed), .local_envir = seed_env)
+  }
   if (verbose) {
     cat("Setting up focus group simulation...\n")
     cat("Topic:", topic, "\n")

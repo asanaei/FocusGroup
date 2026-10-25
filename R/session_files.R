@@ -1169,6 +1169,8 @@ format.focus_group_result <- function(x, ...) {
                     on_desire_failure = rec$on_desire_failure %||%
                       flow_params$on_desire_failure,
                     branch = rec$branch))
+  # The result is for writing: its tables are the record.
+  result["focus_group"] <- list(NULL)
   if (!length(info)) {
     result$metadata <- result$metadata[c("topic", "purpose")]
     return(result)

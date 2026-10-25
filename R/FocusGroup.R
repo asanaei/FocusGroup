@@ -464,47 +464,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
             length(self$conversation_log), " message(s) ---
 ", sep = "")
       }
-
-      # Every arm starts from the random-number state at the branch point.
-      if (!exists(".Random.seed", envir = globalenv(), inherits = FALSE)) stats::runif(1)
-      rng_state <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
-      snapshot <- .fg_clone_session(self)
-      out <- list()
-      for (name in names(arms)) {
-        assign(".Random.seed", rng_state, envir = globalenv())
-        branch <- .fg_clone_session(snapshot)
-        bp <- branch$.__enclos_env__$private
-        bp$arm <- name
-        injections <- lapply(arms[[name]], function(inj) {
-          inj$label <- inj$label %||% name
-          inj
-        })
-        at_branch <- vapply(injections, function(inj) {
-          identical(.fg_point_event(inj$at), branch_event)
-        }, logical(1))
-        bp$prepare_plan(injections[!at_branch], .fg_probe_list(probes))
-        bp$fired <- private$fired
-        if (verbose) cat("
-=== Arm: ", name, " ===
-", sep = "")
-        done <- tryCatch({
-          bp$with_records({
-            for (inj in injections[at_branch]) bp$apply_injection(bp$plan_entry(inj), verbose)
-            bp$session_continue(verbose)
-            bp$session_finish(verbose)
-          })
-          TRUE
-        }, error = function(e) e)
-        if (!isTRUE(done)) {
-          rlang::abort(sprintf("Arm '%s' failed.", name),
-                       class = "focusgroup_branch_failure", arm = name,
-                       branch = branch, completed = out,
-                       phase = attr(branch, "execution_phase") %||% "setup",
-                       parent = done)
-        }
-        out[[name]] <- branch
-      }
-      list(prefix = self, arms = out)
+      private$branch_out(arms, probes, branch_event, verbose)
     },
 
 
@@ -2367,6 +2327,53 @@ FocusGroup <- R6::R6Class("FocusGroup",
       }
       attr(self, "execution_phase") <- previous_phase
       invisible(NULL)
+    },
+
+    # Continue a copy of this session, stopped at `branch_event`, once per
+    # arm: the arm's injections at the branch point are applied, its later
+    # ones planned, and the session run to its end. Every arm starts from the
+    # random-number state at the branch point.
+    branch_out = function(arms, probes, branch_event, verbose) {
+      # Every arm starts from the random-number state at the branch point.
+      if (!exists(".Random.seed", envir = globalenv(), inherits = FALSE)) stats::runif(1)
+      rng_state <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
+      snapshot <- .fg_clone_session(self)
+      out <- list()
+      for (name in names(arms)) {
+        assign(".Random.seed", rng_state, envir = globalenv())
+        branch <- .fg_clone_session(snapshot)
+        bp <- branch$.__enclos_env__$private
+        bp$arm <- name
+        injections <- lapply(arms[[name]], function(inj) {
+          inj$label <- inj$label %||% name
+          inj
+        })
+        at_branch <- vapply(injections, function(inj) {
+          identical(.fg_point_event(inj$at), branch_event)
+        }, logical(1))
+        bp$prepare_plan(injections[!at_branch], .fg_probe_list(probes))
+        bp$fired <- private$fired
+        if (verbose) cat("
+=== Arm: ", name, " ===
+", sep = "")
+        done <- tryCatch({
+          bp$with_records({
+            for (inj in injections[at_branch]) bp$apply_injection(bp$plan_entry(inj), verbose)
+            bp$session_continue(verbose)
+            bp$session_finish(verbose)
+          })
+          TRUE
+        }, error = function(e) e)
+        if (!isTRUE(done)) {
+          rlang::abort(sprintf("Arm '%s' failed.", name),
+                       class = "focusgroup_branch_failure", arm = name,
+                       branch = branch, completed = out,
+                       phase = attr(branch, "execution_phase") %||% "setup",
+                       parent = done)
+        }
+        out[[name]] <- branch
+      }
+      list(prefix = self, arms = out)
     },
 
     # ---- Continuing a recorded session ----------------------------------------
