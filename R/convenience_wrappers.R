@@ -1347,7 +1347,9 @@ create_agents <- function(n_participants, config, demographics = NULL,
 #' Runs descriptive analyses offline. Thematic analysis and a model-generated
 #' summary are opt-in and run only when `config` is supplied.
 #'
-#' @param focus_group_result A `FocusGroup` object or `focus_group_result`.
+#' @param focus_group_result A `FocusGroup` object or `focus_group_result`. A
+#'   result whose `focus_group` is `NULL`, as one saved without its session
+#'   object, is read back with [focus_group_from_transcript()].
 #' @param num_topics Integer number of topics for topic modeling.
 #' @param speakers Whose turns the text statistics describe:
 #'   `"participants"` (default) excludes the moderator's scripted turns;
@@ -1395,6 +1397,8 @@ analyze_focus_group <- function(focus_group_result,
     fg <- focus_group_result
   } else if (inherits(focus_group_result, "focus_group_result")) {
     fg <- focus_group_result$focus_group
+    # A result saved without its session object is rebuilt from its tables.
+    if (is.null(fg)) fg <- focus_group_from_transcript(focus_group_result)
   } else {
     stop("`focus_group_result` must be a FocusGroup or focus_group_result.",
          call. = FALSE)

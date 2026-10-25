@@ -15,7 +15,9 @@ analyze_focus_group(
 )
 }
 \arguments{
-\item{focus_group_result}{A \code{FocusGroup} object or \code{focus_group_result}.}
+\item{focus_group_result}{A \code{FocusGroup} object or \code{focus_group_result}. A
+result whose \code{focus_group} is \code{NULL}, as one saved without its session
+object, is read back with \code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}}.}
 
 \item{num_topics}{Integer number of topics for topic modeling.}
 

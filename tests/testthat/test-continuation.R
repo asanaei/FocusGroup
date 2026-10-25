@@ -186,7 +186,7 @@
   cases
 }
 
-test_that("the state rebuilt at every turn equals the state of the session paused there", {
+test_that("the state rebuilt at every turn, in memory and from its file, equals the paused state", {
   checked <- 0L
   stages <- character()
   addressed <- 0L
@@ -197,6 +197,10 @@ test_that("the state rebuilt at every turn equals the state of the session pause
     make <- .cont_make(case$flow, call_on, n = case$n, responses = case$responses)
     injections <- .cont_injections[[case$inj]]
     full <- .cont_run(make, injections)
+    # The record after a round trip through its session file.
+    lines <- format(FocusGroup:::.fg_object_result(full))
+    read <- focus_group_from_transcript(lines)
+    expect_identical(format(FocusGroup:::.fg_object_result(read)), lines)
     rules <- c(rules, vapply(full$records$routing, `[[`, character(1), "rule"))
     for (t in seq_len(.cont_turns(full))) {
       label <- sprintf("%s, %d participants, call-ons %s, injections %s, turn %d",
@@ -204,9 +208,15 @@ test_that("the state rebuilt at every turn equals the state of the session pause
       paused <- .cont_paused(make, injections, t)
       rebuilt <- FocusGroup:::.fg_clone_session(full)
       rebuilt$.__enclos_env__$private$position_at(t, final_summary = FALSE)
+      from_file <- FocusGroup:::.fg_clone_session(read)
+      from_file$.__enclos_env__$private$position_at(t, final_summary = FALSE)
       a <- .cont_state(rebuilt)
       b <- .cont_state(paused)
-      for (field in names(b)) expect_identical(a[[field]], b[[field]], label = paste(label, field))
+      f <- .cont_state(from_file)
+      for (field in names(b)) {
+        expect_identical(a[[field]], b[[field]], label = paste(label, field))
+        expect_identical(f[[field]], b[[field]], label = paste(label, field, "from the file"))
+      }
       state <- paused$.__enclos_env__$private$state
       stages <- c(stages, state$stage)
       addressed <- addressed + !is.null(state$addressed)

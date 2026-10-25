@@ -2382,9 +2382,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     # points passed, the question in force, and the interim summary in force.
     # The turn-taking flow is made anew from its recorded type and parameters
     # and is told of every moderator line and participant turn of the prefix,
-    # as the session told it; the round-robin position is that of the last
-    # rotation pick, or, in a record without selections, that of the last
-    # speaker. A custom flow cannot be rebuilt. Token counters are those of
+    # as the session told it; the round-robin position is that of the
+    # participant the last rotation pick chose, or, in a record without
+    # selections, that of the last speaker. A custom flow cannot be rebuilt. Token counters are those of
     # the calls kept.
     position_at = function(t, final_summary = TRUE) {
       flow_name <- .fg_flow_name(self$turn_taking_flow)
@@ -2534,8 +2534,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
       }
       if (inherits(flow, "RoundRobinFlow")) {
         rotation <- Filter(function(r) identical(r$rule, "rotation"), routing)
+        # The rotation stops at the participant it chose.
         position <- if (length(rotation)) {
-          as.integer(rotation[[length(rotation)]]$position)
+          match(as.character(rotation[[length(rotation)]]$selected_id), participant_ids)
         } else if (!length(record$routing) && t > 1L) {
           last <- speaker[turn_rows[[t - 1L]]]
           match(last, participant_ids)

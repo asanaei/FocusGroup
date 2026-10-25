@@ -2,52 +2,67 @@
 % Please edit documentation in R/transcript_import.R
 \name{focus_group_from_transcript}
 \alias{focus_group_from_transcript}
-\title{Build a FocusGroup object from an imported transcript}
+\title{Build a FocusGroup object from a transcript or a session file}
 \usage{
 focus_group_from_transcript(
   data,
   speaker_col = "speaker",
   text_col = "text",
   topic = NULL,
-  moderator_id = NULL
+  moderator_id = NULL,
+  personas = NULL
 )
 }
 \arguments{
-\item{data}{A data frame with one row per turn, in order.}
+\item{data}{A data frame with one row per turn, in order; the path of a
+session file (ending in \code{.jsonl}); a character vector of its lines; a
+\code{focus_group_result}; or a \code{FocusGroup}. A result or a session object
+is read as the file \code{\link[=format.focus_group_result]{format.focus_group_result()}} writes for it, so
+the object returned is always a new one, without model configurations
+or runners.}
 
 \item{speaker_col}{Character. Name of the column holding the speaker id.
-Default "speaker".}
+Default "speaker". For a data frame only.}
 
 \item{text_col}{Character. Name of the column holding the utterance text.
 Default "text". Missing text becomes an empty utterance, with a warning
-giving the number of such turns.}
+giving the number of such turns. For a data frame only.}
 
 \item{topic}{Character or \code{NULL}. The discussion topic, used by the
-model-dependent analyses and stored on the object. \code{NULL} falls back to
+model-dependent analyses and stored on the object. \code{NULL} keeps the
+topic of a session file and otherwise falls back to
 "Imported transcript".}
 
 \item{moderator_id}{Character or \code{NULL}. Exact speaker id to treat as the
 moderator. When \code{NULL}, an \code{is_moderator} column or the exact aliases
 described above are used.}
+
+\item{personas}{\code{NULL}, or a character vector of personas named by
+speaker id, which replace the placeholder or recorded persona of those
+speakers; a speaker a continued session lets speak needs one.}
 }
 \value{
 A \link{FocusGroup} object with a populated \code{conversation_log}.
 }
 \description{
 Turns a transcript that the package did not generate -- a human focus group,
-a transcript exported from other software, or a saved CSV -- into a
-\link{FocusGroup} object whose \code{conversation_log} holds the imported turns. The
+a transcript exported from other software, or a saved CSV -- or a session
+file the package wrote into a \link{FocusGroup} object whose
+\code{conversation_log} holds the turns. The
 returned object supports the analysis methods (\code{analyze()},
 \code{analyze_participation_balance()}, \code{analyze_topics()}, \code{analyze_tfidf()},
-\code{analyze_readability()}, \code{analyze_themes()}), the plotting methods, and
-\code{\link[=analyze_focus_group]{analyze_focus_group()}}. No model call is made: importing and the
-descriptive analyses run offline, and only the model-dependent methods
-(\code{analyze_themes()}, \code{summarize()}) contact a provider when you call them.
+\code{analyze_readability()}, \code{analyze_themes()}), the plotting methods,
+\code{\link[=analyze_focus_group]{analyze_focus_group()}}, \code{\link[=fg_turns]{fg_turns()}}, and \code{\link[=summarize_focus_group]{summarize_focus_group()}}, and
+it can be continued with \code{\link[=run_focus_group_arms]{run_focus_group_arms()}}. No model call is made:
+importing and the descriptive analyses run offline, and only the
+model-dependent methods (\code{analyze_themes()}, \code{summarize()}) contact a
+provider when you call them.
 }
 \details{
 One lightweight agent is created per speaker so that speaker-aware methods
-have a roster to report on; these agents carry a minimal placeholder persona
-and are not meant to continue the conversation. Set \code{moderator_id} when the
+have a roster to report on. Unless \code{personas} or the file gives one, an
+agent carries a placeholder persona, and a session cannot be continued
+while a participant has it. Set \code{moderator_id} when the
 transcript identifies the moderator. When it is \code{NULL} and \code{data} has no
 \code{is_moderator} column, the moderator is the speaker whose id, ignoring case
 and surrounding spaces, is exactly one of "mod", "moderator",
@@ -100,6 +115,44 @@ UTC, or ISO 8601 text such as "2026-03-01", "2026-03-01 14:30:00", or
 all timestamps are stored in UTC. A timestamp that cannot be read becomes
 \code{NA}, with one warning giving the number of such values.
 }
+\section{Session files}{
+
+A session file has one JSON object per line, each with a \code{type}; the file
+\code{system.file("fg-session-spec.md", package = "FocusGroup")} describes the
+format for a person or a language model converting a transcript.
+\code{\link[=format.focus_group_result]{format.focus_group_result()}} writes the file of a result, which this
+function reads back with every setting and record: the roster with
+personas, styles, and handles; the guide; the turn-taking rule and its
+parameters; the settings, such as the token limits, the call-on points,
+and the templates; the summary; and the routing, probe, injection, and
+call records. A result written and read back gives the same file when
+written again.
+
+Only \code{message} lines with \code{speaker_id} and \code{text} are required. Every
+problem in a file (a line that is not JSON or not an object, an unknown
+line type or field, a value of the wrong type, a missing \code{text}, message
+ids that do not increase, two moderators, a speaker not declared when
+participants are, an item outside the guide, a file of one JSON value
+written over several lines) is reported at once, by an error of class
+\code{focusgroup_format_error} whose \code{problems} field is a data frame of
+\code{row} (the line), \code{field}, and \code{problem}. A field whose name starts with
+\code{x_} is ignored. A byte-order mark and Windows line endings are accepted.
+A path that is not a \code{.jsonl} file, such as a CSV or RDS file, is refused:
+read it into R first.
+
+A file without \code{participant} lines takes its speakers from the messages,
+with the moderator found as for a data frame. A message injected from an
+outside voice (\code{metadata$injected}) never makes its speaker a
+participant. A file that records no run, such as a converted human
+transcript, is read with these defaults: each moderator line becomes a
+guide item delivered as written, a \code{generic_discussion} item when a
+participant replies to it, a \code{transition} when none does, and the
+\code{closing} when it is the last line and unanswered; call-ons are off; the
+handles are the speaker ids; \code{max_participant_responses} is the longest
+run of participant turns between moderator lines; and the turn-taking
+rule is round robin, continuing from the last speaker.
+}
+
 \examples{
 transcript <- data.frame(
   speaker = c("Chair", "Ana", "Ben", "Ana", "Chair", "Ben"),
