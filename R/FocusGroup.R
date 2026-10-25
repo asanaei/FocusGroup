@@ -1883,10 +1883,12 @@ FocusGroup <- R6::R6Class("FocusGroup",
     # One participant turn of the current question: to the participant the
     # moderator's last line addressed, if any, otherwise to the flow's pick.
     step_turn = function(verbose) {
-      if (private$checkpoint(paste0("before_turn:", private$participant_turns + 1L),
-                             verbose)) {
+      turns <- private$participant_turns
+      if (private$checkpoint(paste0("before_turn:", turns + 1L), verbose)) {
         return(TRUE)
       }
+      # A participant's injected message took this turn.
+      if (private$participant_turns != turns) return(FALSE)
       addressed <- private$state$addressed
       if (!is.null(addressed)) {
         private$state$addressed <- NULL
@@ -2032,10 +2034,12 @@ FocusGroup <- R6::R6Class("FocusGroup",
         private$state$call_on <- co
         if (verbose) cat(paste0(self$moderator_id, " (Moderator): ", text, "\n"))
       }
-      if (private$checkpoint(paste0("before_turn:", private$participant_turns + 1L),
-                             verbose)) {
+      turns <- private$participant_turns
+      if (private$checkpoint(paste0("before_turn:", turns + 1L), verbose)) {
         return(TRUE)
       }
+      # A participant's injected message took this turn; the queue has moved on.
+      if (private$participant_turns != turns) return(FALSE)
       pick <- private$record_forced_routing(id, "called_on", co$line_message_id)
       private$participant_turn(self$agents[[id]], pick, cue = .fg_called_on_cue,
                                metadata = list(called_on = TRUE), verbose = verbose)
@@ -2186,20 +2190,42 @@ FocusGroup <- R6::R6Class("FocusGroup",
                " participant turn(s) the guide allows.", call. = FALSE)
         }
       }
-      participant_handles <- vapply(participant_ids, private$handle_of, character(1))
       injections <- lapply(seq_along(injections), function(i) {
+        given <- injections[[i]]$from
         injection <- private$plan_entry(injections[[i]])
         check_point(injection$at, "Injection")
-        if (!identical(injection$from, "moderator") &&
-            (injection$from %in% c(participant_ids, "System") ||
-             tolower(injection$from) %in% tolower(participant_handles))) {
-          stop("An injection cannot come from '", injection$from,
-               "': it names a participant, a participant's handle, or the System row.",
+        if (identical(injection$from, "System")) {
+          stop("An injection cannot come from 'System', which labels the roster row.",
                call. = FALSE)
+        }
+        if (isTRUE(injection$as_turn)) {
+          if (!identical(injection$at$type, "before_turn")) {
+            stop("An injection from participant '", given, "' is that participant's ",
+                 "turn, so it goes at fg_before_turn(); found ", format(injection$at), ".",
+                 call. = FALSE)
+          }
+          if (!identical(injection$visibility, "shared")) {
+            stop("An injection from participant '", given, "' is a turn of the ",
+                 "discussion and must have visibility \"shared\".", call. = FALSE)
+          }
+        } else if (!identical(injection$from, "moderator") &&
+                   grepl("^p[0-9]+$", tolower(injection$from))) {
+          stop("An injection cannot come from '", injection$from, "': it is no ",
+               "participant of the session, and an outside voice named like a ",
+               "participant's handle would read as one.", call. = FALSE)
         }
         injection$label <- injection$label %||% paste0("injection_", i)
         injection
       })
+      turn_events <- vapply(injections, function(inj) {
+        if (isTRUE(inj$as_turn)) inj$event else NA_character_
+      }, character(1))
+      turn_events <- turn_events[!is.na(turn_events)]
+      if (anyDuplicated(turn_events)) {
+        stop("At most one participant's injected turn can stand at one point; ",
+             .fg_event_label(turn_events[anyDuplicated(turn_events)]),
+             " has more.", call. = FALSE)
+      }
       probes <- lapply(seq_along(probes), function(i) {
         probe <- probes[[i]]
         for (point in probe$at) check_point(point, "Probe")
@@ -2219,6 +2245,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
 
     # Log an injected message and record it.
     apply_injection = function(injection, verbose = FALSE) {
+      if (isTRUE(injection$as_turn)) return(private$apply_turn_injection(injection, verbose))
       speaker <- if (identical(injection$from, "moderator")) self$moderator_id else injection$from
       log <- self$conversation_log
       cut_after <- if (length(log)) as.integer(log[[length(log)]]$message_id) else NA_integer_
@@ -2237,6 +2264,57 @@ FocusGroup <- R6::R6Class("FocusGroup",
                    text = injection$text, round = private$current_round,
                    phase = phase, turn = private$participant_turns + 1L))
       if (verbose) cat(paste0(speaker, " (injected): ", injection$text, "\n"))
+      invisible(message_id)
+    },
+
+    # A participant's injected message, which is that participant's turn: it
+    # is logged under the participant, given a routing row with the rule
+    # "injected", counted as a participant turn, and passed to the flow as
+    # the participant's turn. It then takes the place of the turn the session
+    # was about to give: a call-on turn moves the call-on queue on; any other
+    # turn counts toward the item's responses, clears an addressed turn, and
+    # can end the discussion of the item. `replaced` records which turn it
+    # took the place of.
+    apply_turn_injection = function(injection, verbose = FALSE) {
+      id <- injection$from
+      calling_on <- identical(private$state$stage, "call_on")
+      replaced <- if (calling_on) "called_on" else
+        if (!is.null(private$state$addressed)) "addressed" else "flow"
+      log <- self$conversation_log
+      cut_after <- if (length(log)) as.integer(log[[length(log)]]$message_id) else NA_integer_
+      phase <- private$state$details$phase %||% "setup"
+      turn <- private$participant_turns + 1L
+      info <- list(label = injection$label, arm = private$arm %||% NA_character_,
+                   point = format(injection$at), from = id,
+                   visibility = injection$visibility,
+                   cut_after_message_id = cut_after, as_turn = TRUE,
+                   replaced = replaced)
+      pick <- private$record_forced_routing(id, "injected", NA_integer_)
+      message_id <- private$log_message(
+        id, injection$text, round = private$current_round, is_moderator = FALSE,
+        phase = phase,
+        meta = list(metadata = list(injected = TRUE, as_turn = TRUE, injection = info)))
+      self$records$routing[[pick]]$message_id <- message_id
+      self$records$injections[[length(self$records$injections) + 1L]] <- c(
+        info, list(delivered = TRUE, message_id = message_id, speaker_id = id,
+                   text = injection$text, round = private$current_round,
+                   phase = phase, turn = turn))
+      private$participant_turns <- turn
+      if (verbose) cat(paste0(id, " (injected turn): ", injection$text, "\n"))
+      self$turn_taking_flow$update_state_post_selection(id, self)
+      if (calling_on) {
+        co <- private$state$call_on
+        co$position <- co$position + 1L
+        co$line_logged <- FALSE
+        co$line_message_id <- NA_integer_
+        private$state$call_on <- co
+      } else {
+        private$state$addressed <- NULL
+        private$state$responses <- private$state$responses + 1L
+        if (private$state$responses >= self$max_participant_responses) {
+          private$end_discussion()
+        }
+      }
       invisible(message_id)
     },
 
@@ -2502,12 +2580,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
     },
 
     # An injection prepared for this session's records, as prepare_plan()
-    # prepares the planned ones.
-    # An injection from the moderator's ID or handle is the moderator's.
+    # prepares the planned ones. An injection from the moderator's ID or
+    # handle is the moderator's; one from a participant's ID or handle (the
+    # handle in any case) is that participant's turn, recorded under its ID.
     plan_entry = function(injection) {
       if (identical(injection$from, self$moderator_id) ||
           identical(injection$from, private$handle_of(self$moderator_id))) {
         injection$from <- "moderator"
+      }
+      participant_ids <- setdiff(names(self$agents), self$moderator_id)
+      handles <- vapply(participant_ids, private$handle_of, character(1))
+      who <- if (injection$from %in% participant_ids) injection$from else
+        participant_ids[match(tolower(injection$from), tolower(handles))]
+      if (length(who) == 1L && !is.na(who)) {
+        injection$from <- who
+        injection$as_turn <- TRUE
       }
       injection$event <- .fg_point_event(injection$at)
       injection

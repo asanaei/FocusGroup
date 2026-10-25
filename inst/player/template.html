@@ -249,7 +249,8 @@
       d.style.borderLeftColor = s.color;
       left = [chip(s.color), make("span", "handle", s.is_moderator ? D.moderator.handle : s.handle), make("span", "tag", "injected")];
       d.appendChild(header(left, stageText(s)));
-      var origin = "Injected by the researcher " + s.point_label + ", as a comment from " + s.source;
+      var origin = "Injected by the researcher " + s.point_label +
+        (s.as_turn ? ", as the turn of " : ", as a comment from ") + s.source;
       if (s.arm) origin += ", in the arm \u201c" + s.arm + "\u201d";
       origin += ". " + (s.visibility === "participants" ? "Seen by the participants, not the moderator." :
         (s.visibility === "shared" ? "Seen by every agent." : "Visibility not recorded."));

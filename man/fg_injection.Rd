@@ -19,7 +19,8 @@ fg_injection(
 or \code{"before_closing"}. When an injection and a probe share a point, the
 probe is asked first.}
 
-\item{from}{\code{"moderator"} or the name of an outside speaker.}
+\item{from}{\code{"moderator"}, a participant's id or handle, or the name of
+an outside speaker.}
 
 \item{visibility}{\code{"shared"} or \code{"participants"}.}
 
@@ -40,11 +41,21 @@ point, sender, visibility, and the \code{message_id} it follows.
 \details{
 A message \code{from = "moderator"} is logged under the moderator's id, so the
 moderator reads it as its own line; so is a message from the moderator's
-id or handle. Any other \code{from} names an outside voice, such as
-\code{"Guest expert"}, logged under that name and shown to the agents as
-written; it may not be a participant id, a participant's handle, or
-\code{"System"}. A moderator message that puts its last question to one
-participant by handle ("P2, what do you make of that?") gives that
+id or handle. A message from a participant's id or handle (the handle in
+any case) is that participant's turn: at \code{fg_before_turn(t)} the
+participant says \code{text} as turn \code{t}, with no model call. It is logged
+under the participant's id with \code{metadata$as_turn = TRUE}, recorded in the
+routing record with the rule \code{"injected"}, and counted as a participant
+turn, and it takes the place of the turn the session was about to give:
+the flow's pick, an addressed turn, or the reply to a call-on line, after
+which the moderator calls on the next silent participant. The record's
+\code{replaced} names which. Such a message is allowed only at
+\code{\link[=fg_before_turn]{fg_before_turn()}}, with \code{visibility = "shared"}, and once per point. Any
+other \code{from} names an outside voice, such as \code{"Guest expert"}, logged
+under that name and shown to the agents as written; it may not be
+\code{"System"}, nor a name of the form \code{"P4"}, which would read as a
+participant's handle. A moderator message that puts its last question to
+one participant by handle ("P2, what do you make of that?") gives that
 participant the next turn, except at a turn that answers the moderator's
 call-on line, which stays with the participant called on.
 

@@ -118,11 +118,21 @@ print.fg_point <- function(x, ...) {
 #'
 #' A message `from = "moderator"` is logged under the moderator's id, so the
 #' moderator reads it as its own line; so is a message from the moderator's
-#' id or handle. Any other `from` names an outside voice, such as
-#' `"Guest expert"`, logged under that name and shown to the agents as
-#' written; it may not be a participant id, a participant's handle, or
-#' `"System"`. A moderator message that puts its last question to one
-#' participant by handle ("P2, what do you make of that?") gives that
+#' id or handle. A message from a participant's id or handle (the handle in
+#' any case) is that participant's turn: at `fg_before_turn(t)` the
+#' participant says `text` as turn `t`, with no model call. It is logged
+#' under the participant's id with `metadata$as_turn = TRUE`, recorded in the
+#' routing record with the rule `"injected"`, and counted as a participant
+#' turn, and it takes the place of the turn the session was about to give:
+#' the flow's pick, an addressed turn, or the reply to a call-on line, after
+#' which the moderator calls on the next silent participant. The record's
+#' `replaced` names which. Such a message is allowed only at
+#' [fg_before_turn()], with `visibility = "shared"`, and once per point. Any
+#' other `from` names an outside voice, such as `"Guest expert"`, logged
+#' under that name and shown to the agents as written; it may not be
+#' `"System"`, nor a name of the form `"P4"`, which would read as a
+#' participant's handle. A moderator message that puts its last question to
+#' one participant by handle ("P2, what do you make of that?") gives that
 #' participant the next turn, except at a turn that answers the moderator's
 #' call-on line, which stays with the participant called on.
 #'
@@ -135,7 +145,8 @@ print.fg_point <- function(x, ...) {
 #' @param at Where the message goes: [fg_after_item()], [fg_before_turn()],
 #'   or `"before_closing"`. When an injection and a probe share a point, the
 #'   probe is asked first.
-#' @param from `"moderator"` or the name of an outside speaker.
+#' @param from `"moderator"`, a participant's id or handle, or the name of
+#'   an outside speaker.
 #' @param visibility `"shared"` or `"participants"`.
 #' @param label Optional name for the injection in the records; by default
 #'   the arm's name in [run_focus_group_arms()], and `"injection_1"`,

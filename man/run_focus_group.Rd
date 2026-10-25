@@ -163,13 +163,15 @@ lines (\code{verbatim}), injected messages (\code{injected}, \code{injection}),
 call-on lines (\code{call_on}, a list of \code{point}, \code{participant}, and
 \code{handle}), the replies to them (\code{called_on}), replies to a moderator
 line that addressed the speaker (\code{addressed}), replies whose
-self-label was removed (\code{self_label_removed}), and replies whose
-opening self-introduction was removed (\code{preamble_removed}).}
+self-label was removed (\code{self_label_removed}), replies whose
+opening self-introduction was removed (\code{preamble_removed}), and
+injected participant turns (\code{as_turn}; see \code{\link[=fg_injection]{fg_injection()}}).}
 \item{summary}{The final summary. It is \code{NA} when the final summary call
 failed, and \code{character(0)} in a partial result that stopped before it
 or in a session run with \code{final_summary = FALSE}.}
 \item{participants}{A data frame with one row per agent: \code{id}, \code{handle}, \code{role},
-\code{is_moderator}, \code{persona}, \code{demographics}, \code{survey_responses},
+\code{is_moderator}, \code{persona}, \code{communication_style} (the agent's
+style instruction), \code{demographics}, \code{survey_responses},
 \code{provider}, and \code{model}. When the participants were drawn from the
 bundled ANES records, the rows drawn are recorded in
 \code{attr(result$focus_group$agents, "source_rows")}.}
@@ -193,7 +195,12 @@ system-message rules for participants and the moderator),
 arm and branch point), \code{handles} (a data frame of \code{agent_id} and
 \code{handle}), \code{call_on_silent} (a list of the \code{points} and the guide
 \code{items} they fall on, both empty when call-ons are off),
-\code{call_on_text}, and \code{final_summary}. It holds no configuration
+\code{call_on_text}, \code{final_summary}, \code{guide} (the guide items as the
+session ran them, each a list with \code{phase} and, when set, \code{text} and
+\code{verbatim}), and \code{flow_params} (the parameters of the turn-taking
+rule: \code{initial_propensities} and \code{recovery_increment} for
+\code{"probabilistic"}, \code{min_desire_threshold} and \code{on_desire_failure}
+for \code{"desire_based"}, none otherwise). It holds no configuration
 object.}
 \item{calls}{A data frame with one row per model call the session
 made, in order, including retries and failed calls: \code{call_id},
@@ -215,7 +222,8 @@ do.}
 \code{flow}, \code{rule} (such as \code{"rotation"}, \code{"propensity_draw"},
 \code{"highest_score"}, \code{"threshold_lowered"}, \code{"highest_below_threshold"},
 \code{"uniform_after_failure"}, or, for turns the flow did not choose,
-\code{"called_on"} and \code{"addressed"}), \code{selected_id}, \code{message_id},
+\code{"called_on"}, \code{"addressed"}, and \code{"injected"}), \code{selected_id},
+\code{message_id},
 \code{trigger_message_id} (for \code{"called_on"} and \code{"addressed"}, the
 moderator line that gave the turn; otherwise \code{NA}),
 \code{threshold}, \code{tie_break} (\code{"none"}, \code{"random"}, or \code{"draw"}),
@@ -235,7 +243,10 @@ turn), \code{after_message_id} (the last message before it), and \code{arm}.}
 \code{arm}, \code{point}, \code{delivered} (\code{FALSE} for one whose point the session
 never reached, which is also reported with a warning), \code{message_id},
 \code{speaker_id}, \code{from}, \code{visibility}, \code{text}, \code{cut_after_message_id}
-(the message it follows), \code{round}, \code{phase}, and \code{turn}.}
+(the message it follows), \code{round}, \code{phase}, \code{turn}, \code{as_turn}
+(\code{TRUE} for a participant's injected turn), and \code{replaced} (for such
+a turn, the turn it took the place of: \code{"flow"}, \code{"addressed"}, or
+\code{"called_on"}).}
 }
 Results saved by FocusGroup 0.5.2 and earlier lack \code{usage$unknown},
 \code{metadata$complete}, and \code{metadata$failure}; results saved by 0.5.3 and
@@ -243,7 +254,16 @@ earlier lack \code{calls}, \code{routing}, \code{probes}, \code{injections}, and
 that follows \code{failure}; results saved by 0.5.4 and earlier lack the
 \code{item} and \code{handle} columns, \code{trigger_message_id}, and the metadata that
 follows \code{branch}; results saved by 0.5.5 and earlier lack the \code{value}
-and \code{attempts} columns of \code{probes}.
+and \code{attempts} columns of \code{probes}, \code{communication_style} in
+\code{participants}, \code{as_turn} and \code{replaced} in \code{injections}, and
+\code{metadata$guide} and \code{metadata$flow_params}.
+
+A result is saved whole with \code{\link[=saveRDS]{saveRDS()}}, and its \code{focus_group} then
+holds the model configuration, which may contain a literal API key or a
+private endpoint, and the runner. \code{format()} writes the record without
+them, one JSON object per line, for a file that
+\code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}} reads back; see
+\code{\link[=format.focus_group_result]{format.focus_group_result()}}.
 }
 \description{
 Constructs the agents, moderator guide, and turn-taking flow, then runs one

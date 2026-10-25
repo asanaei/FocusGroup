@@ -530,3 +530,152 @@ test_that("the re-ask is worded by the session's participant_probe_reask templat
   values <- vapply(fg$records$probes, `[[`, numeric(1), "value")
   expect_identical(values, c(4, 6))
 })
+
+# ---- A participant's injected turn ---------------------------------------------
+
+.turn_text <- "As P2 I say: the evening hours should stay, and the mornings can wait."
+
+.turn_run <- function(injections, flow = "round_robin", call_on_silent = "none",
+                      guide = list(Engagement = c("Which hours matter most?",
+                                                  "Who is left out?"),
+                                   Closing = "Close the session."),
+                      stub = .inj_stub(), ...) {
+  run_focus_group(
+    topic = "library hours", config = .inj_config(), n_participants = 3,
+    guide = guide, flow = flow, max_participant_responses = 2,
+    call_on_silent = call_on_silent, injections = injections, seed = 110,
+    verbose = FALSE, .runner = stub$runner, ...)
+}
+
+test_that("a participant's injection is that participant's turn", {
+  stub <- .inj_stub()
+  result <- .turn_run(fg_injection(.turn_text, at = fg_before_turn(2), from = "P2"),
+                      stub = stub)
+  tr <- result$transcript
+  turns <- tr[tr$speaker_id %in% c("P1", "P2", "P3"), ]
+  # Two turns per question: the injected one is the second turn of item 1.
+  expect_identical(nrow(turns), 4L)
+  expect_identical(turns$text[[2]], .turn_text)
+  expect_identical(turns$speaker_id[[2]], "P2")
+  meta <- turns$metadata[[2]]
+  expect_true(meta$injected)
+  expect_true(meta$as_turn)
+  expect_identical(meta$injection$replaced, "flow")
+  expect_identical(turns$item, c(2L, 2L, 3L, 3L) - 1L)
+
+  routing <- result$routing
+  expect_identical(routing$turn, 1:4)
+  expect_identical(routing$rule, c("rotation", "injected", "rotation", "rotation"))
+  expect_identical(routing$message_id, turns$message_id)
+  expect_identical(routing$selected_id[[2]], "P2")
+  # The injected turn leaves the rotation where it was, as an addressed turn
+  # does; the moderator's next line lifts the previous-speaker bar, so P2,
+  # next in the rotation, opens item 2.
+  expect_identical(routing$selected_id, c("P1", "P2", "P2", "P3"))
+
+  inj <- result$injections
+  expect_identical(inj$as_turn, TRUE)
+  expect_identical(inj$replaced, "flow")
+  expect_identical(inj$speaker_id, "P2")
+  expect_identical(inj$turn, 2L)
+  # No model call made the injected turn.
+  expect_false(turns$message_id[[2]] %in% result$calls$message_id)
+  expect_identical(sum(result$calls$call_type == "participant"), 3L)
+})
+
+test_that("an injected turn by handle takes the place of an addressed or a called-on turn", {
+  # The moderator's line for item 2 puts its question to P3.
+  stub <- .inj_stub()
+  addressing <- function(experiments, ...) {
+    prompt <- .inj_prompt(experiments$messages[[1]])
+    if (grepl("Who is left out?", prompt, fixed = TRUE) &&
+        !grepl("In this discussion you are", prompt, fixed = TRUE)) {
+      experiments$response_text <- "P3, who do you think is left out?"
+      return(experiments)
+    }
+    stub$runner(experiments, ...)
+  }
+  result <- .turn_run(fg_injection(.turn_text, at = fg_before_turn(3), from = "p1"),
+                      stub = list(runner = addressing))
+  routing <- result$routing
+  expect_identical(routing$rule[[3]], "injected")
+  expect_identical(routing$selected_id[[3]], "P1")
+  expect_identical(result$injections$replaced, "addressed")
+  # P3 is not given the addressed turn afterwards: the next turn is the
+  # flow's.
+  expect_identical(routing$rule[[4]], "rotation")
+
+  # At a call-on turn the injected text answers the call-on line, and the
+  # moderator calls on the next silent participant.
+  stub <- .inj_stub()
+  result <- run_focus_group(
+    topic = "library hours", config = .inj_config(), n_participants = 3,
+    guide = list(Engagement = "Which hours matter most?", Closing = "Close."),
+    flow = "round_robin", max_participant_responses = 1, call_on_silent = 1L,
+    injections = fg_injection(.turn_text, at = fg_before_turn(2), from = "P3"),
+    verbose = FALSE, .runner = stub$runner)
+  tr <- result$transcript
+  lines <- vapply(tr$metadata, function(m) m$call_on$participant %||% NA_character_,
+                  character(1))
+  expect_identical(lines[!is.na(lines)], c("P2", "P3"))
+  expect_identical(result$routing$rule, c("rotation", "injected", "called_on"))
+  expect_identical(result$routing$selected_id, c("P1", "P3", "P3"))
+  expect_identical(result$injections$replaced, "called_on")
+})
+
+test_that("participant injections are checked before any call", {
+  stub <- .inj_stub()
+  expect_error(.turn_run(fg_injection("Text.", fg_after_item(1), from = "P2"), stub = stub),
+               "participant's turn.*fg_before_turn")
+  expect_error(.turn_run(fg_injection("Text.", fg_before_turn(2), from = "P2",
+                                      visibility = "participants"), stub = stub),
+               "shared")
+  expect_error(.turn_run(list(fg_injection("A.", fg_before_turn(2), from = "P2"),
+                              fg_injection("B.", fg_before_turn(2), from = "P3")),
+                         stub = stub),
+               "At most one")
+  expect_error(.turn_run(fg_injection("Text.", fg_before_turn(2), from = "P9"), stub = stub),
+               "named like a participant")
+  expect_error(.turn_run(fg_injection("Text.", fg_before_turn(2), from = "System"),
+                         stub = stub), "System")
+  expect_identical(stub$n, 0L)
+  # An outside voice and a participant's turn can share a point.
+  result <- .turn_run(list(fg_injection("A note.", fg_before_turn(2), from = "Guest"),
+                           fg_injection(.turn_text, fg_before_turn(2), from = "P2")))
+  tr <- result$transcript
+  at <- which(tr$text == .turn_text)
+  expect_identical(tr$speaker_id[[at - 1L]], "Guest")
+  expect_identical(result$injections$as_turn, c(FALSE, TRUE))
+})
+
+test_that("arms branch on a participant's turn, and the player and summaries read them", {
+  stub <- .inj_stub()
+  out <- run_focus_group_arms(
+    topic = "library hours", config = .inj_config(), n_participants = 3,
+    arms = list(turned = fg_injection(.turn_text, at = fg_before_turn(3), from = "P2"),
+                control = NULL),
+    guide = list(Engagement = c("Which hours matter most?", "Who is left out?"),
+                 Closing = "Close the session."),
+    flow = "desire_based", max_participant_responses = 2, call_on_silent = "none",
+    seed = 110, verbose = FALSE, .runner = stub$runner)
+  turned <- out$arms$turned
+  expect_identical(turned$routing$rule[[3]], "injected")
+  expect_identical(turned$routing$turn, seq_len(nrow(turned$routing)))
+  expect_identical(nrow(out$arms$control$routing), nrow(turned$routing))
+  page <- fg_player(out, file = tempfile(), open = FALSE)
+  expect_length(page, 2L)
+  html <- paste(readLines(page[["turned"]], warn = FALSE), collapse = "\n")
+  payload <- jsonlite::fromJSON(regmatches(html, regexec(
+    '<script id="fg-data" type="application/json">(.*?)</script>', html))[[1]][[2]],
+    simplifyVector = FALSE)
+  steps <- Filter(function(s) identical(s$kind, "injected"), payload$steps)
+  expect_length(steps, 1L)
+  expect_true(steps[[1]]$as_turn)
+  ends <- Filter(function(s) identical(s$kind, "end"), payload$steps)[[1]]
+  counts <- vapply(ends$counts, `[[`, numeric(1), "turns")
+  expect_identical(sum(counts), as.numeric(nrow(turned$routing)))
+  turns <- fg_turns(out)
+  row <- turns[turns$segment == "turned" & turns$injected, ]
+  expect_identical(row$rule, "injected")
+  expect_identical(row$speaker_id, "P2")
+})
