@@ -49,7 +49,7 @@ read back exactly. A named vector, such as the desire \code{scores} of a pick,
 is an object; \code{candidates} and \code{tied} are always arrays. An empty list
 is \code{{}}. Times are written in UTC to the microsecond
 (\code{"2026-10-24T14:30:00.25Z"}). Every character outside ASCII is written as
-a \verb{\\\\uXXXX} escape, so the file is plain ASCII.
+a \verb{\\uXXXX} escape, so the file is plain ASCII.
 
 The file never holds a model configuration, an API key, an endpoint, or a
 runner: \code{metadata} holds none, and the recorded call settings are the

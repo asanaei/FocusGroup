@@ -36,7 +36,7 @@
 #' is an object; `candidates` and `tied` are always arrays. An empty list
 #' is `{}`. Times are written in UTC to the microsecond
 #' (`"2026-10-24T14:30:00.25Z"`). Every character outside ASCII is written as
-#' a `\\uXXXX` escape, so the file is plain ASCII.
+#' a `\uXXXX` escape, so the file is plain ASCII.
 #'
 #' The file never holds a model configuration, an API key, an endpoint, or a
 #' runner: `metadata` holds none, and the recorded call settings are the
