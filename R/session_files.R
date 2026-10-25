@@ -966,6 +966,10 @@ format.focus_group_result <- function(x, ...) {
     if (!any(guide_line)) item <- rep(1L, n)
     item[speaker == "System"] <- 0L
   }
+  # A message without an item, among messages with one, belongs to the item
+  # before it.
+  for (j in which(is.na(item))) item[j] <- if (j == 1L) 0L else item[j - 1L]
+  item[speaker == "System" & !has_item] <- 0L
   has_round <- vapply(msgs, function(r) "round" %in% names(r), logical(1))
   if (!any(has_round)) round <- item
 

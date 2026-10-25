@@ -403,3 +403,14 @@ test_that("the player shows a session read from its file as it shows the result"
   }
   expect_identical(data_of(focus_group_from_transcript(path)), data_of(result))
 })
+
+test_that("a message without an item belongs to the item before it", {
+  lines <- c(
+    '{"type":"message","speaker_id":"Moderator","text":"Which hours?","item":1}',
+    '{"type":"message","speaker_id":"Ana","text":"Evenings."}',
+    '{"type":"message","speaker_id":"Moderator","text":"Who is left out?","item":2}',
+    '{"type":"message","speaker_id":"Ana","text":"Shift workers."}')
+  fg <- focus_group_from_transcript(lines)
+  expect_identical(vapply(fg$conversation_log, `[[`, integer(1), "item"), c(1L, 1L, 2L, 2L))
+  expect_identical(length(fg$question_script), 2L)
+})
