@@ -9,28 +9,28 @@ A data frame with 100 rows and 123 columns. Each row is one
 respondent; no ANES case identifier is kept. Column names are handles
 whose prefix names a block, so \code{startsWith(names(x), "att_iss_")} selects
 the issue positions:
-\describe{
-\item{\code{demo_}}{17 demographic fields: age band, sex, education,
+\itemize{
+\item \code{demo_}: 17 demographic fields: age band, sex, education,
 race/ethnicity, marital status, household income, religion and its
 importance, religious attendance, census region, rural-urban
 self-identification, employment status, home ownership, children in
 the household, union household, military service, and attention to
-politics.}
-\item{\code{att_id_}}{9 fields of party identification, ideology, and vote
-choice.}
-\item{\code{att_aff_}}{18 feeling thermometers toward candidates, parties,
-institutions, and groups.}
-\item{\code{att_eval_}}{14 evaluations: approval of the President, Congress,
+politics.
+\item \code{att_id_}: 9 fields of party identification, ideology, and vote
+choice.
+\item \code{att_aff_}: 18 feeling thermometers toward candidates, parties,
+institutions, and groups.
+\item \code{att_eval_}: 14 evaluations: approval of the President, Congress,
 and the Supreme Court, the economy, personal finances, feelings about
 the country, and which party would better handle the economy and
-immigration.}
-\item{\code{att_iss_}}{47 issue positions, among them taxes and spending,
+immigration.
+\item \code{att_iss_}: 47 issue positions, among them taxes and spending,
 immigration, guns, climate, health care, abortion, policing, race,
-and foreign policy.}
-\item{\code{att_val_}}{17 fields of trust, values, and views of democracy.}
-\item{\code{ideology_score}}{A number placing the respondent on one
+and foreign policy.
+\item \code{att_val_}: 17 fields of trust, values, and views of democracy.
+\item \code{ideology_score}: A number placing the respondent on one
 liberal-conservative dimension (see Details); the rows are sorted by
-it.}
+it.
 }
 Every column but \code{ideology_score} holds character values:
 \itemize{
@@ -62,8 +62,8 @@ vote items, which do not apply to everyone.
 }
 
 The data frame carries these attributes:
-\describe{
-\item{\code{dictionary}}{A data frame with one row per column except
+\itemize{
+\item \code{dictionary}: A data frame with one row per column except
 \code{ideology_score}: \code{handle}; \code{question}, the short phrase shown with
 an answer ("Abortion position"); \code{anes_variable}, the ANES variable;
 \code{domain}, "demographic" or the attitude block; \code{wording}, the
@@ -77,21 +77,21 @@ identification, V241221); "stem_only" means the codebook prints only
 a shared stem ("Where would you place yourself on this scale, or
 haven't you thought much about this?") and the subject of the scale
 is in its end labels; "none" means no single question exists (census
-region, age), and \code{wording} is \code{NA}.}
-\item{\code{demographic_fields}}{The handles of the demographic columns.}
-\item{\code{n_demographics}, \code{n_attitudes}}{17 and 105.}
-\item{\code{source}, \code{citation}}{The citation of the ANES release.}
-\item{\code{build}}{The R and package versions, the md5 sums of the two ANES
-files, the seed, and the label overrides used to build the data.}
-\item{\code{build_audit}}{For each column, the number of \code{NA} cells and the
+region, age), and \code{wording} is \code{NA}.
+\item \code{demographic_fields}: The handles of the demographic columns.
+\item \code{n_demographics}, \code{n_attitudes}: 17 and 105.
+\item \code{source}, \code{citation}: The citation of the ANES release.
+\item \code{build}: The R and package versions, the md5 sums of the two ANES
+files, the seed, and the label overrides used to build the data.
+\item \code{build_audit}: For each column, the number of \code{NA} cells and the
 number of missing-data codes in the raw file for the same
-respondents; the two are equal.}
+respondents; the two are equal.
 }
 }
 \source{
 American National Election Studies. 2026. ANES 2024 Time Series
 Study Full Release [dataset and documentation]. May 19, 2026 version.
-\url{https://www.electionstudies.org}. Work that uses these profiles
+www.electionstudies.org. Work that uses these profiles
 should cite ANES. ANES bears no responsibility for the analyses or
 interpretations presented here.
 }

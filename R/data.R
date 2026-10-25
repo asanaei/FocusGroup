@@ -18,28 +18,28 @@
 #'   respondent; no ANES case identifier is kept. Column names are handles
 #'   whose prefix names a block, so `startsWith(names(x), "att_iss_")` selects
 #'   the issue positions:
-#'   \describe{
-#'     \item{`demo_`}{17 demographic fields: age band, sex, education,
+#'   \itemize{
+#'     \item `demo_`: 17 demographic fields: age band, sex, education,
 #'       race/ethnicity, marital status, household income, religion and its
 #'       importance, religious attendance, census region, rural-urban
 #'       self-identification, employment status, home ownership, children in
 #'       the household, union household, military service, and attention to
-#'       politics.}
-#'     \item{`att_id_`}{9 fields of party identification, ideology, and vote
-#'       choice.}
-#'     \item{`att_aff_`}{18 feeling thermometers toward candidates, parties,
-#'       institutions, and groups.}
-#'     \item{`att_eval_`}{14 evaluations: approval of the President, Congress,
+#'       politics.
+#'     \item `att_id_`: 9 fields of party identification, ideology, and vote
+#'       choice.
+#'     \item `att_aff_`: 18 feeling thermometers toward candidates, parties,
+#'       institutions, and groups.
+#'     \item `att_eval_`: 14 evaluations: approval of the President, Congress,
 #'       and the Supreme Court, the economy, personal finances, feelings about
 #'       the country, and which party would better handle the economy and
-#'       immigration.}
-#'     \item{`att_iss_`}{47 issue positions, among them taxes and spending,
+#'       immigration.
+#'     \item `att_iss_`: 47 issue positions, among them taxes and spending,
 #'       immigration, guns, climate, health care, abortion, policing, race,
-#'       and foreign policy.}
-#'     \item{`att_val_`}{17 fields of trust, values, and views of democracy.}
-#'     \item{`ideology_score`}{A number placing the respondent on one
+#'       and foreign policy.
+#'     \item `att_val_`: 17 fields of trust, values, and views of democracy.
+#'     \item `ideology_score`: A number placing the respondent on one
 #'       liberal-conservative dimension (see Details); the rows are sorted by
-#'       it.}
+#'       it.
 #'   }
 #'   Every column but `ideology_score` holds character values:
 #'   \itemize{
@@ -71,8 +71,8 @@
 #'   }
 #'
 #'   The data frame carries these attributes:
-#'   \describe{
-#'     \item{`dictionary`}{A data frame with one row per column except
+#'   \itemize{
+#'     \item `dictionary`: A data frame with one row per column except
 #'       `ideology_score`: `handle`; `question`, the short phrase shown with
 #'       an answer ("Abortion position"); `anes_variable`, the ANES variable;
 #'       `domain`, "demographic" or the attitude block; `wording`, the
@@ -86,15 +86,15 @@
 #'       a shared stem ("Where would you place yourself on this scale, or
 #'       haven't you thought much about this?") and the subject of the scale
 #'       is in its end labels; "none" means no single question exists (census
-#'       region, age), and `wording` is `NA`.}
-#'     \item{`demographic_fields`}{The handles of the demographic columns.}
-#'     \item{`n_demographics`, `n_attitudes`}{17 and 105.}
-#'     \item{`source`, `citation`}{The citation of the ANES release.}
-#'     \item{`build`}{The R and package versions, the md5 sums of the two ANES
-#'       files, the seed, and the label overrides used to build the data.}
-#'     \item{`build_audit`}{For each column, the number of `NA` cells and the
+#'       region, age), and `wording` is `NA`.
+#'     \item `demographic_fields`: The handles of the demographic columns.
+#'     \item `n_demographics`, `n_attitudes`: 17 and 105.
+#'     \item `source`, `citation`: The citation of the ANES release.
+#'     \item `build`: The R and package versions, the md5 sums of the two ANES
+#'       files, the seed, and the label overrides used to build the data.
+#'     \item `build_audit`: For each column, the number of `NA` cells and the
 #'       number of missing-data codes in the raw file for the same
-#'       respondents; the two are equal.}
+#'       respondents; the two are equal.
 #'   }
 #'
 #' @details
@@ -135,7 +135,7 @@
 #'
 #' @source American National Election Studies. 2026. ANES 2024 Time Series
 #'   Study Full Release \[dataset and documentation\]. May 19, 2026 version.
-#'   \url{https://www.electionstudies.org}. Work that uses these profiles
+#'   www.electionstudies.org. Work that uses these profiles
 #'   should cite ANES. ANES bears no responsibility for the analyses or
 #'   interpretations presented here.
 #' @keywords datasets
