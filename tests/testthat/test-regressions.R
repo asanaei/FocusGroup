@@ -259,8 +259,8 @@ test_that("the GUI persona path applies the seed to the respondent draw", {
   )
   expect_named(
     result1$participants,
-    c("id", "handle", "role", "is_moderator", "persona", "demographics",
-      "survey_responses", "provider", "model"),
+    c("id", "handle", "role", "is_moderator", "persona", "communication_style",
+      "demographics", "survey_responses", "provider", "model"),
     ignore.order = FALSE
   )
   p1 <- vapply(result1$focus_group$agents,

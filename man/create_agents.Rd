@@ -10,6 +10,7 @@ create_agents(
   demographics = NULL,
   survey_responses = NULL,
   direct_persona_descriptions = NULL,
+  na_strings = fg_default_na_strings(),
   .runner = NULL
 )
 }
@@ -29,6 +30,17 @@ participant.}
 participant personas. When supplied, these descriptions are used directly
 and are recycled in order if necessary. Demographics and survey responses
 remain attached as raw reporting fields.}
+
+\item{na_strings}{Character vector of regular expressions, matched ignoring
+case, that mark a text or factor value of \code{demographics} or
+\code{survey_responses} as a missing-data label, which the persona leaves
+out, as \code{\link[=create_agents_from_data]{create_agents_from_data()}} does: a value that starts with a
+numeric code and matches ("-9. Refused"), or one that says nothing but
+the matched wording ("Refused to answer", "Don't know"). Answers that use
+such words ("I keep missing the bus") are kept, and numbers are never
+read this way. Each value left out is recorded in the rendering report,
+with a message naming the fields. The default is
+\code{\link[=fg_default_na_strings]{fg_default_na_strings()}}; \code{character()} turns the screening off.}
 
 \item{.runner}{Optional function used instead of live model calls and stored
 on every agent.}

@@ -206,7 +206,8 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
     stop("The FocusGroup object holds no session; call run_simulation() first.",
          call. = FALSE)
   }
-  if (is.null(fg$records) || !length(fg$records$info)) {
+  if (is.null(fg$records) || !length(fg$records$info) ||
+      identical(fg$records$info$source, "transcript")) {
     stop("The FocusGroup object has no `records` of a session it ran, which ",
          "fg_player() needs; imported transcripts and objects saved by ",
          "FocusGroup 0.5.3 and earlier have none.", call. = FALSE)
@@ -218,6 +219,13 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   n <- length(setdiff(names(fg$agents), fg$moderator_id))
   branch <- if (!is.null(arm)) {
     c(list(arm = arm, role = "arm"), fg$records$info$branch %||% list())
+  }
+  # A session read from a file keeps the provenance its configurations
+  # would give.
+  if (!is.null(fg$records$info$recorded)) {
+    result <- .fg_object_result(fg)
+    if (!is.null(branch)) result$metadata$branch <- branch
+    return(result)
   }
   .fg_focus_group_result(
     fg, flow_name, fg$message_mode %||% NA_character_, n, NA_integer_,
@@ -294,9 +302,10 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
   people$handle <- unname(handle_of[people$id])
 
   # Every speaker is the System row, the moderator, an injected voice, or a
-  # participant on the roster.
+  # participant on the roster. A participant's injected message is that
+  # participant's turn.
   turn <- !transcript$is_moderator & transcript$speaker_id != "System" &
-    !transcript$injected
+    (!transcript$injected | transcript$speaker_id %in% people$id)
   stray <- turn & !transcript$speaker_id %in% people$id
   if (any(stray)) {
     i <- which(stray)[[1]]
@@ -579,16 +588,21 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
       inj <- m$injection %||% list()
       from <- as.character(.fg_player_scalar(inj$from) %|NA|% tr$speaker_id[[i]])
       if (identical(from, "moderator")) from <- "the moderator"
+      own_turn <- tr$turn[[i]]
+      if (own_turn) from <- tr$handle[[i]]
       visibility <- as.character(.fg_player_scalar(inj$visibility))
       arm <- .fg_player_scalar(inj$arm)
-      return(c(list(kind = "injected"), base, list(
+      step <- c(list(kind = "injected"), base, list(
         source = from, is_moderator = isTRUE(tr$is_moderator[[i]]),
         point = as.character(.fg_player_scalar(inj$point) %|NA|% ""),
         point_label = .fg_player_point_label(inj$point),
         arm = if (is.na(arm)) NULL else as.character(arm),
         visibility = if (is.na(visibility)) NULL else visibility,
         color = if (isTRUE(tr$is_moderator[[i]])) .fg_player_moderator_color else
-          .fg_player_voice_color)))
+          if (own_turn) unname(colors[[tr$speaker_id[[i]]]]) else
+            .fg_player_voice_color))
+      if (own_turn) step$as_turn <- TRUE
+      return(step)
     }
     if (tr$is_moderator[[i]]) {
       called <- m$call_on
@@ -793,6 +807,13 @@ fg_player <- function(x, file = NULL, arm = NULL, annotations = NULL,
                message_id = row$message_id[[1]], chosen = chosen)
   trigger <- row$trigger_message_id[[1]]
   desire_note <- if (identical(flow, "desire_based")) " No desire scores were asked for this turn." else ""
+  if (identical(rule, "injected")) {
+    return(c(base, list(
+      scale = "none", title = "An injected turn",
+      entries = list(), tie = FALSE, tied = list(),
+      note = paste0("This turn's text was injected as written for ", handle_of[[chosen]],
+                    "; no speaker was chosen and no model was called."))))
+  }
   if (rule %in% c("called_on", "addressed")) {
     where <- if (is.na(trigger)) "" else paste0(" in message #", trigger)
     text <- if (identical(rule, "called_on")) {

@@ -373,13 +373,15 @@ NULL
 #'     call-on lines (`call_on`, a list of `point`, `participant`, and
 #'     `handle`), the replies to them (`called_on`), replies to a moderator
 #'     line that addressed the speaker (`addressed`), replies whose
-#'     self-label was removed (`self_label_removed`), and replies whose
-#'     opening self-introduction was removed (`preamble_removed`).}
+#'     self-label was removed (`self_label_removed`), replies whose
+#'     opening self-introduction was removed (`preamble_removed`), and
+#'     injected participant turns (`as_turn`; see [fg_injection()]).}
 #'   \item{summary}{The final summary. It is `NA` when the final summary call
 #'     failed, and `character(0)` in a partial result that stopped before it
 #'     or in a session run with `final_summary = FALSE`.}
 #'   \item{participants}{A data frame with one row per agent: `id`, `handle`, `role`,
-#'     `is_moderator`, `persona`, `demographics`, `survey_responses`,
+#'     `is_moderator`, `persona`, `communication_style` (the agent's
+#'     style instruction), `demographics`, `survey_responses`,
 #'     `provider`, and `model`. When the participants were drawn from the
 #'     bundled ANES records, the rows drawn are recorded in
 #'     `attr(result$focus_group$agents, "source_rows")`.}
@@ -403,7 +405,12 @@ NULL
 #'     arm and branch point), `handles` (a data frame of `agent_id` and
 #'     `handle`), `call_on_silent` (a list of the `points` and the guide
 #'     `items` they fall on, both empty when call-ons are off),
-#'     `call_on_text`, and `final_summary`. It holds no configuration
+#'     `call_on_text`, `final_summary`, `guide` (the guide items as the
+#'     session ran them, each a list with `phase` and, when set, `text` and
+#'     `verbatim`), and `flow_params` (the parameters of the turn-taking
+#'     rule: `initial_propensities` and `recovery_increment` for
+#'     `"probabilistic"`, `min_desire_threshold` and `on_desire_failure`
+#'     for `"desire_based"`, none otherwise). It holds no configuration
 #'     object.}
 #'   \item{calls}{A data frame with one row per model call the session
 #'     made, in order, including retries and failed calls: `call_id`,
@@ -425,7 +432,8 @@ NULL
 #'     `flow`, `rule` (such as `"rotation"`, `"propensity_draw"`,
 #'     `"highest_score"`, `"threshold_lowered"`, `"highest_below_threshold"`,
 #'     `"uniform_after_failure"`, or, for turns the flow did not choose,
-#'     `"called_on"` and `"addressed"`), `selected_id`, `message_id`,
+#'     `"called_on"`, `"addressed"`, and `"injected"`), `selected_id`,
+#'     `message_id`,
 #'     `trigger_message_id` (for `"called_on"` and `"addressed"`, the
 #'     moderator line that gave the turn; otherwise `NA`),
 #'     `threshold`, `tie_break` (`"none"`, `"random"`, or `"draw"`),
@@ -445,7 +453,10 @@ NULL
 #'     `arm`, `point`, `delivered` (`FALSE` for one whose point the session
 #'     never reached, which is also reported with a warning), `message_id`,
 #'     `speaker_id`, `from`, `visibility`, `text`, `cut_after_message_id`
-#'     (the message it follows), `round`, `phase`, and `turn`.}
+#'     (the message it follows), `round`, `phase`, `turn`, `as_turn`
+#'     (`TRUE` for a participant's injected turn), and `replaced` (for such
+#'     a turn, the turn it took the place of: `"flow"`, `"addressed"`, or
+#'     `"called_on"`).}
 #' }
 #' Results saved by FocusGroup 0.5.2 and earlier lack `usage$unknown`,
 #' `metadata$complete`, and `metadata$failure`; results saved by 0.5.3 and
@@ -453,7 +464,16 @@ NULL
 #' that follows `failure`; results saved by 0.5.4 and earlier lack the
 #' `item` and `handle` columns, `trigger_message_id`, and the metadata that
 #' follows `branch`; results saved by 0.5.5 and earlier lack the `value`
-#' and `attempts` columns of `probes`.
+#' and `attempts` columns of `probes`, `communication_style` in
+#' `participants`, `as_turn` and `replaced` in `injections`, and
+#' `metadata$guide` and `metadata$flow_params`.
+#'
+#' A result is saved whole with [saveRDS()], and its `focus_group` then
+#' holds the model configuration, which may contain a literal API key or a
+#' private endpoint, and the runner. `format()` writes the record without
+#' them, one JSON object per line, for a file that
+#' [focus_group_from_transcript()] reads back; see
+#' [format.focus_group_result()].
 #'
 #' @references Krueger, R. A. (2002). *Designing and Conducting Focus Group
 #'   Interviews*. University of Minnesota.
@@ -667,7 +687,11 @@ run_focus_group <- function(topic, config, n_participants = 6,
     )
   }
 
-  if (!is.null(seed)) withr::local_seed(as.integer(seed), .local_envir = seed_env)
+  if (!is.null(seed)) {
+    # local_seed() alone does not put the caller's state back.
+    withr::local_preserve_seed(.local_envir = seed_env)
+    withr::local_seed(as.integer(seed), .local_envir = seed_env)
+  }
   if (verbose) {
     cat("Setting up focus group simulation...\n")
     cat("Topic:", topic, "\n")
@@ -838,6 +862,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
                   character(1)),
     is_moderator = vapply(agents, function(agent) isTRUE(agent$is_moderator), logical(1)),
     persona = vapply(agents, function(agent) agent$persona_description, character(1)),
+    communication_style = vapply(agents, function(agent) {
+      as.character(agent$communication_style_instruction %||% NA_character_)[1]
+    }, character(1)),
     stringsAsFactors = FALSE
   )
   out$demographics <- I(lapply(agents, function(agent) agent$demographics %||% list()))
@@ -846,8 +873,8 @@ run_focus_group <- function(topic, config, n_participants = 6,
     agent$config$provider %||% NA_character_, character(1))
   out$model <- vapply(agents, function(agent)
     agent$config$model %||% NA_character_, character(1))
-  out[c("id", "handle", "role", "is_moderator", "persona", "demographics",
-        "survey_responses", "provider", "model")]
+  out[c("id", "handle", "role", "is_moderator", "persona", "communication_style",
+        "demographics", "survey_responses", "provider", "model")]
 }
 
 .fg_focus_group_result <- function(focus_group, flow, message_mode,
@@ -898,7 +925,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
           points = as.character(focus_group$call_on_silent$points %||% character()),
           items = as.integer(focus_group$call_on_silent$items %||% integer())),
         call_on_text = focus_group$call_on_text %||% NA_character_,
-        final_summary = !isFALSE(records$info$final_summary)
+        final_summary = !isFALSE(records$info$final_summary),
+        guide = focus_group$question_script %||% list(),
+        flow_params = .fg_flow_params(focus_group$turn_taking_flow)
       ),
       calls = .fg_calls_data(records$calls),
       routing = .fg_routing_data(records$routing),
@@ -1048,7 +1077,24 @@ run_focus_group <- function(topic, config, n_participants = 6,
     visibility = col("visibility", "character"), text = col("text", "character"),
     cut_after_message_id = col("cut_after_message_id", "integer"),
     round = col("round", "integer"), phase = col("phase", "character"),
-    turn = col("turn", "integer"), stringsAsFactors = FALSE)
+    turn = col("turn", "integer"), as_turn = col("as_turn", "logical"),
+    replaced = col("replaced", "character"), stringsAsFactors = FALSE)
+}
+
+# The parameters of a session's turn-taking flow, read from its fields: the
+# base propensities and recovery increment of "probabilistic", the threshold
+# and failure rule of "desire_based", none for "round_robin" or a custom flow.
+.fg_flow_params <- function(flow) {
+  private <- if (inherits(flow, "ConversationFlow")) flow$.__enclos_env__$private
+  if (inherits(flow, "ProbabilisticFlow")) {
+    return(list(initial_propensities = private$base_propensities,
+                recovery_increment = private$recovery_increment))
+  }
+  if (inherits(flow, "DesireBasedFlow")) {
+    return(list(min_desire_threshold = private$min_desire_threshold,
+                on_desire_failure = private$on_desire_failure))
+  }
+  list()
 }
 
 # The `routing` component of a result: one row per speaker selection.
@@ -1110,6 +1156,16 @@ print.focus_group_result <- function(x, ...) {
 #'   participant personas. When supplied, these descriptions are used directly
 #'   and are recycled in order if necessary. Demographics and survey responses
 #'   remain attached as raw reporting fields.
+#' @param na_strings Character vector of regular expressions, matched ignoring
+#'   case, that mark a text or factor value of `demographics` or
+#'   `survey_responses` as a missing-data label, which the persona leaves
+#'   out, as [create_agents_from_data()] does: a value that starts with a
+#'   numeric code and matches ("-9. Refused"), or one that says nothing but
+#'   the matched wording ("Refused to answer", "Don't know"). Answers that use
+#'   such words ("I keep missing the bus") are kept, and numbers are never
+#'   read this way. Each value left out is recorded in the rendering report,
+#'   with a message naming the fields. The default is
+#'   [fg_default_na_strings()]; `character()` turns the screening off.
 #' @param .runner Optional function used instead of live model calls and stored
 #'   on every agent.
 #'
@@ -1142,9 +1198,11 @@ print.focus_group_result <- function(x, ...) {
 #' @export
 create_agents <- function(n_participants, config, demographics = NULL,
                           survey_responses = NULL,
-                          direct_persona_descriptions = NULL, .runner = NULL) {
+                          direct_persona_descriptions = NULL,
+                          na_strings = fg_default_na_strings(), .runner = NULL) {
 
   .fg_validate_config(config)
+  na_strings <- .fg_check_na_strings(na_strings)
 
   if (!is.numeric(n_participants) || length(n_participants) != 1L ||
       is.na(n_participants) || !is.finite(n_participants) ||
@@ -1241,11 +1299,14 @@ create_agents <- function(n_participants, config, demographics = NULL,
     }
 
     # Identifier columns stay with the raw record but never enter the
-    # persona, which the agents read.
+    # persona, which the agents read, and neither do the missing-data labels
+    # of a frame's text and factor columns.
     shown_demographics <- if (screened_demographics) agent_demographics else
-      .fg_without_identifiers(agent_demographics)
+      .fg_without_missing(.fg_without_identifiers(agent_demographics),
+                          demographics, na_strings)
     shown_survey <- if (!is.null(agent_survey) && !screened_survey) {
-      .fg_without_identifiers(agent_survey)
+      .fg_without_missing(.fg_without_identifiers(agent_survey), survey_responses,
+                          na_strings)
     } else agent_survey
     persona <- if (!is.null(direct_persona_descriptions)) {
       direct_persona_descriptions[
@@ -1295,9 +1356,52 @@ create_agents <- function(n_participants, config, demographics = NULL,
         (!is.null(survey_responses) && !screened_survey)) {
       report <- .fg_mark_identifiers(report)
     }
-    agents <- .fg_attach_report(agents, .fg_check_report(report, agents))
+    report <- .fg_mark_missing(report, list(
+      demographic = if (!screened_demographics) demographics,
+      item = if (!screened_survey) survey_responses), na_strings)
+    .fg_check_report(report, agents)
+    # A value left out as a missing-data label is announced; an NA is not.
+    announced <- report
+    announced$issue[!grepl("^missing value: ", announced$reason)] <- NA_character_
+    .fg_rendering_conditions(announced, source = "data")
+    agents <- .fg_attach_report(agents, report)
   }
   return(agents)
+}
+
+# The fields of a record without the values that are missing-data labels:
+# text and factor values of a supplied frame that `.fg_is_missing_value()`
+# reads as missing under `na_strings`. Numbers, and records that are not
+# rows of a frame, are kept as they are.
+.fg_without_missing <- function(fields, frame, na_strings) {
+  if (!is.data.frame(frame) || !length(fields) || !length(na_strings)) return(fields)
+  text <- names(frame)[vapply(frame, function(col) is.character(col) || is.factor(col),
+                              logical(1))]
+  check <- intersect(names(fields), text)
+  if (!length(check)) return(fields)
+  values <- vapply(fields[check], function(v) as.character(v)[1], character(1))
+  drop <- check[.fg_is_missing_value(values, na_strings)]
+  fields[setdiff(names(fields), drop)]
+}
+
+# Record, in the report of supplied records, the fields left out as
+# missing-data labels, with their reason, as create_agents_from_data() does.
+.fg_mark_missing <- function(report, frames, na_strings) {
+  if (!nrow(report) || !length(na_strings)) return(report)
+  for (kind in names(frames)) {
+    frame <- frames[[kind]]
+    if (!is.data.frame(frame)) next
+    text <- names(frame)[vapply(frame, function(col) is.character(col) || is.factor(col),
+                                logical(1))]
+    rows <- which(report$kind == kind & report$status == "dropped" &
+                    report$variable %in% text & !is.na(report$code) &
+                    report$reason %in% "no value")
+    if (!length(rows)) next
+    missing <- rows[.fg_is_missing_value(report$code[rows], na_strings)]
+    report$reason[missing] <- paste("missing value:", report$code[missing])
+    report$issue[missing] <- "missing"
+  }
+  report
 }
 
 #' Analyze Focus Group Results
@@ -1305,7 +1409,9 @@ create_agents <- function(n_participants, config, demographics = NULL,
 #' Runs descriptive analyses offline. Thematic analysis and a model-generated
 #' summary are opt-in and run only when `config` is supplied.
 #'
-#' @param focus_group_result A `FocusGroup` object or `focus_group_result`.
+#' @param focus_group_result A `FocusGroup` object or `focus_group_result`. A
+#'   result whose `focus_group` is `NULL`, as one saved without its session
+#'   object, is read back with [focus_group_from_transcript()].
 #' @param num_topics Integer number of topics for topic modeling.
 #' @param speakers Whose turns the text statistics describe:
 #'   `"participants"` (default) excludes the moderator's scripted turns;
@@ -1353,6 +1459,8 @@ analyze_focus_group <- function(focus_group_result,
     fg <- focus_group_result
   } else if (inherits(focus_group_result, "focus_group_result")) {
     fg <- focus_group_result$focus_group
+    # A result saved without its session object is rebuilt from its tables.
+    if (is.null(fg)) fg <- focus_group_from_transcript(focus_group_result)
   } else {
     stop("`focus_group_result` must be a FocusGroup or focus_group_result.",
          call. = FALSE)

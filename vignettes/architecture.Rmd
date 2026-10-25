@@ -133,8 +133,9 @@ University of Minnesota.
 
 A `FocusGroup` object runs once. Calling `run_simulation()` on an object that
 has already run raises an error. Construct a new object for another full
-session. Use the continuation experiment in `run_focus_studio()` to compare a
-next message under original and edited histories.
+session. To continue a recorded session under other histories, pass it to
+`run_focus_group_arms()`, as described below; the continuation experiment in
+`run_focus_studio()` compares one next message.
 
 A message can also be placed into a running session: `fg_injection()`
 describes it and the point where it goes, after the moderator's line for a
@@ -148,6 +149,25 @@ With `scale = c(1, 7)`, each answer is also read as one whole number from 1 to
 7 into the `value` column of `probes`; an answer from which no single number
 on the scale can be read, such as "3 or 4" or "6/10", is re-asked once, and
 stays `NA`, with a warning, when the re-ask gives none either.
+
+An injection from a participant's ID or handle at `fg_before_turn(t)` is that
+participant's turn `t`, said as written with no model call. It is recorded
+with the routing rule `"injected"` and takes the place of the turn the session
+was about to give: the flow's pick, a turn the moderator's question addressed,
+or the reply to a call-on line.
+
+`run_focus_group_arms()` also continues a recorded session. Given a
+`focus_group_result` or a `FocusGroup` as its first argument, and arms that
+branch at `fg_before_turn(t)`, it reads the record into a new object, sets the
+engine to the state it was in just before turn `t` (the guide item and its
+stage, the turns given on it, the call-on queue, an addressed participant, the
+question and the interim summary in force, and the turn-taking rule's state),
+and runs each arm from there with the configuration supplied. The messages
+before turn `t` are the shared prefix. An arm that is `NULL` regenerates turn
+`t` and what follows; under round robin, with a model that answers the same
+messages the same way, it repeats the record. A human transcript read with
+`focus_group_from_transcript()` can be continued once its participants have
+personas; its later moderator lines are delivered as recorded.
 
 ## Messages and prompts
 
@@ -198,6 +218,16 @@ warning and a complete result whose `summary` is `NA`.
 
 The class has a concise print method. `FocusGroup` also has a concise S3 print
 method for direct R6 objects.
+
+`format(result)` writes the result as the lines of a session file, one JSON
+object per line, each one row of a table of the result:
+`writeLines(format(result), "session.fg.jsonl")`. The file holds no model
+configuration, key, endpoint, or runner, and `focus_group_from_transcript()`
+reads it back into a new `FocusGroup` with every setting and record, so that
+it can be analyzed, replayed with `fg_player()`, or continued. `saveRDS()` of
+a result, by contrast, keeps `focus_group`, with its configuration and runner.
+The file `system.file("fg-session-spec.md", package = "FocusGroup")` describes
+the format for converting a transcript by hand or with a language model.
 
 ## Analysis
 

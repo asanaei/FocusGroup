@@ -32,7 +32,9 @@ run_focus_group_arms(
 )
 }
 \arguments{
-\item{topic}{Character. Focus group topic.}
+\item{topic}{Character. Focus group topic. Or a recorded session to
+continue, a \code{FocusGroup} or a \code{focus_group_result}; see "Continuing a
+recorded session".}
 
 \item{config}{An explicit \code{LLMR::llm_config} used by all agents and group-level
 model tasks.}
@@ -209,6 +211,46 @@ speaker, stops the run with an error of class
 The estimate checked against \code{max_calls} is that of one session times the
 number of arms, an upper bound, since the prefix is paid once.
 }
+\section{Continuing a recorded session}{
+
+When \code{topic} is a recorded session, a \code{FocusGroup} or a
+\code{focus_group_result} (for example one read from a session file by
+\code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}}), no prefix is run: each arm continues the
+record from a participant turn. The branch point must be
+\code{fg_before_turn(t)}, where turn \code{t} is the \code{t}-th message by a
+participant. The messages before it are the shared prefix, taken from the
+record as they are, and the record's turn \code{t} and everything after it are
+replaced by each arm's continuation. An arm \code{fg_injection(text, at = fg_before_turn(t), from = "P2")} has P2 say \code{text} as turn \code{t} (see
+\code{\link[=fg_injection]{fg_injection()}}); a \code{NULL} arm regenerates turn \code{t} and the rest; an
+outside voice or a moderator line can also be injected there.
+
+The session is rebuilt as it stood just before turn \code{t}: the guide item
+and its stage, the turns already given on it, the call-on queue, a
+participant the moderator's last line addressed, the question in force,
+the interim summary in force, and the turn-taking rule's state, with the
+record's personas, handles, guide, settings, templates, standing rules,
+and message construction. \code{config} and \code{.runner} are given to every agent;
+\code{reasoning_effort} and \code{max_tokens_config}, when given, replace the
+record's. The arguments that the record fixes (\code{n_participants}, \code{guide},
+\code{demographics}, \code{survey_responses}, \code{flow}, \code{message_mode},
+\code{max_participant_responses}, \code{on_desire_failure}, \code{moderator_verbatim},
+\code{call_on_silent}, \code{call_on_text}, and \code{handles}) must be left out. A probe
+or an injection at a point the record has already passed is an error, as
+are a custom turn-taking flow, whose state cannot be rebuilt, a record
+without a topic, and a participant who has only the placeholder persona of
+an imported transcript; give personas with \code{focus_group_from_transcript(x, personas = ...)}. Everything is checked before any call. Under round robin
+with a model that replies the same way to the same messages, a \code{NULL} arm
+repeats the record. Each arm's \code{calls} and \code{usage} hold the record's calls
+before the cut and the arm's own after it. With \code{seed}, the caller's
+random-number state is restored afterwards.
+
+A continuation of a human transcript is a model's continuation of a human
+discussion: the later moderator lines are the recorded ones, delivered as
+written, and the participants' turns are generated from the personas
+given. Arms are comparable with one another, not with the people who took
+part.
+}
+
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
                         api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
@@ -234,6 +276,21 @@ out <- run_focus_group_arms(
   .runner = scripted)
 out
 out$probes[, c("arm", "point", "agent_id", "answer")]
+
+# Continue a recorded session from its third participant turn: as recorded,
+# and with P2 saying something else there.
+session <- run_focus_group("Library hours", cfg, n_participants = 2,
+                           guide = guide, flow = "round_robin",
+                           verbose = FALSE, .runner = scripted)
+path <- tempfile(fileext = ".fg.jsonl")
+writeLines(format(session), path)
+again <- run_focus_group_arms(
+  focus_group_from_transcript(path), cfg,
+  arms = list(regenerated = NULL,
+              changed = fg_injection("Mornings matter more to me.",
+                                     at = fg_before_turn(3), from = "P2")),
+  verbose = FALSE, .runner = scripted)
+again$arms$changed$transcript[, c("speaker_id", "text")]
 }
 \seealso{
 \code{\link[=fg_injection]{fg_injection()}}, \code{\link[=fg_probe]{fg_probe()}}, \code{\link[=run_focus_group]{run_focus_group()}}.

@@ -718,3 +718,43 @@ test_that("text without a code is missing only when it says nothing but missing-
   expect_false(any(.fg_is_missing_value(answers, na)))
   expect_false(any(.fg_is_missing_value(answers, character())))
 })
+
+test_that("create_agents() leaves out missing-data labels of the frames it is given", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  demo <- data.frame(age = c(34, -9, 51),
+                     occupation = c("Refused", "I keep missing the bus", "nurse"),
+                     party = factor(c("-9. Refused", "Democrat", "Don't know")),
+                     stringsAsFactors = FALSE)
+  survey <- data.frame(`Where do you get news?` = c("Don't know", "The radio",
+                                                   "My landlord refused to say"),
+                       check.names = FALSE)
+  expect_message(agents <- create_agents(3, cfg, demographics = demo,
+                                         survey_responses = survey),
+                 "4 answer\\(s\\) were left out.*occupation; party; Where do you get news\\?")
+  personas <- vapply(agents, function(a) a$persona_description, character(1))
+  expect_false(grepl("Refused|Don't know", personas[["P1"]]))
+  # Answers that use the words are kept, and numbers are never read as labels.
+  expect_match(personas[["P2"]], "occupation: I keep missing the bus", fixed = TRUE)
+  expect_match(personas[["P2"]], "age: -9", fixed = TRUE)
+  expect_match(personas[["P3"]], "Answer: My landlord refused to say", fixed = TRUE)
+  report <- persona_rendering_report(agents)
+  dropped <- report[report$status == "dropped", ]
+  expect_identical(paste(dropped$agent_id, dropped$variable),
+                   c("P1 occupation", "P1 party", "P1 Where do you get news?", "P3 party"))
+  expect_identical(dropped$reason, c("missing value: Refused", "missing value: -9. Refused",
+                                     "missing value: Don't know", "missing value: Don't know"))
+  # The raw record keeps every value.
+  expect_identical(agents$P1$demographics$occupation, "Refused")
+
+  # character() turns the screening off; an NA is left out without a message.
+  expect_silent(off <- create_agents(3, cfg, demographics = demo, na_strings = character()))
+  expect_match(off$P1$persona_description, "occupation: Refused", fixed = TRUE)
+  expect_silent(create_agents(2, cfg, demographics = data.frame(job = c("baker", NA))))
+  expect_error(create_agents(3, cfg, demographics = demo, na_strings = ""), "na_strings")
+
+  # A frame the other constructors screened is not screened again.
+  marked <- demo
+  attr(marked, "focusgroup_screened") <- TRUE
+  expect_silent(kept <- create_agents(3, cfg, demographics = marked))
+  expect_match(kept$P1$persona_description, "occupation: Refused", fixed = TRUE)
+})

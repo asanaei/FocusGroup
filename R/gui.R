@@ -1864,8 +1864,9 @@ run_focus_studio <- function(...) {
 .fg_prepare_analysis_source <- function(obj, speaker_col = NULL,
                                         text_col = NULL) {
   if (inherits(obj, "focus_group_result")) {
+    # A result saved without its session object is rebuilt from its tables.
     return(list(
-      focus_group = obj$focus_group,
+      focus_group = obj$focus_group %||% focus_group_from_transcript(obj),
       transcript = obj$transcript
     ))
   }
@@ -2104,9 +2105,12 @@ run_focus_studio <- function(...) {
           return(list(disabled = FALSE, reason = NULL))
         }
         if (inherits(value, "focus_group_result")) {
-          if (!inherits(value$focus_group, "FocusGroup") ||
+          # A result without its session object is read from its tables.
+          saved_alone <- is.null(value$focus_group) && is.data.frame(value$transcript) &&
+            nrow(value$transcript) > 0L
+          if (!saved_alone && (!inherits(value$focus_group, "FocusGroup") ||
               !length(value$focus_group$conversation_log) ||
-              !is.data.frame(value$transcript)) {
+              !is.data.frame(value$transcript))) {
             return(list(
               disabled = TRUE,
               reason = "The saved focus-group result lacks a session object or transcript table."

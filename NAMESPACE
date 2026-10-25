@@ -2,6 +2,7 @@
 
 S3method(as.data.frame,focus_group_summary)
 S3method(format,fg_point)
+S3method(format,focus_group_result)
 S3method(print,FocusGroup)
 S3method(print,fg_injection)
 S3method(print,fg_point)

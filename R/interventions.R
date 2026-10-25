@@ -118,11 +118,21 @@ print.fg_point <- function(x, ...) {
 #'
 #' A message `from = "moderator"` is logged under the moderator's id, so the
 #' moderator reads it as its own line; so is a message from the moderator's
-#' id or handle. Any other `from` names an outside voice, such as
-#' `"Guest expert"`, logged under that name and shown to the agents as
-#' written; it may not be a participant id, a participant's handle, or
-#' `"System"`. A moderator message that puts its last question to one
-#' participant by handle ("P2, what do you make of that?") gives that
+#' id or handle. A message from a participant's id or handle (the handle in
+#' any case) is that participant's turn: at `fg_before_turn(t)` the
+#' participant says `text` as turn `t`, with no model call. It is logged
+#' under the participant's id with `metadata$as_turn = TRUE`, recorded in the
+#' routing record with the rule `"injected"`, and counted as a participant
+#' turn, and it takes the place of the turn the session was about to give:
+#' the flow's pick, an addressed turn, or the reply to a call-on line, after
+#' which the moderator calls on the next silent participant. The record's
+#' `replaced` names which. Such a message is allowed only at
+#' [fg_before_turn()], with `visibility = "shared"`, and once per point. Any
+#' other `from` names an outside voice, such as `"Guest expert"`, logged
+#' under that name and shown to the agents as written; it may not be
+#' `"System"`, nor a name of the form `"P4"`, which would read as a
+#' participant's handle. A moderator message that puts its last question to
+#' one participant by handle ("P2, what do you make of that?") gives that
 #' participant the next turn, except at a turn that answers the moderator's
 #' call-on line, which stays with the participant called on.
 #'
@@ -135,7 +145,8 @@ print.fg_point <- function(x, ...) {
 #' @param at Where the message goes: [fg_after_item()], [fg_before_turn()],
 #'   or `"before_closing"`. When an injection and a probe share a point, the
 #'   probe is asked first.
-#' @param from `"moderator"` or the name of an outside speaker.
+#' @param from `"moderator"`, a participant's id or handle, or the name of
+#'   an outside speaker.
 #' @param visibility `"shared"` or `"participants"`.
 #' @param label Optional name for the injection in the records; by default
 #'   the arm's name in [run_focus_group_arms()], and `"injection_1"`,
@@ -442,7 +453,50 @@ print.fg_probe <- function(x, ...) {
 #' The estimate checked against `max_calls` is that of one session times the
 #' number of arms, an upper bound, since the prefix is paid once.
 #'
+#' @section Continuing a recorded session:
+#' When `topic` is a recorded session, a `FocusGroup` or a
+#' `focus_group_result` (for example one read from a session file by
+#' [focus_group_from_transcript()]), no prefix is run: each arm continues the
+#' record from a participant turn. The branch point must be
+#' `fg_before_turn(t)`, where turn `t` is the `t`-th message by a
+#' participant. The messages before it are the shared prefix, taken from the
+#' record as they are, and the record's turn `t` and everything after it are
+#' replaced by each arm's continuation. An arm `fg_injection(text, at =
+#' fg_before_turn(t), from = "P2")` has P2 say `text` as turn `t` (see
+#' [fg_injection()]); a `NULL` arm regenerates turn `t` and the rest; an
+#' outside voice or a moderator line can also be injected there.
+#'
+#' The session is rebuilt as it stood just before turn `t`: the guide item
+#' and its stage, the turns already given on it, the call-on queue, a
+#' participant the moderator's last line addressed, the question in force,
+#' the interim summary in force, and the turn-taking rule's state, with the
+#' record's personas, handles, guide, settings, templates, standing rules,
+#' and message construction. `config` and `.runner` are given to every agent;
+#' `reasoning_effort` and `max_tokens_config`, when given, replace the
+#' record's. The arguments that the record fixes (`n_participants`, `guide`,
+#' `demographics`, `survey_responses`, `flow`, `message_mode`,
+#' `max_participant_responses`, `on_desire_failure`, `moderator_verbatim`,
+#' `call_on_silent`, `call_on_text`, and `handles`) must be left out. A probe
+#' or an injection at a point the record has already passed is an error, as
+#' are a custom turn-taking flow, whose state cannot be rebuilt, a record
+#' without a topic, and a participant who has only the placeholder persona of
+#' an imported transcript; give personas with `focus_group_from_transcript(x,
+#' personas = ...)`. Everything is checked before any call. Under round robin
+#' with a model that replies the same way to the same messages, a `NULL` arm
+#' repeats the record. Each arm's `calls` and `usage` hold the record's calls
+#' before the cut and the arm's own after it. With `seed`, the caller's
+#' random-number state is restored afterwards.
+#'
+#' A continuation of a human transcript is a model's continuation of a human
+#' discussion: the later moderator lines are the recorded ones, delivered as
+#' written, and the participants' turns are generated from the personas
+#' given. Arms are comparable with one another, not with the people who took
+#' part.
+#'
 #' @inheritParams run_focus_group
+#' @param topic Character. Focus group topic. Or a recorded session to
+#'   continue, a `FocusGroup` or a `focus_group_result`; see "Continuing a
+#'   recorded session".
 #' @param arms A named list of at least two arms, as described in Details.
 #' @param probes Optional [fg_probe()] or list of probes. A probe at or
 #'   before the branch point is asked once, in the prefix; a later one is
@@ -502,6 +556,21 @@ print.fg_probe <- function(x, ...) {
 #'   .runner = scripted)
 #' out
 #' out$probes[, c("arm", "point", "agent_id", "answer")]
+#'
+#' # Continue a recorded session from its third participant turn: as recorded,
+#' # and with P2 saying something else there.
+#' session <- run_focus_group("Library hours", cfg, n_participants = 2,
+#'                            guide = guide, flow = "round_robin",
+#'                            verbose = FALSE, .runner = scripted)
+#' path <- tempfile(fileext = ".fg.jsonl")
+#' writeLines(format(session), path)
+#' again <- run_focus_group_arms(
+#'   focus_group_from_transcript(path), cfg,
+#'   arms = list(regenerated = NULL,
+#'               changed = fg_injection("Mornings matter more to me.",
+#'                                      at = fg_before_turn(3), from = "P2")),
+#'   verbose = FALSE, .runner = scripted)
+#' again$arms$changed$transcript[, c("speaker_id", "text")]
 #' @export
 run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
                                  guide = c(Opening = 1, Icebreaker = 1,
@@ -520,6 +589,31 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
                                  call_on_silent = c("opening", "midpoint", "end"),
                                  call_on_text = NULL, handles = NULL,
                                  final_summary = TRUE, .runner = NULL) {
+  if (inherits(topic, c("FocusGroup", "focus_group_result"))) {
+    # A recorded session fixes these; they must be left out.
+    fixed <- c("n_participants", "guide", "demographics", "survey_responses", "flow",
+               "message_mode", "max_participant_responses", "on_desire_failure",
+               "moderator_verbatim", "call_on_silent", "call_on_text", "handles")
+    frame <- environment()
+    given <- fixed[!vapply(fixed, function(name) {
+      eval(call("missing", as.name(name)), frame)
+    }, logical(1))]
+    if (length(given)) {
+      stop("A recorded session fixes ", paste0("`", given, "`", collapse = ", "),
+           "; leave ", if (length(given) == 1L) "it" else "them",
+           " out when continuing it.", call. = FALSE)
+    }
+    if (missing(config)) {
+      stop("`config` must be an explicit `llm_config` object.", call. = FALSE)
+    }
+    out <- .fg_continue_arms(
+      record = topic, config = config, arms = arms, probes = probes, seed = seed,
+      verbose = verbose, max_calls = max_calls, confirm = confirm,
+      final_summary = final_summary, reasoning_effort = reasoning_effort,
+      max_tokens_config = max_tokens_config, .runner = .runner, seed_env = frame)
+    if (verbose) cat("Arms complete.\n")
+    return(out)
+  }
   message_mode <- match.arg(message_mode)
   on_desire_failure <- match.arg(on_desire_failure)
   arms <- .fg_arm_list(arms)
@@ -543,16 +637,19 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
 }
 
 # Run the prefix and the arms, and build the focus_group_arms object. A
-# failure anywhere becomes an error carrying what was completed.
-.fg_execute_arms <- function(setup, arms, verbose) {
+# failure anywhere becomes an error carrying what was completed. `run`, when
+# given, runs the arms in place of FocusGroup$run_arms(), as for a recorded
+# session continued from a cut.
+.fg_execute_arms <- function(setup, arms, verbose, run = NULL) {
   fg <- setup$fg
   build <- function(prefix, branches, failure = NULL) {
     .fg_arms_result(prefix, branches, setup, failure)
   }
   run <- tryCatch(
     withr::with_options(list(focusgroup.message_mode = setup$message_mode),
-                        fg$run_arms(arms, probes = setup$probes, verbose = verbose,
-                                    final_summary = setup$final_summary %||% TRUE)),
+                        if (is.function(run)) run() else
+                          fg$run_arms(arms, probes = setup$probes, verbose = verbose,
+                                      final_summary = setup$final_summary %||% TRUE)),
     error = function(e) e)
   # An error raised before the session began, such as an arm whose point
   # lies outside the guide, carries no partial result.
@@ -590,6 +687,213 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
   build(run$prefix, run$arms)
 }
 
+# Continue a recorded session from a participant turn, once per arm. The
+# record is read into a fresh FocusGroup, put in its state just before the
+# turn of the branch point, given `config` and `.runner`, and checked with
+# the arms and probes before any call; the arms then run as in
+# FocusGroup$run_arms(). The standing rules, the disclosure setting, and the
+# message construction of the record are in force while they run.
+.fg_continue_arms <- function(record, config, arms, probes, seed, verbose, max_calls,
+                              confirm, final_summary, reasoning_effort,
+                              max_tokens_config, .runner, seed_env) {
+  .fg_validate_config(config)
+  reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
+  probes <- .fg_probe_list(probes)
+  .fg_check_flag(final_summary, "final_summary")
+  .fg_check_flag(verbose, "verbose")
+  .fg_check_flag(confirm, "confirm")
+  if (!is.numeric(max_calls) || length(max_calls) != 1L || is.na(max_calls) ||
+      !is.finite(max_calls) || max_calls < 1 || max_calls != floor(max_calls)) {
+    stop("`max_calls` must be one finite positive integer.", call. = FALSE)
+  }
+  if (!is.null(.runner) && !is.function(.runner)) {
+    stop("`.runner` must be `NULL` or a function.", call. = FALSE)
+  }
+  if (!is.null(max_tokens_config) && !is.list(max_tokens_config)) {
+    stop("`max_tokens_config` must be `NULL` or a named list.", call. = FALSE)
+  }
+  arms <- .fg_arm_list(arms)
+  firsts <- Filter(Negate(is.null), lapply(arms, function(a) if (length(a)) a[[1]]))
+  events <- unique(vapply(firsts, function(inj) .fg_point_event(inj$at), character(1)))
+  if (length(events) != 1L) {
+    stop("The first injection of every arm must name the same point; found ",
+         paste(vapply(events, .fg_event_label, character(1)), collapse = ", "), ".",
+         call. = FALSE)
+  }
+  branch_event <- events[[1]]
+  if (!identical(firsts[[1]]$at$type, "before_turn")) {
+    stop("A recorded session is continued from a participant turn; name the branch ",
+         "point with fg_before_turn(), not ", .fg_event_label(branch_event), ".",
+         call. = FALSE)
+  }
+  t <- firsts[[1]]$at$value
+
+  fg <- focus_group_from_transcript(record)
+  info <- fg$records$info %||% list()
+  flow_name <- info$recorded$flow %||% .fg_flow_name(fg$turn_taking_flow)
+  if (!flow_name %in% c("round_robin", "probabilistic", "desire_based")) {
+    stop("A session with the custom turn-taking flow '", flow_name, "' cannot be ",
+         "continued: its state cannot be rebuilt from the record.", call. = FALSE)
+  }
+  if (identical(fg$topic, .fg_placeholder_topic)) {
+    stop("The record has no topic. Give one with ",
+         "focus_group_from_transcript(x, topic = ...) and continue that.", call. = FALSE)
+  }
+  participant_ids <- setdiff(names(fg$agents), fg$moderator_id)
+  stand_ins <- participant_ids[vapply(participant_ids, function(id) {
+    identical(fg$agents[[id]]$persona_description, .fg_placeholder_persona(id))
+  }, logical(1))]
+  if (length(stand_ins)) {
+    stop("Participant(s) ", paste(stand_ins, collapse = ", "), " have no persona, only ",
+         "the placeholder of an imported transcript, and could speak in the ",
+         "continuation. Give their personas with ",
+         "focus_group_from_transcript(x, personas = ...) and continue that.", call. = FALSE)
+  }
+  priv <- fg$.__enclos_env__$private
+  turns <- sum(vapply(fg$conversation_log, function(m) {
+    m$speaker_id %in% participant_ids
+  }, logical(1)))
+  if (t > turns) {
+    stop("The record has ", turns, " participant turn(s); the branch point ",
+         .fg_event_label(branch_event), " lies beyond them.", call. = FALSE)
+  }
+
+  # The settings the continuation runs under: the record's, with the
+  # model configuration, the runner, and any new limits given here.
+  for (agent in fg$agents) {
+    agent$config <- config
+    agent$.runner <- .runner
+  }
+  fg$admin_config <- config
+  if (!is.null(reasoning_effort)) fg$reasoning_effort <- reasoning_effort
+  caps <- c(utterance = "max_tokens_utterance", moderator = "max_tokens_moderator",
+            desire = "max_tokens_desire", desire_retry = "max_tokens_desire_retry",
+            summary = "max_tokens_summary", interim_summary = "max_tokens_interim_summary",
+            probe = "max_tokens_probe")
+  unknown <- setdiff(names(max_tokens_config %||% list()), names(caps))
+  if (length(unknown)) {
+    stop("Unknown `max_tokens_config` element(s): ", paste(unknown, collapse = ", "), ".",
+         call. = FALSE)
+  }
+  for (cap in names(max_tokens_config %||% list())) {
+    value <- max_tokens_config[[cap]]
+    if (!is.numeric(value) || length(value) != 1L || is.na(value) || !is.finite(value) ||
+        value < 1 || value != floor(value)) {
+      stop("`max_tokens_config$", cap, "` must be one positive whole number.", call. = FALSE)
+    }
+    fg[[caps[[cap]]]] <- value
+  }
+  message_mode <- fg$message_mode %||% .fg_message_mode()
+  options <- list(focusgroup.message_mode = message_mode)
+  rules <- info$standing_rules
+  if (is.character(rules$participant) && !is.na(rules$participant)) {
+    options$focusgroup.participant_rules <- rules$participant
+  }
+  if (is.character(rules$moderator) && !is.na(rules$moderator)) {
+    options$focusgroup.moderator_rules <- rules$moderator
+  }
+  if (is.character(info$disclosure) && !is.na(info$disclosure)) {
+    options$focusgroup.disclosure <- info$disclosure
+  }
+  withr::local_options(options)
+  fg$message_mode <- message_mode
+  priv$position_at(t, final_summary = final_summary)
+
+  # Everything is checked before any call: each arm's injections against the
+  # guide and the points already passed, and the probes likewise.
+  passed <- setdiff(priv$fired, branch_event)
+  for (name in names(arms)) {
+    plan <- priv$prepare_plan(lapply(arms[[name]], function(inj) {
+      inj$label <- inj$label %||% name
+      inj
+    }), probes)
+    late <- vapply(plan$injections, function(inj) inj$event %in% passed, logical(1))
+    if (any(late)) {
+      stop("Arm '", name, "' places an injection at ",
+           .fg_event_label(plan$injections[[which(late)[1]]]$event),
+           ", which comes before the branch point.", call. = FALSE)
+    }
+  }
+  plan <- priv$prepare_plan(list(), probes)
+  for (probe in plan$probes) {
+    early <- intersect(probe$events, priv$fired)
+    if (length(early)) {
+      stop("Probe '", probe$label, "' is asked at ", .fg_event_label(early[[1]]),
+           ", which a continued session has already passed; ask it at a later point.",
+           call. = FALSE)
+    }
+  }
+  moderator <- fg$agents[[fg$moderator_id]]
+  k <- priv$state$item
+  later <- fg$question_script[setdiff(seq_along(fg$question_script), seq_len(k))]
+  if (identical(moderator$persona_description, .fg_placeholder_persona(fg$moderator_id)) &&
+      any(!vapply(later, function(item) isTRUE(item$verbatim), logical(1)))) {
+    stop("The moderator has no persona and would write the lines of later guide items. ",
+         "Give one with focus_group_from_transcript(x, personas = ...).", call. = FALSE)
+  }
+
+  estimated <- .fg_continuation_estimate(fg, probes, final_summary) * as.double(length(arms))
+  estimated <- .fg_validate_estimate(estimated)
+  if (is.null(.runner) && estimated > max_calls && !confirm) {
+    stop("Estimated model outputs (", estimated, ") exceed `max_calls` (",
+         as.integer(max_calls), "). Increase `max_calls` or set `confirm = TRUE`.",
+         call. = FALSE)
+  }
+  if (!is.null(seed)) {
+    withr::local_preserve_seed(.local_envir = seed_env)
+    withr::local_seed(as.integer(seed), .local_envir = seed_env)
+  }
+
+  log <- fg$conversation_log
+  fg$records$info$branch <- list(
+    point = .fg_event_label(branch_event),
+    prefix_messages = length(log),
+    prefix_last_message_id = as.integer(log[[length(log)]]$message_id),
+    prefix_calls = length(fg$records$calls),
+    prefix_hash = .fg_prefix_hash(log))
+  if (verbose) {
+    cat("Continuing the recorded session from ", .fg_event_label(branch_event),
+        " after ", length(log), " message(s)\n", sep = "")
+  }
+  setup <- list(fg = fg, flow = flow_name, message_mode = message_mode,
+                n_participants = length(participant_ids), estimated_calls = estimated,
+                probes = probes, final_summary = final_summary,
+                run_meta = list(seed = seed,
+                                on_desire_failure = .fg_flow_params(
+                                  fg$turn_taking_flow)$on_desire_failure))
+  .fg_execute_arms(setup, arms, verbose, run = function() {
+    priv$branch_out(arms, probes, branch_event, verbose)
+  })
+}
+
+# The model outputs one arm of a continued session can make, at most: the
+# rest of the current item's turns, every later item's moderator line and
+# turns, the call-ons from the current item on, the probes, and the final
+# summary, with a desire score per participant before each turn the flow
+# chooses.
+.fg_continuation_estimate <- function(fg, probes, final_summary) {
+  priv <- fg$.__enclos_env__$private
+  state <- priv$state
+  k <- state$item
+  script <- fg$question_script
+  later <- setdiff(seq_along(script), seq_len(k))
+  phases <- vapply(script, function(item) as.character(item$phase %||% ""), character(1))
+  verbatim <- vapply(script, function(item) isTRUE(item$verbatim), logical(1))
+  n <- length(setdiff(names(fg$agents), fg$moderator_id))
+  limit <- as.double(fg$max_participant_responses)
+  now <- if (identical(state$stage, "turn")) max(0, limit - state$responses) else 0
+  turns <- now + sum(phases[later] %in% .fg_response_phases) * limit
+  desire <- if (inherits(fg$turn_taking_flow, "DesireBasedFlow")) turns * n else 0
+  items <- fg$call_on_silent$items %||% integer()
+  call_ons <- sum(items >= k) * as.double(n)
+  probe_outputs <- sum(vapply(probes, function(p) {
+    length(p$at) * as.double(length(p$participants %||% seq_len(n))) *
+      (if (is.null(p$scale)) 1 else 2)
+  }, numeric(1)))
+  sum(!verbatim[later]) + turns + desire + call_ons + probe_outputs +
+    (if (isTRUE(final_summary)) 1 else 0)
+}
+
 # The hash of a transcript prefix: the message ids, speakers, and texts.
 .fg_prefix_hash <- function(log) {
   LLMR::llm_hash(lapply(log, function(m) {
@@ -614,17 +918,18 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
   })
   names(arm_results) <- names(branches)
 
-  rows <- function(component, keep) {
+  # Each arm's records begin with the prefix's; the rows after them are the
+  # arm's own.
+  rows <- function(component) {
+    shared <- nrow(prefix_result[[component]])
     parts <- lapply(arm_results, function(r) {
       x <- r[[component]]
-      x[keep(x, r), , drop = FALSE]
+      x[setdiff(seq_len(nrow(x)), seq_len(shared)), , drop = FALSE]
     })
-    do.call(rbind, c(list(prefix_result[[component]][0, , drop = FALSE]),
-                     unname(parts)))
+    do.call(rbind, c(list(prefix_result[[component]]), unname(parts)))
   }
-  injections <- rows("injections", function(x, r) rep(TRUE, nrow(x)))
-  probes <- rbind(prefix_result$probes,
-                  rows("probes", function(x, r) !is.na(x$arm)))
+  injections <- rows("injections")
+  probes <- rows("probes")
   rownames(injections) <- NULL
   rownames(probes) <- NULL
 
