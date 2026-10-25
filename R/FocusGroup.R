@@ -2226,7 +2226,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
       info <- list(label = injection$label, arm = private$arm %||% NA_character_,
                    point = format(injection$at), from = injection$from,
                    visibility = injection$visibility,
-                   cut_after_message_id = cut_after)
+                   cut_after_message_id = cut_after, as_turn = FALSE,
+                   replaced = NA_character_)
       message_id <- private$log_message(
         speaker, injection$text, round = private$current_round,
         is_moderator = identical(speaker, self$moderator_id), phase = phase,
@@ -2303,7 +2304,8 @@ FocusGroup <- R6::R6Class("FocusGroup",
           visibility = injection$visibility, cut_after_message_id = NA_integer_,
           delivered = FALSE, message_id = NA_integer_, speaker_id = NA_character_,
           text = injection$text, round = NA_integer_, phase = NA_character_,
-          turn = NA_integer_)
+          turn = NA_integer_, as_turn = isTRUE(injection$as_turn),
+          replaced = NA_character_)
       }
       for (probe in private$plan$probes) {
         missed <- setdiff(probe$events, private$fired)

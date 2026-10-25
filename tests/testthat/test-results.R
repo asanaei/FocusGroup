@@ -49,8 +49,8 @@ test_that("run_focus_group returns the fixed result class and fields", {
   expect_true(is.data.frame(result$participants))
   expect_named(
     result$participants,
-    c("id", "handle", "role", "is_moderator", "persona", "demographics",
-      "survey_responses", "provider", "model"),
+    c("id", "handle", "role", "is_moderator", "persona", "communication_style",
+      "demographics", "survey_responses", "provider", "model"),
     ignore.order = FALSE
   )
   expect_true(is.character(result$participants$id))
@@ -82,10 +82,21 @@ test_that("result metadata records provenance without retaining a config object"
       "max_participant_responses", "seed", "on_desire_failure",
       "reasoning_effort", "max_tokens", "call_settings", "prompt_templates",
       "standing_rules", "disclosure", "versions", "started", "branch",
-      "handles", "call_on_silent", "call_on_text", "final_summary"),
+      "handles", "call_on_silent", "call_on_text", "final_summary",
+      "guide", "flow_params"),
     ignore.order = FALSE
   )
   expect_identical(result$metadata$message_mode, "roleflip")
+  expect_identical(result$metadata$guide, result$focus_group$question_script)
+  expect_identical(result$metadata$flow_params, list())
+  expect_identical(result$participants$communication_style,
+                   vapply(result$focus_group$agents, function(a) {
+                     a$communication_style_instruction
+                   }, character(1), USE.NAMES = FALSE))
+  expect_named(result$injections,
+               c("label", "arm", "point", "delivered", "message_id", "speaker_id",
+                 "from", "visibility", "text", "cut_after_message_id", "round",
+                 "phase", "turn", "as_turn", "replaced"), ignore.order = FALSE)
   expect_false(any(vapply(result$metadata, inherits, logical(1), "llm_config")))
   expect_false(any(grepl("api_key|credential", names(result$metadata),
                          ignore.case = TRUE)))
@@ -140,4 +151,18 @@ test_that("a FocusGroup object cannot run twice", {
     result$focus_group$run_simulation(verbose = FALSE),
     "run_focus_studio|continuation"
   )
+})
+
+test_that("the metadata records the parameters of each turn-taking rule", {
+  result <- .small_result()
+  agents <- result$focus_group$agents
+  prob <- create_conversation_flow("probabilistic", agents, "MOD",
+                                   flow_params = list(recovery_increment = 0.25))
+  expect_identical(FocusGroup:::.fg_flow_params(prob),
+                   list(initial_propensities = c(P1 = 1), recovery_increment = 0.25))
+  desire <- create_conversation_flow("desire_based", agents, "MOD",
+                                     flow_params = list(min_desire_threshold = 4,
+                                                        on_desire_failure = "random"))
+  expect_identical(FocusGroup:::.fg_flow_params(desire),
+                   list(min_desire_threshold = 4, on_desire_failure = "random"))
 })

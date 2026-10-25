@@ -373,13 +373,15 @@ NULL
 #'     call-on lines (`call_on`, a list of `point`, `participant`, and
 #'     `handle`), the replies to them (`called_on`), replies to a moderator
 #'     line that addressed the speaker (`addressed`), replies whose
-#'     self-label was removed (`self_label_removed`), and replies whose
-#'     opening self-introduction was removed (`preamble_removed`).}
+#'     self-label was removed (`self_label_removed`), replies whose
+#'     opening self-introduction was removed (`preamble_removed`), and
+#'     injected participant turns (`as_turn`; see [fg_injection()]).}
 #'   \item{summary}{The final summary. It is `NA` when the final summary call
 #'     failed, and `character(0)` in a partial result that stopped before it
 #'     or in a session run with `final_summary = FALSE`.}
 #'   \item{participants}{A data frame with one row per agent: `id`, `handle`, `role`,
-#'     `is_moderator`, `persona`, `demographics`, `survey_responses`,
+#'     `is_moderator`, `persona`, `communication_style` (the agent's
+#'     style instruction), `demographics`, `survey_responses`,
 #'     `provider`, and `model`. When the participants were drawn from the
 #'     bundled ANES records, the rows drawn are recorded in
 #'     `attr(result$focus_group$agents, "source_rows")`.}
@@ -403,7 +405,12 @@ NULL
 #'     arm and branch point), `handles` (a data frame of `agent_id` and
 #'     `handle`), `call_on_silent` (a list of the `points` and the guide
 #'     `items` they fall on, both empty when call-ons are off),
-#'     `call_on_text`, and `final_summary`. It holds no configuration
+#'     `call_on_text`, `final_summary`, `guide` (the guide items as the
+#'     session ran them, each a list with `phase` and, when set, `text` and
+#'     `verbatim`), and `flow_params` (the parameters of the turn-taking
+#'     rule: `initial_propensities` and `recovery_increment` for
+#'     `"probabilistic"`, `min_desire_threshold` and `on_desire_failure`
+#'     for `"desire_based"`, none otherwise). It holds no configuration
 #'     object.}
 #'   \item{calls}{A data frame with one row per model call the session
 #'     made, in order, including retries and failed calls: `call_id`,
@@ -425,7 +432,8 @@ NULL
 #'     `flow`, `rule` (such as `"rotation"`, `"propensity_draw"`,
 #'     `"highest_score"`, `"threshold_lowered"`, `"highest_below_threshold"`,
 #'     `"uniform_after_failure"`, or, for turns the flow did not choose,
-#'     `"called_on"` and `"addressed"`), `selected_id`, `message_id`,
+#'     `"called_on"`, `"addressed"`, and `"injected"`), `selected_id`,
+#'     `message_id`,
 #'     `trigger_message_id` (for `"called_on"` and `"addressed"`, the
 #'     moderator line that gave the turn; otherwise `NA`),
 #'     `threshold`, `tie_break` (`"none"`, `"random"`, or `"draw"`),
@@ -445,7 +453,10 @@ NULL
 #'     `arm`, `point`, `delivered` (`FALSE` for one whose point the session
 #'     never reached, which is also reported with a warning), `message_id`,
 #'     `speaker_id`, `from`, `visibility`, `text`, `cut_after_message_id`
-#'     (the message it follows), `round`, `phase`, and `turn`.}
+#'     (the message it follows), `round`, `phase`, `turn`, `as_turn`
+#'     (`TRUE` for a participant's injected turn), and `replaced` (for such
+#'     a turn, the turn it took the place of: `"flow"`, `"addressed"`, or
+#'     `"called_on"`).}
 #' }
 #' Results saved by FocusGroup 0.5.2 and earlier lack `usage$unknown`,
 #' `metadata$complete`, and `metadata$failure`; results saved by 0.5.3 and
@@ -453,7 +464,16 @@ NULL
 #' that follows `failure`; results saved by 0.5.4 and earlier lack the
 #' `item` and `handle` columns, `trigger_message_id`, and the metadata that
 #' follows `branch`; results saved by 0.5.5 and earlier lack the `value`
-#' and `attempts` columns of `probes`.
+#' and `attempts` columns of `probes`, `communication_style` in
+#' `participants`, `as_turn` and `replaced` in `injections`, and
+#' `metadata$guide` and `metadata$flow_params`.
+#'
+#' A result is saved whole with [saveRDS()], and its `focus_group` then
+#' holds the model configuration, which may contain a literal API key or a
+#' private endpoint, and the runner. `format()` writes the record without
+#' them, one JSON object per line, for a file that
+#' [focus_group_from_transcript()] reads back; see
+#' [format.focus_group_result()].
 #'
 #' @references Krueger, R. A. (2002). *Designing and Conducting Focus Group
 #'   Interviews*. University of Minnesota.
@@ -838,6 +858,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
                   character(1)),
     is_moderator = vapply(agents, function(agent) isTRUE(agent$is_moderator), logical(1)),
     persona = vapply(agents, function(agent) agent$persona_description, character(1)),
+    communication_style = vapply(agents, function(agent) {
+      as.character(agent$communication_style_instruction %||% NA_character_)[1]
+    }, character(1)),
     stringsAsFactors = FALSE
   )
   out$demographics <- I(lapply(agents, function(agent) agent$demographics %||% list()))
@@ -846,8 +869,8 @@ run_focus_group <- function(topic, config, n_participants = 6,
     agent$config$provider %||% NA_character_, character(1))
   out$model <- vapply(agents, function(agent)
     agent$config$model %||% NA_character_, character(1))
-  out[c("id", "handle", "role", "is_moderator", "persona", "demographics",
-        "survey_responses", "provider", "model")]
+  out[c("id", "handle", "role", "is_moderator", "persona", "communication_style",
+        "demographics", "survey_responses", "provider", "model")]
 }
 
 .fg_focus_group_result <- function(focus_group, flow, message_mode,
@@ -898,7 +921,9 @@ run_focus_group <- function(topic, config, n_participants = 6,
           points = as.character(focus_group$call_on_silent$points %||% character()),
           items = as.integer(focus_group$call_on_silent$items %||% integer())),
         call_on_text = focus_group$call_on_text %||% NA_character_,
-        final_summary = !isFALSE(records$info$final_summary)
+        final_summary = !isFALSE(records$info$final_summary),
+        guide = focus_group$question_script %||% list(),
+        flow_params = .fg_flow_params(focus_group$turn_taking_flow)
       ),
       calls = .fg_calls_data(records$calls),
       routing = .fg_routing_data(records$routing),
@@ -1048,7 +1073,24 @@ run_focus_group <- function(topic, config, n_participants = 6,
     visibility = col("visibility", "character"), text = col("text", "character"),
     cut_after_message_id = col("cut_after_message_id", "integer"),
     round = col("round", "integer"), phase = col("phase", "character"),
-    turn = col("turn", "integer"), stringsAsFactors = FALSE)
+    turn = col("turn", "integer"), as_turn = col("as_turn", "logical"),
+    replaced = col("replaced", "character"), stringsAsFactors = FALSE)
+}
+
+# The parameters of a session's turn-taking flow, read from its fields: the
+# base propensities and recovery increment of "probabilistic", the threshold
+# and failure rule of "desire_based", none for "round_robin" or a custom flow.
+.fg_flow_params <- function(flow) {
+  private <- if (inherits(flow, "ConversationFlow")) flow$.__enclos_env__$private
+  if (inherits(flow, "ProbabilisticFlow")) {
+    return(list(initial_propensities = private$base_propensities,
+                recovery_increment = private$recovery_increment))
+  }
+  if (inherits(flow, "DesireBasedFlow")) {
+    return(list(min_desire_threshold = private$min_desire_threshold,
+                on_desire_failure = private$on_desire_failure))
+  }
+  list()
 }
 
 # The `routing` component of a result: one row per speaker selection.
