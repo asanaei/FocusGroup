@@ -246,7 +246,8 @@ never reached, which is also reported with a warning), \code{message_id},
 (the message it follows), \code{round}, \code{phase}, \code{turn}, \code{as_turn}
 (\code{TRUE} for a participant's injected turn), and \code{replaced} (for such
 a turn, the turn it took the place of: \code{"flow"}, \code{"addressed"}, or
-\code{"called_on"}).}
+\code{"called_on"}; \code{"none"} for a line from someone other than the
+participant called on, who still answers next).}
 }
 Results saved by FocusGroup 0.5.2 and earlier lack \code{usage$unknown},
 \code{metadata$complete}, and \code{metadata$failure}; results saved by 0.5.3 and

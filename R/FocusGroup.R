@@ -2232,14 +2232,21 @@ FocusGroup <- R6::R6Class("FocusGroup",
     # is logged under the participant, given a routing row with the rule
     # "injected", counted as a participant turn, and passed to the flow as
     # the participant's turn. It then takes the place of the turn the session
-    # was about to give: a call-on turn moves the call-on queue on; any other
-    # turn counts toward the item's responses, clears an addressed turn, and
-    # can end the discussion of the item. `replaced` records which turn it
-    # took the place of.
+    # was about to give: the reply to a call-on line, when it comes from the
+    # participant called on, moves the call-on queue on (from anyone else it
+    # takes no one's place, and the participant called on answers next); any
+    # other turn counts toward the item's responses, clears an addressed turn,
+    # and can end the discussion of the item. `replaced` records which turn it
+    # took the place of, or "none".
     apply_turn_injection = function(injection, verbose = FALSE) {
       id <- injection$from
       calling_on <- identical(private$state$stage, "call_on")
-      replaced <- if (calling_on) "called_on" else
+      # At a call-on turn the injected line answers the call-on only when it
+      # comes from the participant called on; from anyone else it is an
+      # interjection, and the participant called on still answers next.
+      called <- if (calling_on) private$state$call_on$queue[[private$state$call_on$position]]
+      takes_call <- calling_on && identical(id, called)
+      replaced <- if (takes_call) "called_on" else if (calling_on) "none" else
         if (!is.null(private$state$addressed)) "addressed" else "flow"
       log <- self$conversation_log
       cut_after <- if (length(log)) as.integer(log[[length(log)]]$message_id) else NA_integer_
@@ -2263,13 +2270,13 @@ FocusGroup <- R6::R6Class("FocusGroup",
       private$participant_turns <- turn
       if (verbose) cat(paste0(id, " (injected turn): ", injection$text, "\n"))
       self$turn_taking_flow$update_state_post_selection(id, self)
-      if (calling_on) {
+      if (takes_call) {
         co <- private$state$call_on
         co$position <- co$position + 1L
         co$line_logged <- FALSE
         co$line_message_id <- NA_integer_
         private$state$call_on <- co
-      } else {
+      } else if (!calling_on) {
         private$state$addressed <- NULL
         private$state$responses <- private$state$responses + 1L
         if (private$state$responses >= self$max_participant_responses) {
@@ -2432,7 +2439,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
         if (isTRUE(m$metadata$as_turn)) inj$replaced %||% "flow" else
           if (isTRUE(m$metadata$called_on)) "called_on" else "turn"
       }
-      calling_on <- identical(kind_of(turn_msg), "called_on")
+      # An injected line during a call-on stage answers the call-on
+      # ("called_on") or interjects ("none"); either way the stage was under way.
+      calling_on <- kind_of(turn_msg) %in% c("called_on", "none")
 
       # The records made before the turn: the picks of the earlier turns, the
       # probes asked before it, the injections delivered before it, and the
@@ -2541,7 +2550,7 @@ FocusGroup <- R6::R6Class("FocusGroup",
         } else if (m$speaker_id %in% participant_ids) {
           flow$update_state_post_selection(m$speaker_id, self)
           kind <- kind_of(m)
-          if (!identical(kind, "called_on")) {
+          if (!kind %in% c("called_on", "none")) {
             addressed <- NULL
             if (identical(item_of(m), k)) responses <- responses + 1L
           }

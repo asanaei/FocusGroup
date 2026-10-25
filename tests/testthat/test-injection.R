@@ -605,22 +605,39 @@ test_that("an injected turn by handle takes the place of an addressed or a calle
   # flow's.
   expect_identical(routing$rule[[4]], "rotation")
 
-  # At a call-on turn the injected text answers the call-on line, and the
-  # moderator calls on the next silent participant.
-  stub <- .inj_stub()
-  result <- run_focus_group(
-    topic = "library hours", config = .inj_config(), n_participants = 3,
-    guide = list(Engagement = "Which hours matter most?", Closing = "Close."),
-    flow = "round_robin", max_participant_responses = 1, call_on_silent = 1L,
-    injections = fg_injection(.turn_text, at = fg_before_turn(2), from = "P3"),
-    verbose = FALSE, .runner = stub$runner)
-  tr <- result$transcript
-  lines <- vapply(tr$metadata, function(m) m$call_on$participant %||% NA_character_,
-                  character(1))
-  expect_identical(lines[!is.na(lines)], c("P2", "P3"))
+  # At a call-on turn, the injected text from the participant called on
+  # answers the call-on line, and the moderator calls on the next silent
+  # participant.
+  call_on_run <- function(from) {
+    run_focus_group(
+      topic = "library hours", config = .inj_config(), n_participants = 3,
+      guide = list(Engagement = "Which hours matter most?", Closing = "Close."),
+      flow = "round_robin", max_participant_responses = 1, call_on_silent = 1L,
+      injections = fg_injection(.turn_text, at = fg_before_turn(2), from = from),
+      verbose = FALSE, .runner = .inj_stub()$runner)
+  }
+  call_on_lines <- function(result) {
+    lines <- vapply(result$transcript$metadata,
+                    function(m) m$call_on$participant %||% NA_character_, character(1))
+    lines[!is.na(lines)]
+  }
+  result <- call_on_run("P2")
+  expect_identical(call_on_lines(result), c("P2", "P3"))
   expect_identical(result$routing$rule, c("rotation", "injected", "called_on"))
-  expect_identical(result$routing$selected_id, c("P1", "P3", "P3"))
+  expect_identical(result$routing$selected_id, c("P1", "P2", "P3"))
   expect_identical(result$injections$replaced, "called_on")
+
+  # From anyone else it is an interjection: it takes no one's place, and the
+  # participant called on still answers the call-on line.
+  result <- call_on_run("P3")
+  expect_identical(call_on_lines(result), c("P2", "P3"))
+  expect_identical(result$routing$rule, c("rotation", "injected", "called_on", "called_on"))
+  expect_identical(result$routing$selected_id, c("P1", "P3", "P2", "P3"))
+  expect_identical(result$injections$replaced, "none")
+  tr <- result$transcript
+  p2_call <- tr$message_id[vapply(tr$metadata, function(m)
+    identical(m$call_on$participant, "P2"), logical(1))]
+  expect_identical(result$routing$trigger_message_id[3], p2_call)
 })
 
 test_that("participant injections are checked before any call", {

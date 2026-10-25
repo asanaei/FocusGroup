@@ -456,7 +456,8 @@ NULL
 #'     (the message it follows), `round`, `phase`, `turn`, `as_turn`
 #'     (`TRUE` for a participant's injected turn), and `replaced` (for such
 #'     a turn, the turn it took the place of: `"flow"`, `"addressed"`, or
-#'     `"called_on"`).}
+#'     `"called_on"`; `"none"` for a line from someone other than the
+#'     participant called on, who still answers next).}
 #' }
 #' Results saved by FocusGroup 0.5.2 and earlier lack `usage$unknown`,
 #' `metadata$complete`, and `metadata$failure`; results saved by 0.5.3 and

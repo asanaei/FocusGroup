@@ -31,6 +31,18 @@
   experiments
 }
 
+# The same replies with desire scores from 0 to 3, all below the threshold
+# of 4, so that the desire flow lowers its threshold or takes the highest
+# score below it.
+.cont_low_runner <- function(experiments, ...) {
+  prompt <- .cont_prompt(experiments$messages[[1]])
+  experiments <- .cont_runner(experiments, ...)
+  if (grepl("Desire to talk score", prompt, fixed = TRUE)) {
+    experiments$response_text <- as.character(sum(utf8ToInt(prompt)) %% 4L)
+  }
+  experiments
+}
+
 .cont_guide <- list(
   list(phase = "opening", text = "Welcome, everyone.", verbatim = TRUE),
   list(phase = "engagement_question", text = "Which library hours matter most to you?"),
@@ -191,6 +203,12 @@
                                           n = 4L, responses = 1L)
     }
   }
+  # Desire scores below the threshold, for the lowered-threshold picks.
+  for (inj in names(.cont_injections)) {
+    cases[[length(cases) + 1L]] <- list(flow = "desire_based", call_on = "default",
+                                        inj = inj, n = 3L, responses = 2L,
+                                        runner = .cont_low_runner)
+  }
   cases
 }
 
@@ -202,7 +220,8 @@ test_that("the state rebuilt at every turn, in memory and from its file, equals 
   rules <- character()
   for (case in .cont_cases()) {
     call_on <- if (identical(case$call_on, "none")) "none" else c("opening", "midpoint", "end")
-    make <- .cont_make(case$flow, call_on, n = case$n, responses = case$responses)
+    make <- .cont_make(case$flow, call_on, runner = case$runner %||% .cont_runner,
+                       n = case$n, responses = case$responses)
     injections <- .cont_injections[[case$inj]]
     full <- .cont_run(make, injections)
     # The record after a round trip through its session file.
@@ -232,11 +251,12 @@ test_that("the state rebuilt at every turn, in memory and from its file, equals 
       checked <- checked + 1L
     }
   }
-  # 138 cuts: every turn of 16 sessions (three flows, call-ons on and off,
-  # with and without injections, and the wider call-on sessions). Among them
-  # are cuts at call-on turns deep in a queue and at addressed turns, and
-  # the sessions hold every kind of pick.
-  expect_identical(checked, 138L)
+  # 160 cuts: every turn of 18 sessions (three flows, call-ons on and off,
+  # with and without injections, the wider call-on sessions, and desire
+  # scores below the threshold). Among them are cuts at call-on turns deep
+  # in a queue, at an interjection during a call-on, and at addressed turns,
+  # and the sessions hold every kind of pick.
+  expect_identical(checked, 160L)
   expect_gte(queued, 3L)
   expect_true(all(c("turn", "call_on") %in% stages))
   expect_gt(addressed, 5L)
@@ -270,23 +290,25 @@ test_that("the state rebuilt at every turn, in memory and from its file, equals 
     seed = 110, verbose = FALSE, .runner = runner, ...)
 }
 
-.cont_arms <- function(record, t = 3L, runner = .cont_runner, ...) {
+.cont_arms <- function(record, t = 3L, runner = .cont_runner, from = "P2", ...) {
   run_focus_group_arms(
     record, config = .cont_config(),
     arms = list(same = NULL,
                 changed = fg_injection("I say the evening hours should stay, whatever it costs.",
-                                       at = fg_before_turn(t), from = "P2")),
+                                       at = fg_before_turn(t), from = from)),
     seed = 110, verbose = FALSE, .runner = runner, ...)
 }
 
 test_that("a regenerated arm sends the recorded prompts and, under round robin, repeats the record", {
   record <- .cont_record()
   rec <- .cont_recorder()
-  out <- .cont_arms(record, t = 3L, runner = rec$runner)
-  same <- out$arms$same
   tr <- record$transcript
   turns <- which(tr$speaker_id %in% c("P1", "P2", "P3"))
   cut <- turns[[3]]
+  # The changed arm has the speaker of turn 3 say something else.
+  speaker <- tr$speaker_id[[cut]]
+  out <- .cont_arms(record, t = 3L, runner = rec$runner, from = speaker)
+  same <- out$arms$same
   expect_identical(out$metadata$prefix_messages, cut - 1L)
   # The first call after the cut sends the messages the recorded call for
   # turn 3 sent.
@@ -307,7 +329,7 @@ test_that("a regenerated arm sends the recorded prompts and, under round robin, 
   changed <- out$arms$changed
   ctr <- changed$transcript
   expect_identical(ctr$text[[cut]], "I say the evening hours should stay, whatever it costs.")
-  expect_identical(ctr$speaker_id[[cut]], "P2")
+  expect_identical(ctr$speaker_id[[cut]], speaker)
   expect_true(ctr$metadata[[cut]]$as_turn)
   expect_identical(changed$routing$rule[[3]], "injected")
   # Turn 3 answers the call-on line for the participant round robin left

@@ -48,8 +48,10 @@ under the participant's id with \code{metadata$as_turn = TRUE}, recorded in the
 routing record with the rule \code{"injected"}, and counted as a participant
 turn, and it takes the place of the turn the session was about to give:
 the flow's pick, an addressed turn, or the reply to a call-on line, after
-which the moderator calls on the next silent participant. The record's
-\code{replaced} names which. Such a message is allowed only at
+which the moderator calls on the next silent participant. A line from
+someone other than the participant called on takes no one's place: the
+participant called on still answers next. The record's \code{replaced} names
+which turn was taken, or \code{"none"}. Such a message is allowed only at
 \code{\link[=fg_before_turn]{fg_before_turn()}}, with \code{visibility = "shared"}, and once per point. Any
 other \code{from} names an outside voice, such as \code{"Guest expert"}, logged
 under that name and shown to the agents as written; it may not be
