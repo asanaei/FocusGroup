@@ -80,7 +80,9 @@
   argument is a FocusGroup or a result: each arm starts from the record's
   state just before `fg_before_turn(t)`, rebuilt from the record (messages,
   guide item, turns taken, the turn-taking rule's state, the interim summary
-  in force). Settings the record fixes cannot be passed again.
+  in force). Settings the record fixes cannot be passed again. A transcript
+  without moderator lines, which has no guide items to continue, stops with
+  an error that says so and how to name or add the moderator.
 
 * An injection from a participant's ID or handle at `fg_before_turn(t)` is
   that participant's turn t, recorded with the routing rule `"injected"`; it

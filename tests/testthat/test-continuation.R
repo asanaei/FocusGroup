@@ -636,3 +636,32 @@ test_that("a 0.5.5 record continues with its recorded phases and flow settings",
   # Analysis of the old record does not warn about continuing it.
   expect_no_warning(suppressMessages(analyze_focus_group(old)))
 })
+
+test_that("a transcript without moderator lines is not continued, and the error says why", {
+  transcript <- data.frame(
+    speaker = c("Ana", "Ben", "Ana", "Ben"),
+    text = c("Evenings matter most.", "Mornings are too crowded.",
+             "Crowded mornings beat being locked out.", "Staff are stretched thin."))
+  fg <- suppressMessages(focus_group_from_transcript(
+    transcript, topic = "library hours", personas = c(Ana = "A parent.", Ben = "A retiree.")))
+  calls <- 0L
+  runner <- function(experiments, ...) {
+    calls <<- calls + 1L
+    .cont_runner(experiments, ...)
+  }
+  expect_error(run_focus_group_arms(
+    fg, .cont_config(), verbose = FALSE, .runner = runner,
+    arms = list(same = NULL, alt = fg_injection("Mornings.", fg_before_turn(2), from = "Ben"))),
+    "no moderator lines, so it has no guide items to continue.*moderator_id")
+  expect_identical(calls, 0L)
+
+  # Hard negative: with a moderator line, the same transcript continues.
+  with_mod <- rbind(data.frame(speaker = "Moderator", text = "What about the hours?"),
+                    transcript)
+  fg <- focus_group_from_transcript(
+    with_mod, topic = "library hours", personas = c(Ana = "A parent.", Ben = "A retiree."))
+  out <- run_focus_group_arms(
+    fg, .cont_config(), verbose = FALSE, .runner = runner, final_summary = FALSE,
+    arms = list(same = NULL, alt = fg_injection("Mornings.", fg_before_turn(2), from = "Ben")))
+  expect_s3_class(out, "focus_group_arms")
+})

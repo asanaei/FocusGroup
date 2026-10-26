@@ -785,6 +785,19 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
          "continuation. Give their personas with ",
          "focus_group_from_transcript(x, personas = ...) and continue that.", call. = FALSE)
   }
+  # Every guide item begins with a moderator line; a transcript without one
+  # has no item to continue.
+  guide_lines <- vapply(fg$conversation_log, function(m) {
+    identical(m$speaker_id, fg$moderator_id) && !isTRUE(m$metadata$injected)
+  }, logical(1))
+  if (!any(guide_lines)) {
+    stop("The transcript has no moderator lines, so it has no guide items to ",
+         "continue: each guide item begins with a moderator line. If one of the ",
+         "speakers moderated, name them with focus_group_from_transcript(x, ",
+         "moderator_id = ...); otherwise add the moderator's questions to the ",
+         "transcript as the moderator's messages, in their places, and read it again.",
+         call. = FALSE)
+  }
   priv <- fg$.__enclos_env__$private
   turns <- sum(vapply(fg$conversation_log, function(m) {
     m$speaker_id %in% participant_ids
