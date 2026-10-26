@@ -572,3 +572,67 @@ test_that("a called-on turn whose item is no call-on point stops the continuatio
   fg <- focus_group_from_transcript(record)
   expect_error(fg$.__enclos_env__$private$position_at(3L), "not a call-on point")
 })
+
+# A record as FocusGroup 0.5.5 saved it without its session object: no
+# guide, no flow parameters, no communication styles.
+.cont_old_record <- function(result) {
+  result$metadata$guide <- NULL
+  result$metadata$flow_params <- NULL
+  result$participants$communication_style <- NULL
+  result$focus_group <- NULL
+  result
+}
+
+test_that("a 0.5.5 record continues with its recorded phases and flow settings", {
+  result <- suppressMessages(run_focus_group(
+    "library hours", .cont_config(), n_participants = 3, flow = "desire_based",
+    on_desire_failure = "random", max_participant_responses = 2,
+    guide = list(Opening = "Welcome, everyone.",
+                 Engagement = c("Which library hours matter most to you?",
+                                "Who is left out by the current hours?"),
+                 Exploration = "What would you change first?",
+                 Closing = "Thank you all; this closes the session."),
+    moderator_verbatim = c(1, 5), verbose = FALSE, seed = 110, .runner = .cont_runner))
+  old <- .cont_old_record(result)
+  tr <- result$transcript
+  lines <- tr[tr$is_moderator & !duplicated(tr$item) & tr$item > 0, ]
+
+  expect_warning(fg <- focus_group_from_transcript(old), class = "focusgroup_guide_rebuilt")
+  w <- tryCatch(focus_group_from_transcript(old), focusgroup_guide_rebuilt = function(w) w)
+  # The opening and closing lines were delivered verbatim, so their texts
+  # are known; the generated lines of items 2 to 4 are not.
+  expect_identical(w$items, 2:4)
+  expect_match(conditionMessage(w), "delivers those moderator lines as recorded")
+  expect_identical(vapply(fg$question_script, `[[`, character(1), "phase"), lines$phase)
+  expect_identical(vapply(fg$question_script, `[[`, character(1), "text"), lines$text)
+  expect_true(all(vapply(fg$question_script, function(i) isTRUE(i$verbatim), logical(1))))
+  expect_identical(fg$turn_taking_flow$.__enclos_env__$private$on_desire_failure, "random")
+  expect_identical(jsonlite::parse_json(format(.fg_object_result(fg))[[1]])$on_desire_failure,
+                   "random")
+
+  # A continuation delivers the recorded guide lines, under their phases.
+  out <- suppressWarnings(run_focus_group_arms(
+    old, .cont_config(), verbose = FALSE, seed = 110,
+    arms = list(same = NULL, alt = fg_injection("Mornings.", fg_before_turn(2), from = "P1")),
+    .runner = .cont_runner))
+  for (arm in out$arms) {
+    arm_tr <- arm$transcript
+    first <- arm_tr[arm_tr$is_moderator & !duplicated(arm_tr$item) & arm_tr$item > 0, ]
+    expect_identical(first$text, lines$text)
+    expect_identical(first$phase, lines$phase)
+  }
+
+  # Hard negatives: the record with its guide reads without the warning and
+  # keeps the guide as run; a human transcript keeps the inferred phases.
+  expect_no_warning(fg_new <- focus_group_from_transcript(result))
+  expect_identical(fg_new$question_script, result$metadata$guide)
+  human <- c('{"type":"session","versions":{"R":"4.5.0"}}',
+             '{"type":"message","speaker_id":"Moderator","text":"Which hours?"}',
+             '{"type":"message","speaker_id":"Ana","text":"Evenings."}',
+             '{"type":"message","speaker_id":"Moderator","text":"Thank you."}')
+  expect_no_warning(fg_h <- focus_group_from_transcript(human))
+  expect_identical(vapply(fg_h$question_script, `[[`, character(1), "phase"),
+                   c("generic_discussion", "closing"))
+  # Analysis of the old record does not warn about continuing it.
+  expect_no_warning(suppressMessages(analyze_focus_group(old)))
+})

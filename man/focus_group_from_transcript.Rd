@@ -150,7 +150,18 @@ participant replies to it, a \code{transition} when none does, and the
 \code{closing} when it is the last line and unanswered; call-ons are off; the
 handles are the speaker ids; \code{max_participant_responses} is the longest
 run of participant turns between moderator lines; and the turn-taking
-rule is round robin, continuing from the last speaker.
+rule is round robin, continuing from the last speaker. A moderator line
+that gives its \code{phase} gives its item that phase.
+
+The record of a run made by FocusGroup 0.5.5 or earlier, saved without its
+session object, has no \code{item} lines and no \code{flow_params}. Its guide is
+rebuilt from the moderator's recorded lines, one item per guide line with
+the phase that line records, and every item is marked verbatim: a line
+that was delivered verbatim gives the item's text, while for a line the
+moderator's model generated the guide text is unknown, so a warning (of
+class \code{focusgroup_guide_rebuilt}) names those items and says that a
+continuation delivers their lines as recorded. The failure rule of
+\code{"desire_based"} is read from the session line's \code{on_desire_failure}.
 }
 
 \examples{

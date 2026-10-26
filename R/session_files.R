@@ -51,7 +51,9 @@
 #'
 #' For a result saved by FocusGroup 0.5.5 or earlier, the guide, the flow
 #' parameters, and the communication styles, which it lacks, are read from
-#' the fields of its `focus_group`, when it has one.
+#' the fields of its `focus_group`, when it has one; without one,
+#' [focus_group_from_transcript()] rebuilds them from the record as its
+#' help page describes.
 #'
 #' @param x A `focus_group_result`.
 #' @param ... Unused.
@@ -1042,22 +1044,49 @@ format.focus_group_result <- function(x, ...) {
   for (j in which(is.na(round))) round[j] <- if (j == 1L) 0L else round[j - 1L]
 
   # The guide: the item lines, or one verbatim item for each moderator line.
+  # The phase of an item is that of its moderator line, as a recorded run
+  # gives it; a transcript without phases has them inferred. The record of
+  # a run made by FocusGroup 0.5.5 or earlier has no item lines, and the
+  # guide texts of its generated moderator lines are unknown: those items
+  # are delivered as recorded, with a warning.
   the_topic <- topic %||% (if (given("topic")) session$topic) %||% .fg_placeholder_topic
+  recorded_run <- length(parsed$session) > 0L &&
+    any(c("versions", "started") %in% names(session))
   guide <- lapply(parsed$item[order(vapply(parsed$item, function(r) r$item, integer(1)))],
                   function(r) r[setdiff(names(r), c("item", ".row"))])
   if (!length(guide)) {
     k_max <- max(c(0L, item), na.rm = TRUE)
     turn <- speaker %in% participant_ids
+    own_phase <- vapply(msgs, function(r) {
+      p <- r$phase
+      if (is.character(p) && length(p) == 1L && !is.na(p) &&
+          p %in% .fg_guide_phases) p else NA_character_
+    }, character(1))
+    unknown_text <- integer()
     guide <- lapply(seq_len(k_max), function(k) {
       line <- which(guide_line & item %in% k)
       replied <- any(turn & item %in% k)
       phase <- if (replied) "generic_discussion" else if (k == k_max) "closing" else
         "transition"
       if (length(line)) {
-        list(phase = phase, text = msgs[[line[[1]]]]$text, verbatim = TRUE)
+        j <- line[[1]]
+        if (!is.na(own_phase[[j]])) {
+          phase <- own_phase[[j]]
+          if (recorded_run && !isTRUE(md[[j]]$verbatim)) unknown_text <<- c(unknown_text, k)
+        }
+        list(phase = phase, text = msgs[[j]]$text, verbatim = TRUE)
       } else list(phase = phase)
     })
     if (!length(guide)) guide <- list(list(phase = "generic_discussion", text = the_topic))
+    if (length(unknown_text)) {
+      warning(structure(class = c("focusgroup_guide_rebuilt", "warning", "condition"),
+        list(message = sprintf(paste(
+          "The record has no guide (files written by FocusGroup 0.5.5 and earlier",
+          "keep none), so guide item(s) %s are rebuilt from the moderator's recorded",
+          "lines, whose guide texts are unknown, and marked verbatim: a continuation",
+          "delivers those moderator lines as recorded instead of generating them."),
+          paste(unknown_text, collapse = ", ")), call = NULL, items = unknown_text)))
+    }
   }
   for (j in which(item > length(guide))) {
     problems$add(msgs[[j]]$.row, "item", sprintf(
@@ -1144,6 +1173,12 @@ format.focus_group_result <- function(x, ...) {
   # The settings: as recorded, or the defaults for a transcript.
   flow_name <- if (given("flow")) session$flow else "round_robin"
   flow_params <- session$flow_params %||% list()
+  # A session line written by FocusGroup 0.5.5 or earlier has no
+  # `flow_params` and gives the failure rule of "desire_based" on its own.
+  if (!"flow_params" %in% names(session) && identical(flow_name, "desire_based") &&
+      given("on_desire_failure")) {
+    flow_params$on_desire_failure <- session$on_desire_failure
+  }
   built_in <- flow_name %in% c("round_robin", "probabilistic", "desire_based")
   flow <- tryCatch(
     if (built_in) {
@@ -1207,7 +1242,7 @@ format.focus_group_result <- function(x, ...) {
   fg$records$calls <- strip(parsed$call)
   # What the file records beyond the session object: the provenance of a
   # run, or, for a transcript that records none, the settings chosen for it.
-  run <- length(parsed$session) > 0L && any(c("versions", "started") %in% names(session))
+  run <- recorded_run
   branch <- session$branch
   line_field <- function(id, name) {
     v <- line_of[[id]][[name]]
@@ -1242,6 +1277,14 @@ format.focus_group_result <- function(x, ...) {
   }
   fg$records$info <- info
   fg
+}
+
+# The session object of a result saved without one, for analysis: rebuilt
+# from its tables, without the warning about continuing a record that has
+# no guide, which analysis does not do.
+.fg_rebuilt_for_analysis <- function(result) {
+  withCallingHandlers(focus_group_from_transcript(result),
+                      focusgroup_guide_rebuilt = function(w) invokeRestart("muffleWarning"))
 }
 
 # The metadata that describe a run: absent from a transcript.

@@ -1463,7 +1463,7 @@ analyze_focus_group <- function(focus_group_result,
   } else if (inherits(focus_group_result, "focus_group_result")) {
     fg <- focus_group_result$focus_group
     # A result saved without its session object is rebuilt from its tables.
-    if (is.null(fg)) fg <- focus_group_from_transcript(focus_group_result)
+    if (is.null(fg)) fg <- .fg_rebuilt_for_analysis(focus_group_result)
   } else {
     stop("`focus_group_result` must be a FocusGroup or focus_group_result.",
          call. = FALSE)

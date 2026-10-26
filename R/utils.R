@@ -317,6 +317,12 @@ format_conversation_history <- function(conversation_log,
 .fg_question_phases <- c("icebreaker_question", "engagement_question",
                          "exploration_question", "probing_focused",
                          "ending_question", "generic_discussion", "transition")
+# The phases a guide item can have: those with a moderator template, and
+# "generic_discussion".
+.fg_guide_phases <- c("opening", "icebreaker_question", "engagement_question",
+                      "exploration_question", "probing_focused", "summarizing",
+                      "transition", "manage_participation", "ending_question",
+                      "closing", "generic_utterance", "generic_discussion")
 .fg_response_phases <- c("icebreaker_question", "engagement_question",
                          "exploration_question", "probing_focused",
                          "ending_question", "generic_discussion")

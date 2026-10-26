@@ -77,7 +77,12 @@
 * Results gain `metadata$guide`, `metadata$flow_params`,
   `participants$communication_style`, and `injections$as_turn` and
   `$replaced`. `analyze_focus_group()` and Focus Studio accept a result whose
-  `focus_group` is `NULL` by rebuilding it from the record.
+  `focus_group` is `NULL` by rebuilding it from the record. A 0.5.5 record
+  without its session object, which has none of these, is read with the
+  phases its moderator lines record and the `on_desire_failure` of its
+  session line; its guide items are rebuilt from the recorded moderator
+  lines and marked verbatim, with a warning naming the items whose guide
+  text is unknown, since a continuation delivers their lines as recorded.
 
 * `seed` now leaves the caller's random-number state as it was.
 

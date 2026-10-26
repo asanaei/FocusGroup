@@ -1866,7 +1866,7 @@ run_focus_studio <- function(...) {
   if (inherits(obj, "focus_group_result")) {
     # A result saved without its session object is rebuilt from its tables.
     return(list(
-      focus_group = obj$focus_group %||% focus_group_from_transcript(obj),
+      focus_group = obj$focus_group %||% .fg_rebuilt_for_analysis(obj),
       transcript = obj$transcript
     ))
   }

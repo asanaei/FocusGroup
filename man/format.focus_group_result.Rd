@@ -63,7 +63,9 @@ Studio rebuild the session object of such a result from its tables.
 
 For a result saved by FocusGroup 0.5.5 or earlier, the guide, the flow
 parameters, and the communication styles, which it lacks, are read from
-the fields of its \code{focus_group}, when it has one.
+the fields of its \code{focus_group}, when it has one; without one,
+\code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}} rebuilds them from the record as its
+help page describes.
 }
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",

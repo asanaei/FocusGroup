@@ -130,7 +130,18 @@
 #' `closing` when it is the last line and unanswered; call-ons are off; the
 #' handles are the speaker ids; `max_participant_responses` is the longest
 #' run of participant turns between moderator lines; and the turn-taking
-#' rule is round robin, continuing from the last speaker.
+#' rule is round robin, continuing from the last speaker. A moderator line
+#' that gives its `phase` gives its item that phase.
+#'
+#' The record of a run made by FocusGroup 0.5.5 or earlier, saved without its
+#' session object, has no `item` lines and no `flow_params`. Its guide is
+#' rebuilt from the moderator's recorded lines, one item per guide line with
+#' the phase that line records, and every item is marked verbatim: a line
+#' that was delivered verbatim gives the item's text, while for a line the
+#' moderator's model generated the guide text is unknown, so a warning (of
+#' class `focusgroup_guide_rebuilt`) names those items and says that a
+#' continuation delivers their lines as recorded. The failure rule of
+#' `"desire_based"` is read from the session line's `on_desire_failure`.
 #'
 #' @return A [FocusGroup] object with a populated `conversation_log`.
 #' @seealso [analyze_focus_group()] to run the descriptive analyses in one
