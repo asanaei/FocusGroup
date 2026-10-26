@@ -210,7 +210,8 @@ NULL
 #'   participant.
 #' @param flow Character. One of `"round_robin"`, `"probabilistic"`, or
 #'   `"desire_based"`.
-#' @param seed Optional integer governing in-package sampling: the respondents
+#' @param seed Optional whole number (a fraction such as 1.7 is an error)
+#'   governing in-package sampling: the respondents
 #'   drawn from the bundled records and the random choices of the turn-taking
 #'   flow, such as the speaker draws of `"probabilistic"` and the tie-breaks of
 #'   `"desire_based"`. The random waits of a provider's retries do not draw
@@ -579,6 +580,7 @@ run_focus_group <- function(topic, config, n_participants = 6,
                               call_on_text, handles, final_summary, n_arms,
                               .runner, seed_env) {
   .fg_validate_config(config)
+  .fg_check_seed(seed)
   reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
   probes <- .fg_probe_list(probes)
   .fg_check_flag(final_summary, "final_summary")

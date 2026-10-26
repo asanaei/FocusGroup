@@ -708,3 +708,32 @@ test_that("a probe at the branch point is asked once, before the arms, and share
                                verbose = FALSE, seed = 110, .runner = .cont_runner)
   expect_identical(sort(unique(late$probes$arm)), c("changed", "same"))
 })
+
+test_that("seed must be one whole number, in a run, new arms, and a continuation", {
+  calls <- 0L
+  runner <- function(experiments, ...) {
+    calls <<- calls + 1L
+    .cont_runner(experiments, ...)
+  }
+  run <- function(seed) run_focus_group("library hours", .cont_config(), n_participants = 2,
+                                        flow = "round_robin", seed = seed, verbose = FALSE,
+                                        .runner = runner)
+  arms <- list(same = NULL, alt = fg_injection("Mornings.", fg_before_turn(2), from = "P1"))
+  for (bad in list(1.7, c(1, 2), NA, "110", Inf)) {
+    expect_error(run(bad), "`seed` must be `NULL` or one whole number")
+    expect_error(run_focus_group_arms("library hours", .cont_config(), n_participants = 2,
+                                      flow = "round_robin", arms = arms, seed = bad,
+                                      verbose = FALSE, .runner = runner),
+                 "`seed` must be")
+  }
+  expect_identical(calls, 0L)
+  record <- run(110)
+  calls <- 0L
+  expect_error(run_focus_group_arms(record, .cont_config(), arms = arms, seed = 1.7,
+                                    verbose = FALSE, .runner = runner), "`seed` must be")
+  expect_identical(calls, 0L)
+  # Hard negatives: NULL and whole numbers stored as doubles or integers.
+  expect_s3_class(run(NULL), "focus_group_result")
+  expect_identical(run(110)$transcript$text, run(110L)$transcript$text)
+  expect_s3_class(run(-5), "focus_group_result")
+})

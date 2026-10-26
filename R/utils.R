@@ -569,6 +569,17 @@ format_conversation_history <- function(conversation_log,
   invisible(x)
 }
 
+# A seed: NULL, or one whole number that fits in an integer. A fraction such
+# as 1.7 would be truncated without notice, and two seeds would draw the same.
+.fg_check_seed <- function(seed) {
+  if (is.null(seed)) return(invisible(NULL))
+  if (!is.numeric(seed) || length(seed) != 1L || is.na(seed) || !is.finite(seed) ||
+      seed != round(seed) || abs(seed) > .Machine$integer.max) {
+    stop("`seed` must be `NULL` or one whole number, as in `seed = 110`.", call. = FALSE)
+  }
+  invisible(seed)
+}
+
 # ---- Call-ons -----------------------------------------------------------------
 
 .fg_call_on_names <- c("opening", "midpoint", "end")

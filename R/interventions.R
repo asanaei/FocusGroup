@@ -737,6 +737,7 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
                               confirm, final_summary, reasoning_effort,
                               max_tokens_config, .runner, seed_env) {
   .fg_validate_config(config)
+  .fg_check_seed(seed)
   reasoning_effort <- .fg_validate_reasoning_effort(reasoning_effort)
   probes <- .fg_probe_list(probes)
   .fg_check_flag(final_summary, "final_summary")

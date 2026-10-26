@@ -62,7 +62,8 @@ participant.}
 \item{flow}{Character. One of \code{"round_robin"}, \code{"probabilistic"}, or
 \code{"desire_based"}.}
 
-\item{seed}{Optional integer governing in-package sampling: the respondents
+\item{seed}{Optional whole number (a fraction such as 1.7 is an error)
+governing in-package sampling: the respondents
 drawn from the bundled records and the random choices of the turn-taking
 flow, such as the speaker draws of \code{"probabilistic"} and the tie-breaks of
 \code{"desire_based"}. The random waits of a provider's retries do not draw

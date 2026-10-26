@@ -104,7 +104,8 @@
   lines and marked verbatim, with a warning naming the items whose guide
   text is unknown, since a continuation delivers their lines as recorded.
 
-* `seed` now leaves the caller's random-number state as it was.
+* `seed` now leaves the caller's random-number state as it was, and must be
+  one whole number: `seed = 1.7`, which was truncated to 1, is an error.
 
 ## Probe answers as numbers
 
