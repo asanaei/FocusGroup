@@ -222,10 +222,10 @@ by_person <- summarize_focus_group(
 by_person
 ```
 
-The summarizing model never sees the speakers' names: Ana and Ben reach it as
-P1 and P2, and the facilitator as Moderator, in the speaker labels and inside
-the messages alike. The researcher's columns keep the names, and each quote
-is cut from the message as recorded.
+The summarizing model labels the speakers by their handles: Ana and Ben are
+labeled P1 and P2, and the facilitator Moderator. Names inside the messages
+reach it as written, as the speakers said them. The researcher's columns keep
+the names, and each quote is cut from the message as recorded.
 
 ```{r summarize_records}
 by_person$metadata$handles
