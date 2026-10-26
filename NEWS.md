@@ -69,7 +69,9 @@
   providers' keys, headers, and JSON fields, are written as `<redacted>`.
   `focus_group_from_transcript()` reads such a file, a vector of its lines, a
   result, or a FocusGroup back into a new session, reports every problem it
-  finds at once in an error of class `focusgroup_format_error`, and gains
+  finds at once in an error of class `focusgroup_format_error` (a guide-item
+  phase without a moderator template and a negative token count among them,
+  with a warning for templates FocusGroup does not use), and gains
   `personas`. `inst/fg-session-spec.md` describes the format for converting a
   raw transcript with a language model. Data-frame input works as before.
   `format()` of a FocusGroup, such as one read from a CSV transcript, gives
