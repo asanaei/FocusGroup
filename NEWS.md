@@ -31,7 +31,8 @@
   user-defined missing values, are left out with the reason in
   `persona_rendering_report()` and a message. `create_agents()` screens the
   frames it is given the same way and gains `na_strings`; it no longer fails
-  on factor columns.
+  on factor columns. It stops on columns with value labels, which it would
+  show as bare codes ("party: -9"), and names `create_agents_from_data()`.
 
 * One rule now decides whether a value label or a text value is a
   missing-data label: it matches `na_strings` and either carries a negative

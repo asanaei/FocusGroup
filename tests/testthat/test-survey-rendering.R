@@ -834,3 +834,38 @@ test_that("create_agents() leaves out missing-data labels of the frames it is gi
   expect_silent(kept <- create_agents(3, cfg, demographics = marked))
   expect_match(kept$P1$persona_description, "occupation: Refused", fixed = TRUE)
 })
+
+test_that("create_agents() refuses columns with value labels and names create_agents_from_data()", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  demo <- data.frame(age = c(34, 51, 29))
+  demo$party <- haven::labelled(c(1, -9, 2), c(Democrat = 1, Republican = 2, Refused = -9),
+                                label = "Party ID")
+  expect_error(create_agents(3, cfg, demographics = demo),
+               "`demographics` has column\\(s\\) with value labels \\(party\\).*create_agents_from_data\\(\\)")
+  survey <- data.frame(q1 = haven::labelled(c(1, 2, 1), c(Agree = 1, Disagree = 2)),
+                       q2 = c("a", "b", "c"))
+  expect_error(create_agents(3, cfg, demographics = demo["age"], survey_responses = survey),
+               "`survey_responses` has column\\(s\\) with value labels \\(q1\\)")
+  calls <- 0L
+  runner <- function(experiments, ...) {
+    calls <<- calls + 1L
+    experiments$response_text <- "Reply."
+    experiments
+  }
+  expect_error(run_focus_group("library hours", cfg, n_participants = 3, demographics = demo,
+                               verbose = FALSE, .runner = runner), "value labels")
+  expect_identical(calls, 0L)
+
+  # Hard negatives: the same records decoded, rendered by
+  # create_agents_from_data(), or kept beside supplied personas.
+  decoded <- demo
+  decoded$party <- haven::as_factor(demo$party)
+  agents <- suppressMessages(create_agents(3, cfg, demographics = decoded))
+  expect_match(agents$P1$persona_description, "party: Democrat", fixed = TRUE)
+  expect_false(grepl("party", agents$P2$persona_description, fixed = TRUE))
+  agents <- suppressMessages(create_agents_from_data(demo, 3, cfg, demographic_cols = c("age", "party"),
+                                                     rows = 1:3))
+  expect_false(grepl("-9", agents$P2$persona_description, fixed = TRUE))
+  expect_silent(create_agents(3, cfg, demographics = demo,
+                              direct_persona_descriptions = paste("Persona", 1:3)))
+})

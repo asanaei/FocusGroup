@@ -1150,9 +1150,12 @@ print.focus_group_result <- function(x, ...) {
 #' @param config An explicit `LLMR::llm_config` for all agents.
 #' @param demographics Optional data frame, one row per participant. When it,
 #'   `survey_responses`, and `direct_persona_descriptions` are all NULL,
-#'   participants are drawn from the bundled ANES 2024 records.
+#'   participants are drawn from the bundled ANES 2024 records. Columns with
+#'   value labels (class `haven_labelled`) are an error unless the personas
+#'   are supplied: [create_agents_from_data()] renders them, where this
+#'   function would show their codes.
 #' @param survey_responses Optional data frame of survey answers, one row per
-#'   participant.
+#'   participant, with value labels treated as for `demographics`.
 #' @param direct_persona_descriptions Optional character vector of pre-rendered
 #'   participant personas. When supplied, these descriptions are used directly
 #'   and are recycled in order if necessary. Demographics and survey responses
@@ -1241,6 +1244,24 @@ create_agents <- function(n_participants, config, demographics = NULL,
     agents <- create_agents_from_data(
       lean, n_participants = n_participants, config = config, .runner = .runner)
     return(.fg_roster_provenance(agents, personas, attr(agents, "source_rows")))
+  }
+
+  # Columns with value labels are rendered by create_agents_from_data();
+  # here they would show as bare codes, missing-data codes included.
+  if (is.null(direct_persona_descriptions)) {
+    for (arg in c("demographics", "survey_responses")) {
+      frame <- get(arg)
+      if (isTRUE(attr(frame, "focusgroup_screened"))) next
+      labelled <- .fg_labelled_fields(frame)
+      if (length(labelled)) {
+        stop(sprintf(paste0(
+          "`%s` has column(s) with value labels (%s), which create_agents() would ",
+          "show as bare codes, missing-data codes included (\"%s: -9\"). Use ",
+          "create_agents_from_data(), which renders value labels and leaves out ",
+          "missing values, or decode the columns with haven::as_factor() first."),
+          arg, paste(labelled, collapse = ", "), labelled[[1]]), call. = FALSE)
+      }
+    }
   }
 
   if (!is.null(direct_persona_descriptions)) {
@@ -1370,6 +1391,19 @@ create_agents <- function(n_participants, config, demographics = NULL,
     agents <- .fg_attach_report(agents, report)
   }
   return(agents)
+}
+
+# The names of the fields of `x`, a data frame or a list of records, that
+# hold values with value labels (class haven_labelled).
+.fg_labelled_fields <- function(x) {
+  if (is.data.frame(x)) {
+    return(names(x)[vapply(x, function(col) inherits(col, "haven_labelled"), logical(1))])
+  }
+  if (!is.list(x)) return(character())
+  unique(unlist(lapply(x, function(record) {
+    if (!is.list(record)) return(character())
+    names(record)[vapply(record, function(v) inherits(v, "haven_labelled"), logical(1))]
+  })))
 }
 
 # The fields of a record without the values that are missing-data labels:

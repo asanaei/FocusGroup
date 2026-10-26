@@ -21,10 +21,13 @@ create_agents(
 
 \item{demographics}{Optional data frame, one row per participant. When it,
 \code{survey_responses}, and \code{direct_persona_descriptions} are all NULL,
-participants are drawn from the bundled ANES 2024 records.}
+participants are drawn from the bundled ANES 2024 records. Columns with
+value labels (class \code{haven_labelled}) are an error unless the personas
+are supplied: \code{\link[=create_agents_from_data]{create_agents_from_data()}} renders them, where this
+function would show their codes.}
 
 \item{survey_responses}{Optional data frame of survey answers, one row per
-participant.}
+participant, with value labels treated as for \code{demographics}.}
 
 \item{direct_persona_descriptions}{Optional character vector of pre-rendered
 participant personas. When supplied, these descriptions are used directly
