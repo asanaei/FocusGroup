@@ -2448,13 +2448,39 @@ create_agents_from_survey <- function(n_participants,
   agents
 }
 
+# A frame taken from anes_2024_personas by base subsetting (`[`, subset())
+# loses the attributes that give its question wording and demographic
+# fields. When a frame has no dictionary and every column is a column of the
+# bundled data, the dictionary rows and demographic fields of its columns
+# are restored from the package's copy, with a message.
+.fg_restore_anes_attributes <- function(data) {
+  if (!is.null(attr(data, "dictionary")) || !ncol(data)) return(data)
+  ref <- FocusGroup::anes_2024_personas
+  if (!all(names(data) %in% names(ref))) return(data)
+  dict <- attr(ref, "dictionary")
+  attr(data, "dictionary") <- dict[dict$handle %in% names(data), , drop = FALSE]
+  if (is.null(attr(data, "demographic_fields"))) {
+    attr(data, "demographic_fields") <- intersect(attr(ref, "demographic_fields"),
+                                                  names(data))
+  }
+  message(paste(
+    "The frame has columns of anes_2024_personas but not its dictionary, which",
+    "base subsetting drops; the question wording and demographic fields of its",
+    "columns were taken from the package's copy of anes_2024_personas."))
+  data
+}
+
 #' Create agents from an in-memory data frame of respondents
 #'
 #' Like [create_agents_from_survey()] but starting from a data frame already in
 #' memory (for example [anes_2024_personas]). Demographic columns are
 #' rendered as background; the remaining columns are rendered as survey responses,
 #' keyed by their question wording when the frame carries a `dictionary` attribute
-#' (see [LLMR::llm_persona_split()]), else by their column names. Columns whose
+#' (see [LLMR::llm_persona_split()]), else by their column names. A frame
+#' taken from [anes_2024_personas] by base subsetting (`[`, [subset()]),
+#' which drops the attributes, has its dictionary and demographic fields
+#' restored from the package's copy when every column is one of the
+#' dataset's, with a message. Columns whose
 #' names identify respondents (`id`, `caseid`, `respondent_id`, `respid`,
 #' `persona_id`, `uid`, `record_id`, or `row_id`, in any case and with or
 #' without spaces, dots, hyphens, or underscores, as in `ID`, `CaseID`, or
@@ -2546,6 +2572,7 @@ create_agents_from_data <- function(data, n_participants, config,
   .fg_validate_config(config)
   na_strings <- .fg_check_na_strings(na_strings)
   scale_template <- .fg_check_template(scale_template)
+  data <- .fg_restore_anes_attributes(data)
 
   wv <- .fg_resolve_weights(weights, data)
 

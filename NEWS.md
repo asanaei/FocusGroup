@@ -47,6 +47,12 @@
   label of a code from 0 to 89 that uses such words in an answer is now
   shown; it used to be left out.
 
+* A subset of `anes_2024_personas` taken with `[` or `subset()`, which drop
+  its `dictionary`, has the dictionary and demographic fields of its columns
+  restored by `create_agents_from_data()` from the package's copy, with a
+  message, so its answers are shown under their questions rather than the
+  column handles.
+
 * Identifier columns are recognized in any case and in common variants (ID,
   CaseID, case_id, respondent_id, respid, resp_id, persona_id, uid,
   record_id, row_id, ResponseId) and are never rendered into personas.

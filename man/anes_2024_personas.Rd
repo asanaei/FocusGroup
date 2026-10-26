@@ -150,5 +150,12 @@ dictionary[dictionary$handle == "att_iss_abortion_position",
 table(anes_2024_personas$att_id_party_identification)
 issues <- anes_2024_personas[, startsWith(names(anes_2024_personas), "att_iss_")]
 ncol(issues)
+# The subset has lost the dictionary; create_agents_from_data() restores
+# it, so the answers are shown under their questions.
+cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",
+                        api_key = LLMR::llm_api_key_env("GROQ_API_KEY"))
+agents <- create_agents_from_data(issues[1:10, 1:3], n_participants = 2,
+                                  config = cfg, rows = 1:2)
+cat(agents$P1$persona_description)
 }
 \keyword{datasets}

@@ -869,3 +869,38 @@ test_that("create_agents() refuses columns with value labels and names create_ag
   expect_silent(create_agents(3, cfg, demographics = demo,
                               direct_persona_descriptions = paste("Persona", 1:3)))
 })
+
+test_that("a base subset of anes_2024_personas gets its dictionary back", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  x <- anes_2024_personas
+  sub <- x[1:20, 1:30]
+  expect_null(attr(sub, "dictionary"))
+  expect_message(agents <- create_agents_from_data(sub, 4, cfg, rows = 1:4),
+                 "taken from the package's copy of anes_2024_personas")
+  kept <- sub
+  dict <- attr(x, "dictionary")
+  attr(kept, "dictionary") <- dict[dict$handle %in% names(sub), ]
+  attr(kept, "demographic_fields") <- intersect(attr(x, "demographic_fields"), names(sub))
+  expect_silent(same <- create_agents_from_data(kept, 4, cfg, rows = 1:4))
+  for (id in paste0("P", 1:4)) {
+    expect_identical(agents[[id]]$persona_description, same[[id]]$persona_description)
+  }
+  report <- persona_rendering_report(agents)
+  expect_true(all(report$question_source == "dictionary"))
+  expect_false(grepl("demo_|att_", agents$P1$persona_description))
+  expect_message(create_agents_from_data(subset(x, !is.na(demo_sex)), 2, cfg, rows = 1:2),
+                 "dictionary")
+
+  # Hard negatives: a frame with a column the dataset lacks, and a frame with
+  # a dictionary of its own, are left as they are.
+  other <- sub
+  other$my_note <- "x"
+  expect_no_message(plain <- create_agents_from_data(other, 2, cfg, rows = 1:2,
+                                                     demographic_cols = character()))
+  expect_true(any(persona_rendering_report(plain)$question_source == "variable"))
+  own <- sub[, 1:3]
+  attr(own, "dictionary") <- data.frame(handle = names(own), question = c("A", "B", "C"))
+  expect_no_message(mine <- create_agents_from_data(own, 2, cfg, rows = 1:2,
+                                                    demographic_cols = character()))
+  expect_identical(unique(persona_rendering_report(mine)$question), c("A", "B", "C"))
+})

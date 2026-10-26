@@ -60,7 +60,11 @@ Like \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} but s
 memory (for example \link{anes_2024_personas}). Demographic columns are
 rendered as background; the remaining columns are rendered as survey responses,
 keyed by their question wording when the frame carries a \code{dictionary} attribute
-(see \code{\link[LLMR:llm_persona_split]{LLMR::llm_persona_split()}}), else by their column names. Columns whose
+(see \code{\link[LLMR:llm_persona_split]{LLMR::llm_persona_split()}}), else by their column names. A frame
+taken from \link{anes_2024_personas} by base subsetting (\code{[}, \code{\link[=subset]{subset()}}),
+which drops the attributes, has its dictionary and demographic fields
+restored from the package's copy when every column is one of the
+dataset's, with a message. Columns whose
 names identify respondents (\code{id}, \code{caseid}, \code{respondent_id}, \code{respid},
 \code{persona_id}, \code{uid}, \code{record_id}, or \code{row_id}, in any case and with or
 without spaces, dots, hyphens, or underscores, as in \code{ID}, \code{CaseID}, or

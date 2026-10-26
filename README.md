@@ -201,7 +201,9 @@ The package ships `anes_2024_personas`, profiles of 100 respondents to the
 American National Election Studies 2024 Time Series Study, with the question
 behind each column in its `dictionary` attribute. `create_agents()` draws its
 participants from it when no records are supplied, and
-`create_agents_from_data()` accepts any subset of its rows and columns:
+`create_agents_from_data()` accepts any subset of its rows and columns; a
+subset taken with `[` or `subset()`, which drop the `dictionary`, has it
+restored from the package's copy:
 
 ```r
 anes_agents <- create_agents_from_data(
