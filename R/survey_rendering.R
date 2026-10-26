@@ -788,8 +788,10 @@
 #' hold a single value, or a variable that is not in the file. An identifier
 #' is dropped too, with the reason "identifier column": a column whose name
 #' identifies respondents (`id`, `caseid`, `respondent_id`, `respid`,
-#' `persona_id`, `uid`, `record_id`, or `row_id`, in any case and with or
-#' without separators, as in `ID` or `CaseID`), or, among the items
+#' `persona_id`, `uid`, `record_id`, `row_id`, `ResponseId`,
+#' `participant_id`, `subject_id`, `user_id`, `PROLIFIC_PID`, `workerId`,
+#' `caseno`, or `QKEY`, in any case and with or without separators, as in
+#' `ID` or `CaseID`), or, among the items
 #' [create_agents_from_survey()] chooses when `survey_vars` is `NULL`, a
 #' variable that looks like a case ID, as described there. The agents
 #' would otherwise read the respondent's ID; the roster keeps it in

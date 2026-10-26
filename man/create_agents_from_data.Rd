@@ -66,9 +66,10 @@ which drops the attributes, has its dictionary and demographic fields
 restored from the package's copy when every column is one of the
 dataset's, with a message. Columns whose
 names identify respondents (\code{id}, \code{caseid}, \code{respondent_id}, \code{respid},
-\code{persona_id}, \code{uid}, \code{record_id}, or \code{row_id}, in any case and with or
-without spaces, dots, hyphens, or underscores, as in \code{ID}, \code{CaseID}, or
-\code{resp_id}) are not rendered: they are kept in the \code{source_ids} attribute
+\code{persona_id}, \code{uid}, \code{record_id}, \code{row_id}, \code{ResponseId},
+\code{participant_id}, \code{subject_id}, \code{user_id}, \code{PROLIFIC_PID}, \code{workerId},
+\code{caseno}, or \code{QKEY}, in any case and with or without spaces or
+punctuation, as in \code{ID}, \code{CaseID}, or \code{resp_id}) are not rendered: they are kept in the \code{source_ids} attribute
 and listed in the rendering report as dropped. The same holds for those
 columns in a data frame given to \code{\link[=create_agents]{create_agents()}}.
 }

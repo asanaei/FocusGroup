@@ -557,3 +557,26 @@ test_that("an agent saved by an earlier version keeps its ID as its handle, with
   expect_error(.hd_group(clash, .hd_script(1), handles = c(V240001 = "P3")),
                "own handle|would be shared")
 })
+
+test_that("the identifiers of common panels are recognized, and pid is rendered", {
+  is_id <- FocusGroup:::.fg_is_identifier
+  expect_true(all(is_id(c("participant_id", "ParticipantID", "subject_id", "SubjectID",
+                          "user_id", "userId", "PROLIFIC_PID", "prolific.pid", "workerId",
+                          "WorkerID", "caseno", "CASENO", "QKEY", "qkey", "Case#ID"))))
+  # Hard negatives: pid holds party identification in survey data, and
+  # names that contain these words are not identifiers.
+  expect_false(any(is_id(c("pid", "PID", "pid7", "participant", "subject", "user",
+                           "worker_type", "case_notes", "key", "q_key_issue"))))
+  cfg <- LLMR::llm_config("openai", "example-model")
+  agents <- create_agents(2, cfg, demographics = data.frame(
+    PROLIFIC_PID = c("5f1a", "5f1b"), workerId = c("A1", "A2"),
+    pid = c("Democrat", "Republican"), age = c(30, 41)))
+  personas <- vapply(agents[1:2], function(a) a$persona_description, character(1))
+  expect_false(any(grepl("5f1|A[12]|PROLIFIC|workerId", personas)))
+  expect_true(all(grepl("pid: ", personas, fixed = TRUE)))
+  expect_match(personas[[1]], "pid: Democrat", fixed = TRUE)
+  report <- persona_rendering_report(agents)
+  expect_true(all(report$reason[report$variable %in% c("PROLIFIC_PID", "workerId")] ==
+                    "identifier column"))
+  expect_identical(report$status[report$variable == "pid"], c("rendered", "rendered"))
+})

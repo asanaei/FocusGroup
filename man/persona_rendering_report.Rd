@@ -63,8 +63,10 @@ label, an SPSS user-defined missing value, a record field that does not
 hold a single value, or a variable that is not in the file. An identifier
 is dropped too, with the reason "identifier column": a column whose name
 identifies respondents (\code{id}, \code{caseid}, \code{respondent_id}, \code{respid},
-\code{persona_id}, \code{uid}, \code{record_id}, or \code{row_id}, in any case and with or
-without separators, as in \code{ID} or \code{CaseID}), or, among the items
+\code{persona_id}, \code{uid}, \code{record_id}, \code{row_id}, \code{ResponseId},
+\code{participant_id}, \code{subject_id}, \code{user_id}, \code{PROLIFIC_PID}, \code{workerId},
+\code{caseno}, or \code{QKEY}, in any case and with or without separators, as in
+\code{ID} or \code{CaseID}), or, among the items
 \code{\link[=create_agents_from_survey]{create_agents_from_survey()}} chooses when \code{survey_vars} is \code{NULL}, a
 variable that looks like a case ID, as described there. The agents
 would otherwise read the respondent's ID; the roster keeps it in

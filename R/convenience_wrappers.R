@@ -1939,9 +1939,10 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #'   file of at least 30 rows or under a name or label that reads as an
 #'   identifier ("id", "case", "respondent", "serial"). A variable whose
 #'   name identifies respondents (`id`, `caseid`, `respondent_id`, `respid`,
-#'   `persona_id`, `uid`, `record_id`, or `row_id`, in any case and with or
-#'   without spaces, dots, hyphens, or underscores, as in `ID`, `CaseID`, or
-#'   `resp_id`) is never rendered.
+#'   `persona_id`, `uid`, `record_id`, `row_id`, `ResponseId`,
+#'   `participant_id`, `subject_id`, `user_id`, `PROLIFIC_PID`, `workerId`,
+#'   `caseno`, or `QKEY`, in any case and with or without spaces or
+#'   punctuation, as in `ID`, `CaseID`, or `resp_id`) is never rendered.
 #' @param rows Optional row selector restricting the eligible respondents before
 #'   sampling: integer positions of rows in the file, a logical vector with one
 #'   value per row in the file, or a predicate `function(df) -> logical` over the
@@ -2390,15 +2391,19 @@ create_agents_from_survey <- function(n_participants,
 
 # Columns that identify a respondent. They are recorded in a roster's
 # `source_ids` and never rendered into a persona. A name is compared in lower
-# case and without spaces, dots, hyphens, or underscores, so that "ID",
-# "CaseID", "case_id", "Resp.ID", and Qualtrics' "ResponseId" are identifiers.
+# case and without spaces or punctuation, so that "ID", "CaseID", "case_id",
+# "Resp.ID", Qualtrics' "ResponseId", Prolific's "PROLIFIC_PID", MTurk's
+# "workerId", and Pew's "QKEY" are identifiers. "pid" is not one: in survey
+# data it usually holds party identification, an answer.
 .fg_identifier_keys <- c("id", "caseid", "respondentid", "respid", "personaid", "uid",
-                         "recordid", "rowid", "responseid")
+                         "recordid", "rowid", "responseid", "participantid",
+                         "subjectid", "userid", "prolificpid", "workerid", "caseno",
+                         "qkey")
 
 .fg_is_identifier <- function(names) {
   if (!length(names)) return(logical())
   names <- as.character(names)
-  !is.na(names) & tolower(gsub("[[:space:]._-]+", "", names)) %in% .fg_identifier_keys
+  !is.na(names) & tolower(gsub("[[:space:][:punct:]]+", "", names)) %in% .fg_identifier_keys
 }
 
 # A record without its identifier fields; a record without names is kept.
@@ -2484,9 +2489,10 @@ create_agents_from_survey <- function(n_participants,
 #' restored from the package's copy when every column is one of the
 #' dataset's, with a message. Columns whose
 #' names identify respondents (`id`, `caseid`, `respondent_id`, `respid`,
-#' `persona_id`, `uid`, `record_id`, or `row_id`, in any case and with or
-#' without spaces, dots, hyphens, or underscores, as in `ID`, `CaseID`, or
-#' `resp_id`) are not rendered: they are kept in the `source_ids` attribute
+#' `persona_id`, `uid`, `record_id`, `row_id`, `ResponseId`,
+#' `participant_id`, `subject_id`, `user_id`, `PROLIFIC_PID`, `workerId`,
+#' `caseno`, or `QKEY`, in any case and with or without spaces or
+#' punctuation, as in `ID`, `CaseID`, or `resp_id`) are not rendered: they are kept in the `source_ids` attribute
 #' and listed in the rendering report as dropped. The same holds for those
 #' columns in a data frame given to [create_agents()].
 #'

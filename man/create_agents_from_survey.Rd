@@ -40,9 +40,10 @@ are whole numbers or codes without spaces and differ in every row, in a
 file of at least 30 rows or under a name or label that reads as an
 identifier ("id", "case", "respondent", "serial"). A variable whose
 name identifies respondents (\code{id}, \code{caseid}, \code{respondent_id}, \code{respid},
-\code{persona_id}, \code{uid}, \code{record_id}, or \code{row_id}, in any case and with or
-without spaces, dots, hyphens, or underscores, as in \code{ID}, \code{CaseID}, or
-\code{resp_id}) is never rendered.}
+\code{persona_id}, \code{uid}, \code{record_id}, \code{row_id}, \code{ResponseId},
+\code{participant_id}, \code{subject_id}, \code{user_id}, \code{PROLIFIC_PID}, \code{workerId},
+\code{caseno}, or \code{QKEY}, in any case and with or without spaces or
+punctuation, as in \code{ID}, \code{CaseID}, or \code{resp_id}) is never rendered.}
 
 \item{rows}{Optional row selector restricting the eligible respondents before
 sampling: integer positions of rows in the file, a logical vector with one

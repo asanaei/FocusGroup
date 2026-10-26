@@ -55,7 +55,10 @@
 
 * Identifier columns are recognized in any case and in common variants (ID,
   CaseID, case_id, respondent_id, respid, resp_id, persona_id, uid,
-  record_id, row_id, ResponseId) and are never rendered into personas.
+  record_id, row_id, ResponseId, participant_id, subject_id, user_id,
+  PROLIFIC_PID, workerId, caseno, QKEY) and are never rendered into
+  personas. A column named `pid`, which in survey data usually holds party
+  identification, is rendered.
 
 ## Session files and continuation
 
