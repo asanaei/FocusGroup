@@ -136,7 +136,10 @@ participants are, an item outside the guide, a file of one JSON value
 written over several lines) is reported at once, by an error of class
 \code{focusgroup_format_error} whose \code{problems} field is a data frame of
 \code{row} (the line), \code{field}, and \code{problem}. A field whose name starts with
-\code{x_} is ignored. A byte-order mark and Windows line endings are accepted.
+\code{x_} is one the format does not define: on a \code{session} or \code{item} line it
+is kept, without the prefix, in the metadata or the guide item, as
+\code{\link[=format.focus_group_result]{format.focus_group_result()}} writes such fields; on other lines it is
+ignored. A byte-order mark and Windows line endings are accepted.
 A path that is not a \code{.jsonl} file, such as a CSV or RDS file, is refused:
 read it into R first.
 

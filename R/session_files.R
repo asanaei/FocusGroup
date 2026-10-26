@@ -16,11 +16,15 @@
 #'     purpose, the turn-taking rule and its parameters, the settings, the
 #'     status, the versions), with `summary` and `usage`, and `format` and
 #'     `version`, which name the file format. `metadata$handles` and
-#'     `metadata$guide` are written in the lines below.}
+#'     `metadata$guide` are written in the lines below. A field of
+#'     `metadata` the format does not define, such as a researcher's
+#'     `metadata$condition`, is written with the prefix `x_`
+#'     (`"x_condition"`), and the reader restores it under its name.}
 #'   \item{`participant`}{One line per row of `participants`, the moderator's
 #'     included.}
 #'   \item{`item`}{One line per guide item, in order: `item` (its number) and
-#'     the item's `phase`, `text`, and `verbatim`, where set.}
+#'     the item's `phase`, `text`, and `verbatim`, where set; any other field
+#'     of the item, such as a `label`, with the prefix `x_`.}
 #'   \item{`message`}{One line per row of `transcript`.}
 #'   \item{`routing`, `probe`, `injection`, `call`}{One line per row of
 #'     `routing`, `probes`, `injections`, and `calls`. A call line leaves out
@@ -107,7 +111,8 @@ format.focus_group_result <- function(x, ...) {
     x$calls$error <- .fg_redact_secrets(x$calls$error)
   }
   session <- c(list(type = "session", format = "fg-session", version = 1L),
-               meta[setdiff(names(meta), c("guide", "handles"))])
+               .fg_mark_extra(meta[setdiff(names(meta), c("guide", "handles"))],
+                              "session"))
   if (length(x$summary)) session["summary"] <- list(as.character(x$summary)[[1]])
   if (!is.null(x$usage)) session["usage"] <- list(x$usage)
   lines <- .fg_json_object(session)
@@ -120,7 +125,9 @@ format.focus_group_result <- function(x, ...) {
   for (k in seq_along(guide)) {
     item <- guide[[k]]
     lines <- c(lines, .fg_json_object(c(list(type = "item", item = k),
-                                        item[setdiff(names(item), c("type", "item"))])))
+                                        .fg_mark_extra(item[setdiff(names(item),
+                                                                    c("type", "item"))],
+                                                       "item"))))
   }
   lines <- c(lines,
     .fg_table_lines("message", x$transcript, .fg_transcript_data(list())),
@@ -130,6 +137,16 @@ format.focus_group_result <- function(x, ...) {
     .fg_table_lines("call", x$calls, .fg_calls_data(list())[
       setdiff(names(.fg_calls_data(list())), "messages")]))
   lines
+}
+
+# Fields of a `type` line that the format does not define, such as a
+# researcher's `metadata$condition` or a guide item's `label`, are written
+# with the prefix "x_", which the reader accepts and removes.
+.fg_mark_extra <- function(fields, type) {
+  if (!length(fields)) return(fields)
+  extra <- !names(fields) %in% names(.fg_line_kinds(type))
+  names(fields)[extra] <- paste0("x_", names(fields)[extra])
+  fields
 }
 
 # Text with key-like values replaced by "<redacted>": the values of query
@@ -754,11 +771,21 @@ format.focus_group_result <- function(x, ...) {
     kinds <- .fg_line_kinds(type)
     fields <- value[setdiff(names(value), "type")]
     unknown <- setdiff(names(fields), names(kinds))
+    extra <- unknown[startsWith(unknown, "x_")]
     unknown <- unknown[!startsWith(unknown, "x_")]
     for (name in unknown) {
       problems$add(i, name, paste0("is not a field of a ", type, " line."))
     }
     record <- list()
+    # A field the format does not define, written with the prefix "x_", is
+    # kept under its name, or under the prefixed name when that would be a
+    # field of the line.
+    if (length(extra)) {
+      restored <- sub("^x_", "", extra)
+      restored[restored %in% names(kinds) | !nzchar(restored)] <-
+        extra[restored %in% names(kinds) | !nzchar(restored)]
+      record$.extra <- stats::setNames(lapply(fields[extra], .fg_json_decode), restored)
+    }
     for (name in intersect(names(kinds), names(fields))) {
       bad <- FALSE
       value <- .fg_read_field(fields[[name]], kinds[[name]], function(problem) {
@@ -1053,7 +1080,7 @@ format.focus_group_result <- function(x, ...) {
   recorded_run <- length(parsed$session) > 0L &&
     any(c("versions", "started") %in% names(session))
   guide <- lapply(parsed$item[order(vapply(parsed$item, function(r) r$item, integer(1)))],
-                  function(r) r[setdiff(names(r), c("item", ".row"))])
+                  function(r) c(r[setdiff(names(r), c("item", ".row", ".extra"))], r$.extra))
   if (!length(guide)) {
     k_max <- max(c(0L, item), na.rm = TRUE)
     turn <- speaker %in% participant_ids
@@ -1235,7 +1262,7 @@ format.focus_group_result <- function(x, ...) {
     fg$total_tokens <- usage$total %||% NA_real_
     fg$calls_usage_unknown <- usage$unknown %||% NA_real_
   }
-  strip <- function(records) lapply(records, function(r) r[setdiff(names(r), ".row")])
+  strip <- function(records) lapply(records, function(r) r[setdiff(names(r), c(".row", ".extra"))])
   fg$records$routing <- strip(parsed$routing)
   fg$records$probes <- strip(parsed$probe)
   fg$records$injections <- strip(parsed$injection)
@@ -1253,6 +1280,7 @@ format.focus_group_result <- function(x, ...) {
     versions = session$versions,
     message_mode = fg$message_mode,
     standing_rules = session$standing_rules,
+    extra = session$.extra,
     disclosure = session$disclosure %||% NA_character_,
     final_summary = session$final_summary %||% TRUE,
     branch = if (!is.null(branch)) branch[setdiff(names(branch), c("arm", "role"))],
@@ -1331,6 +1359,10 @@ format.focus_group_result <- function(x, ...) {
     keep <- unconfigured[result$participants$id] & !is.na(at)
     result$participants$provider[keep] <- rec$participants$provider[at[keep]]
     result$participants$model[keep] <- rec$participants$model[at[keep]]
+  }
+  # Metadata fields the format does not define, as the file gave them.
+  for (name in setdiff(names(info$extra), names(result$metadata))) {
+    result$metadata[name] <- list(info$extra[[name]])
   }
   result
 }

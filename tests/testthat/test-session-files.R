@@ -501,3 +501,42 @@ test_that("key-like values in the messages of failed calls are not written", {
   expect_false(grepl("abcdefghijkl", text, fixed = TRUE))
   expect_true(grepl("key=<redacted>", text, fixed = TRUE))
 })
+
+test_that("fields the format does not define are written with x_ and read back under their names", {
+  result <- .sf_result(flow = "round_robin")
+  result$metadata$condition <- "pilot A"
+  result$metadata$coder <- list(name = "R. K.", pass = 2L)
+  guide <- result$metadata$guide
+  guide[[2]]$label <- "Q1"
+  guide[[2]]$minutes <- 10
+  result$metadata$guide <- guide
+  lines <- format(result)
+  expect_match(lines[[1]], '"x_condition":"pilot A"', fixed = TRUE)
+  expect_match(lines[[1]], '"x_coder":{"name":"R. K.","pass":2}', fixed = TRUE)
+  item2 <- grep('"type":"item","item":2,', lines, value = TRUE, fixed = TRUE)
+  expect_match(item2, '"x_label":"Q1","x_minutes":10.0', fixed = TRUE)
+  fg <- focus_group_from_transcript(lines)
+  expect_identical(fg$question_script[[2]]$label, "Q1")
+  expect_identical(fg$question_script[[2]]$minutes, 10)
+  back <- .sf_reread(lines)
+  expect_identical(back$metadata$condition, "pilot A")
+  expect_identical(back$metadata$coder, list(name = "R. K.", pass = 2L))
+  expect_identical(back$metadata$guide[[2]][c("label", "minutes")], list(label = "Q1", minutes = 10))
+  expect_identical(format(back), lines)
+
+  # Hard negatives: a field without the prefix, as a person or a model might
+  # misspell one, is still an error; a prefixed field of a message line is
+  # accepted; a prefixed name that would be a field of the line keeps its
+  # prefix.
+  base <- c('{"type":"message","speaker_id":"Moderator","text":"Which hours?"}',
+            '{"type":"message","speaker_id":"Ana","text":"Evenings."}')
+  p <- .sf_problems(c('{"type":"session","condition":"pilot A"}', base))
+  expect_identical(p$field, "condition")
+  p <- .sf_problems(c('{"type":"item","item":1,"phase":"generic_discussion","label":"Q1"}', base))
+  expect_identical(p$field, "label")
+  fg <- focus_group_from_transcript(c(base[1], '{"type":"message","speaker_id":"Ana","text":"Evenings.","x_source":"page 3"}'))
+  expect_s3_class(fg, "FocusGroup")
+  fg <- focus_group_from_transcript(c('{"type":"session","topic":"hours","x_topic":"other"}', base))
+  expect_identical(fg$topic, "hours")
+  expect_identical(.fg_object_result(fg)$metadata$x_topic, "other")
+})

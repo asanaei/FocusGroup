@@ -42,8 +42,10 @@ A field whose value is not known is left out. The fields below are the ones
 a converted transcript needs; files the package writes carry more, the
 columns of its result tables, described in `?format.focus_group_result`. A
 field the format does not define is an error, which catches misspellings,
-except that a field whose name starts with `x_` is ignored, so
-`"x_source": "page 3"` can keep a note.
+except that a field whose name starts with `x_` is accepted, so
+`"x_source": "page 3"` can keep a note. On a `session` or `item` line such
+a field is kept, without the prefix, in the session's metadata or the guide
+item; the package writes the fields it does not define this way.
 
 ### `session`
 

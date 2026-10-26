@@ -29,11 +29,15 @@ it comes from:
 purpose, the turn-taking rule and its parameters, the settings, the
 status, the versions), with \code{summary} and \code{usage}, and \code{format} and
 \code{version}, which name the file format. \code{metadata$handles} and
-\code{metadata$guide} are written in the lines below.}
+\code{metadata$guide} are written in the lines below. A field of
+\code{metadata} the format does not define, such as a researcher's
+\code{metadata$condition}, is written with the prefix \code{x_}
+(\code{"x_condition"}), and the reader restores it under its name.}
 \item{\code{participant}}{One line per row of \code{participants}, the moderator's
 included.}
 \item{\code{item}}{One line per guide item, in order: \code{item} (its number) and
-the item's \code{phase}, \code{text}, and \code{verbatim}, where set.}
+the item's \code{phase}, \code{text}, and \code{verbatim}, where set; any other field
+of the item, such as a \code{label}, with the prefix \code{x_}.}
 \item{\code{message}}{One line per row of \code{transcript}.}
 \item{\code{routing}, \code{probe}, \code{injection}, \code{call}}{One line per row of
 \code{routing}, \code{probes}, \code{injections}, and \code{calls}. A call line leaves out

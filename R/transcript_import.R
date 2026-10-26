@@ -116,7 +116,10 @@
 #' written over several lines) is reported at once, by an error of class
 #' `focusgroup_format_error` whose `problems` field is a data frame of
 #' `row` (the line), `field`, and `problem`. A field whose name starts with
-#' `x_` is ignored. A byte-order mark and Windows line endings are accepted.
+#' `x_` is one the format does not define: on a `session` or `item` line it
+#' is kept, without the prefix, in the metadata or the guide item, as
+#' [format.focus_group_result()] writes such fields; on other lines it is
+#' ignored. A byte-order mark and Windows line endings are accepted.
 #' A path that is not a `.jsonl` file, such as a CSV or RDS file, is refused:
 #' read it into R first.
 #'
