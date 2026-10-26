@@ -857,6 +857,30 @@ format.focus_group_arms <- function(x, ...) {
   }
   nonnegative("message", c("round", "item", "sent_tokens", "rec_tokens", "total_tokens",
                            "duration_s"))
+  nonnegative("call", c("sent_tokens", "rec_tokens", "total_tokens", "reasoning_tokens",
+                        "duration_s"))
+  for (r in out$session) {
+    usage <- unlist(r$usage)
+    if (is.numeric(usage) && any(!is.na(usage) & usage < 0)) {
+      problems$add(r$.row, "usage", "must not hold negative numbers.")
+    }
+  }
+  # A guide item's phase is one the moderator has a template for: a built-in
+  # phase, or one the session's `prompt_templates` give a
+  # `moderator_<phase>` template.
+  templates <- if (length(out$session)) names(out$session[[1]]$prompt_templates) else NULL
+  phases <- union(.fg_guide_phases,
+                  sub("^moderator_", "", grep("^moderator_", templates %||% character(),
+                                              value = TRUE)))
+  for (r in out$item) {
+    p <- r$phase
+    if (is.character(p) && length(p) == 1L && !is.na(p) && nzchar(p) && !p %in% phases) {
+      problems$add(r$.row, "phase", paste0(
+        "'", p, "' is not a phase of a guide item; the phases are ",
+        paste(.fg_guide_phases, collapse = ", "),
+        ", and any phase given a moderator_<phase> template in `prompt_templates`."))
+    }
+  }
   for (r in out$message) {
     if (isTRUE(r$message_id < 1L)) problems$add(r$.row, "message_id", "must be 1 or more.")
   }
@@ -936,6 +960,18 @@ format.focus_group_arms <- function(x, ...) {
     }
   }
   problems$stop_if_any()
+  # Templates FocusGroup has no use for are kept, with a warning, since a
+  # misspelled name would otherwise leave the default in force unnoticed.
+  if (length(templates)) {
+    used <- paste0("moderator_", vapply(out$item, function(r) r$phase %||% "", character(1)))
+    unknown <- setdiff(templates, c(names(get_default_prompt_templates()), used))
+    if (length(unknown)) {
+      warning("The session's `prompt_templates` give template(s) FocusGroup does not use: ",
+              paste(unknown, collapse = ", "), ". They are kept but have no effect; ",
+              "the names FocusGroup uses are those of get_default_prompt_templates() and ",
+              "moderator_<phase> for the phase of a guide item.", call. = FALSE)
+    }
+  }
   out
 }
 

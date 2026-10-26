@@ -616,3 +616,30 @@ test_that("every common form of a key is redacted, and ordinary words are not", 
   text <- paste(format(result), collapse = "\n")
   expect_false(grepl("FIXTURE", text, fixed = TRUE))
 })
+
+test_that("the reader refuses unknown item phases and negative usage and warns of unused templates", {
+  base <- c('{"type":"message","speaker_id":"Moderator","text":"Which hours?"}',
+            '{"type":"message","speaker_id":"Ana","text":"Evenings."}')
+  p <- .sf_problems(c('{"type":"item","item":1,"phase":"chitchat","text":"Hi"}', base))
+  expect_identical(p$field, "phase")
+  expect_match(p$problem, "'chitchat' is not a phase of a guide item")
+  p <- .sf_problems(c('{"type":"session","topic":"hours","usage":{"sent":-1,"rec":2}}', base))
+  expect_identical(p$field, "usage")
+  p <- .sf_problems(c(base, '{"type":"call","call_id":1,"call_type":"participant","sent_tokens":-5}'))
+  expect_identical(p$field, "sent_tokens")
+  expect_warning(focus_group_from_transcript(c(
+    '{"type":"session","topic":"hours","prompt_templates":{"nonexistent":"x"}}', base)),
+    "does not use: nonexistent")
+
+  # Hard negatives: a phase given its own moderator template is a phase, a
+  # template FocusGroup uses draws no warning, and zero usage is usage.
+  fg <- expect_no_warning(focus_group_from_transcript(c(
+    '{"type":"session","topic":"hours","prompt_templates":{"moderator_chitchat":"Chat about {{topic}}."}}',
+    '{"type":"item","item":1,"phase":"chitchat","text":"Hi"}', base)))
+  expect_identical(fg$question_script[[1]]$phase, "chitchat")
+  expect_no_warning(focus_group_from_transcript(c(
+    '{"type":"session","topic":"hours","usage":{"sent":0,"rec":0},"prompt_templates":{"moderator_closing":"Close."}}',
+    base)))
+  result <- .sf_result(flow = "round_robin")
+  expect_no_warning(focus_group_from_transcript(format(result)))
+})
