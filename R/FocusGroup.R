@@ -2864,8 +2864,19 @@ FocusGroup <- R6::R6Class("FocusGroup",
       }
       participant_ids <- setdiff(names(self$agents), self$moderator_id)
       handles <- vapply(participant_ids, private$handle_of, character(1))
-      who <- if (injection$from %in% participant_ids) injection$from else
-        participant_ids[match(tolower(injection$from), tolower(handles))]
+      by_handle <- participant_ids[match(tolower(injection$from), tolower(handles))]
+      # A name that is one participant's ID and another's handle, as under
+      # permuted handles, could mean either.
+      if (injection$from %in% participant_ids && !is.na(by_handle) &&
+          !identical(by_handle, injection$from)) {
+        stop(sprintf(paste0(
+          "An injection from '%s' is ambiguous: '%s' is the ID of participant %s, ",
+          "who is shown as %s, and the handle of participant %s. Give the ",
+          "participants handles that are not other participants' IDs to inject ",
+          "their turns."), injection$from, injection$from, injection$from,
+          handles[[injection$from]], by_handle), call. = FALSE)
+      }
+      who <- if (injection$from %in% participant_ids) injection$from else by_handle
       if (length(who) == 1L && !is.na(who)) {
         injection$from <- who
         injection$as_turn <- TRUE

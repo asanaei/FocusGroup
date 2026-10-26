@@ -696,3 +696,34 @@ test_that("arms branch on a participant's turn, and the player and summaries rea
   expect_identical(row$rule, "injected")
   expect_identical(row$speaker_id, "P2")
 })
+
+test_that("an injection from a name that is one participant's ID and another's handle stops", {
+  stub <- .inj_stub()
+  permuted <- c(P1 = "P2", P2 = "P1")
+  err <- tryCatch(.turn_run(fg_injection("Mornings matter more.", fg_before_turn(2), from = "P2"),
+                            handles = permuted, stub = stub), error = function(e) e)
+  expect_match(conditionMessage(err), paste0(
+    "'P2' is the ID of participant P2, who is shown as P1, and the handle of ",
+    "participant P1"), fixed = TRUE)
+  expect_identical(stub$n, 0L)
+  # The continuation of a recorded session stops before any call too.
+  record <- .turn_run(NULL, handles = permuted)
+  stub <- .inj_stub()
+  expect_error(run_focus_group_arms(
+    record, .inj_config(), verbose = FALSE, .runner = stub$runner,
+    arms = list(same = NULL, alt = fg_injection("Mornings.", fg_before_turn(2), from = "P1"))),
+    "ambiguous")
+  expect_identical(stub$n, 0L)
+
+  # Hard negatives: a participant whose handle is no other's ID is named by
+  # either, and P3, outside the permutation, by its ID.
+  result <- .turn_run(fg_injection(.turn_text, fg_before_turn(2), from = "P3"),
+                      handles = permuted)
+  expect_identical(result$transcript$speaker_id[result$transcript$text == .turn_text], "P3")
+  result <- .turn_run(fg_injection(.turn_text, fg_before_turn(2), from = "Ana"),
+                      handles = c(P1 = "Ana"))
+  expect_identical(result$transcript$speaker_id[result$transcript$text == .turn_text], "P1")
+  result <- .turn_run(fg_injection(.turn_text, fg_before_turn(2), from = "P1"),
+                      handles = c(P1 = "Ana"))
+  expect_identical(result$transcript$speaker_id[result$transcript$text == .turn_text], "P1")
+})

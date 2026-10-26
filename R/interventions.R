@@ -129,7 +129,9 @@ print.fg_point <- function(x, ...) {
 #' someone other than the participant called on takes no one's place: the
 #' participant called on still answers next. The record's `replaced` names
 #' which turn was taken, or `"none"`. Such a message is allowed only at
-#' [fg_before_turn()], with `visibility = "shared"`, and once per point. Any
+#' [fg_before_turn()], with `visibility = "shared"`, and once per point. A
+#' `from` that is one participant's id and another's handle, as under
+#' permuted handles, could mean either and stops the run before any call. Any
 #' other `from` names an outside voice, such as `"Guest expert"`, logged
 #' under that name and shown to the agents as written; it may not be
 #' `"System"`, nor a name of the form `"P4"`, which would read as a

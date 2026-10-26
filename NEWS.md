@@ -78,7 +78,9 @@
   takes the place of the turn the session was about to give, recorded in
   `injections$replaced`. At a call-on turn, a line from someone other than
   the participant called on takes no one's place, and the participant called
-  on still answers. Outside voices named like "P4" are refused.
+  on still answers. Outside voices named like "P4" are refused, and so is a
+  `from` that is one participant's ID and another's handle, before any
+  call.
 
 * Results gain `metadata$guide`, `metadata$flow_params`,
   `participants$communication_style`, and `injections$as_turn` and

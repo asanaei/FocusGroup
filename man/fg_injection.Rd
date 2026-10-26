@@ -52,7 +52,9 @@ which the moderator calls on the next silent participant. A line from
 someone other than the participant called on takes no one's place: the
 participant called on still answers next. The record's \code{replaced} names
 which turn was taken, or \code{"none"}. Such a message is allowed only at
-\code{\link[=fg_before_turn]{fg_before_turn()}}, with \code{visibility = "shared"}, and once per point. Any
+\code{\link[=fg_before_turn]{fg_before_turn()}}, with \code{visibility = "shared"}, and once per point. A
+\code{from} that is one participant's id and another's handle, as under
+permuted handles, could mean either and stops the run before any call. Any
 other \code{from} names an outside voice, such as \code{"Guest expert"}, logged
 under that name and shown to the agents as written; it may not be
 \code{"System"}, nor a name of the form \code{"P4"}, which would read as a
