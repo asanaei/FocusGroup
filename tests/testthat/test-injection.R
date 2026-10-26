@@ -358,7 +358,6 @@ test_that("a probe answer is read as one whole number on its scale, or not at al
   read <- function(text, lo = 1, hi = 7) .fg_parse_number(text, lo, hi)
   # Read: markup, restated scales, the scale's own denominator, digits joined
   # to letters, and years set aside.
-  expect_identical(read("P3 said 4"), 4)
   expect_identical(read("1-7: 5"), 5)
   expect_identical(read("**4**"), 4)
   expect_identical(read("Number: 3"), 3)
@@ -407,6 +406,42 @@ test_that("a probe answer is read as one whole number on its scale, or not at al
   expect_identical(read("\u0666 out of 7"), 6)
   expect_identical(read("4,5"), NA_real_)
   expect_identical(read("We need 1,000 more books; 6"), 6)
+})
+
+test_that("an answer that negates, compares, or reports another's number is not read", {
+  read <- function(text, lo = 1, hi = 7) .fg_parse_number(text, lo, hi)
+  # Each states a number that need not be the answer, so it is read as NA
+  # and asked again. "P3 said 4" used to be read as 4; it reports another
+  # participant's number.
+  cued <- c("P3 said 4", "Definitely not a 7.", "I wouldn't say 5", "Never a 2",
+            "No, 5", "at least 6", "5 at most", "more than 4", "less than 3",
+            "fewer than 3", "4 or higher", "lower than 5", "above 5", "below 3",
+            "over 4", "under 3", "Somewhere between 4 and 6", "Anything except 1",
+            "2+", "I don't know. The others said 4.", "They said 4", "Everyone said 5",
+            "Someone said 6", "4\u00bd", "\u00bc", "3\u00be", "No higher than 5")
+  got <- vapply(cued, read, numeric(1))
+  expect_identical(names(got)[!is.na(got)], character())
+  expect_identical(read("minus 2", -3, 3), NA_real_)
+  expect_identical(read("I'm at negative 3", -3, 3), NA_real_)
+
+  # Hard negatives: the answers read before are read the same; words that
+  # contain a cue are not cues; and the scale's description of its ends is
+  # the scale's.
+  expect_identical(read("On a scale of 1 to 7, I would say 5"), 5)
+  expect_identical(read("5/7"), 5)
+  expect_identical(read("6 out of 7"), 6)
+  expect_identical(read("Number: 3"), 3)
+  expect_identical(read("I'd say a 2"), 2)
+  expect_identical(read("**4**"), 4)
+  expect_identical(read("On a scale between 1 and 7, I'd say 5"), 5)
+  expect_identical(read("From 1 to 7, a 6"), 6)
+  expect_identical(read("I understand the question; noted: 5. Knowing it, 5."), 5)
+  expect_identical(read("8 (where 0 is no trust and 10 is full trust)", 0, 10), 8)
+  expect_identical(read("0 is no trust, 10 is full trust: me, 10.", 0, 10), 10)
+  expect_identical(read("-2", -3, 3), -2)
+  expect_identical(read("+2", -3, 3), 2)
+  # A cue outside the description of the ends still counts.
+  expect_identical(read("0 is no trust and 10 is full trust; not 10, 7", 0, 10), NA_real_)
 })
 
 test_that("fg_probe() takes a scale of two whole numbers", {
@@ -726,4 +761,13 @@ test_that("an injection from a name that is one participant's ID and another's h
   result <- .turn_run(fg_injection(.turn_text, fg_before_turn(2), from = "P1"),
                       handles = c(P1 = "Ana"))
   expect_identical(result$transcript$speaker_id[result$transcript$text == .turn_text], "P1")
+})
+
+test_that("an answer with a cue is asked again, and the second answer is read", {
+  stub <- .scale_stub(first = list(P1 = "at least 6", P2 = "P1 said 4", P3 = "5"),
+                      second = list(P1 = "6", P2 = "3"))
+  result <- .scale_run(stub, fg_probe("From 1 to 7, how strongly do you favor longer hours?",
+                                      "end", scale = c(1, 7)))
+  expect_identical(result$probes$value, c(6, 3, 5))
+  expect_identical(result$probes$attempts, c(2L, 2L, 1L))
 })

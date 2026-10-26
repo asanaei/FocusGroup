@@ -101,7 +101,9 @@
 * `fg_probe()` gains `scale = c(lo, hi)`. Each answer is read as one whole
   number on that scale into the new `value` column of `probes` (restated
   ranges, fractions such as "5/7", and markup are handled; two numbers, a
-  number out of range, or a number in words give `NA`); an answer that cannot
+  number out of range, or a number in words give `NA`, and so does an answer
+  that negates, compares, or reports another's number, such as "not a 7",
+  "at least 6", "2+", "minus 2", or "the others said 4"); an answer that cannot
   be read is asked again once through the new template
   `participant_probe_reask`; `attempts` counts the calls; the estimate counts
   the re-asks; an answer still unread draws a warning.

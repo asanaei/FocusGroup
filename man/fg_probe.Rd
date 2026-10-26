@@ -56,7 +56,15 @@ one whole number from \code{lo} to \code{hi}. An answer with no number, with two
 different numbers ("3 or 4"), with a fraction of a point ("4.5"), with a
 number outside the scale ("-2"), or on another scale ("6/10" on a 1 to 7
 scale) is not read, and neither are numbers written in words ("seven");
-Arabic-Indic and Persian digits are read as digits.
+Arabic-Indic and Persian digits are read as digits. Nor is an answer that
+negates, compares, or reports someone else's number, whose number need
+not be the answer: one with "minus", "negative", "not", "never", "no",
+"except", "at least", "at most", "more than", "less than", "fewer than",
+"higher", "lower", "above", "below", "over", "under", or "between"
+(outside the scale's own restatement and the description of its ends),
+a number followed by "+" ("2+"), "others said", "they said", "everyone
+said", "someone said", or "P3 said", or a fraction written as one
+character, such as the half sign.
 Such an answer is followed by one re-ask in the same private exchange,
 worded by the \code{participant_probe_reask} template, asking for one number
 from \code{lo} to \code{hi} alone. An empty reply to the re-ask is not retried, and

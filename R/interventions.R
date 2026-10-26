@@ -212,7 +212,15 @@ print.fg_injection <- function(x, ...) {
 #' different numbers ("3 or 4"), with a fraction of a point ("4.5"), with a
 #' number outside the scale ("-2"), or on another scale ("6/10" on a 1 to 7
 #' scale) is not read, and neither are numbers written in words ("seven");
-#' Arabic-Indic and Persian digits are read as digits.
+#' Arabic-Indic and Persian digits are read as digits. Nor is an answer that
+#' negates, compares, or reports someone else's number, whose number need
+#' not be the answer: one with "minus", "negative", "not", "never", "no",
+#' "except", "at least", "at most", "more than", "less than", "fewer than",
+#' "higher", "lower", "above", "below", "over", "under", or "between"
+#' (outside the scale's own restatement and the description of its ends),
+#' a number followed by "+" ("2+"), "others said", "they said", "everyone
+#' said", "someone said", or "P3 said", or a fraction written as one
+#' character, such as the half sign.
 #' Such an answer is followed by one re-ask in the same private exchange,
 #' worded by the `participant_probe_reask` template, asking for one number
 #' from `lo` to `hi` alone. An empty reply to the re-ask is not retried, and
@@ -309,7 +317,24 @@ print.fg_probe <- function(x, ...) {
 #   from `lo` to `hi`. No number, two different numbers ("3 or 4", "3-4"), a
 #   fraction of a point ("4.5"), or a number outside the scale ("-2", "8")
 #   gives NA.
+# * an answer that negates, compares, or reports another's number is not
+#   read, since the number it states need not be the answer: "minus",
+#   "negative", "not", "n't", "never", "no", "except", "at least", "at
+#   most", "more than", "less than", "fewer than", "higher", "lower",
+#   "above", "below", "over", "under", or "between" left once the scale's
+#   own restatement is removed; a number followed by "+" ("2+"); "others
+#   said", "they said", "everyone said", "someone said", "P3 said" and the
+#   like; and fractions written as one character (the half, quarters, and
+#   the other vulgar fractions).
 # Numbers written in words ("seven") are not read.
+.fg_number_cues <- paste0(
+  "\\b(?:minus|negative|not|never|no|except|between|higher|lower|above|below|",
+  "over|under)\\b|n['\u2019]t\\b|",
+  "\\b(?:at\\s+least|at\\s+most|more\\s+than|less\\s+than|fewer\\s+than)\\b|",
+  "\\b(?:others|other\\s+people|they|everyone|everybody|someone|somebody|",
+  "p[0-9]+)\\s+(?:said|say|says|gave|give|gives|chose|picked|answered|rated)\\b|",
+  "[0-9]\\s*\\+|[\u00bc\u00bd\u00be\u2150-\u215e]")
+
 .fg_parse_number <- function(text, lo, hi) {
   if (length(text) != 1L || is.na(text)) return(NA_real_)
   # Dashes and the minus sign as "-", and Arabic-Indic and Persian digits as
@@ -337,13 +362,20 @@ print.fg_probe <- function(x, ...) {
   lo_re <- paste0(start, as_pattern(lo), end)
   hi_re <- paste0(start, as_pattern(hi), end)
   aside <- "(?:\\s*\\([^()]*\\))?"
-  range <- paste0(lo_re, aside, "\\s*(?:-|to|through|thru|and)\\s*", hi_re, aside)
+  range <- paste0("(?:\\b(?:between|from)\\s+)?", lo_re, aside,
+                  "\\s*(?:-|to|through|thru|and)\\s*", hi_re, aside)
   x <- gsub(range, " ", x, perl = TRUE)
   anchor <- "(?=\\s*(?:is\\b|means\\b|=))"
+  # The words that describe the ends ("0 is no trust and 10 is full trust")
+  # are the scale's, not the answer's, and are not read for cues.
+  cued <- x
   if (grepl(paste0(lo_re, anchor), x, perl = TRUE) &&
       grepl(paste0(hi_re, anchor), x, perl = TRUE)) {
+    cued <- gsub(paste0("(?:", lo_re, "|", hi_re, ")\\s*(?:is|means|=)\\s*",
+                        "[^,;.()]*?(?=\\s+and\\b|[,;.()]|$)"), " ", x, perl = TRUE)
     x <- gsub(paste0("(", lo_re, "|", hi_re, ")", anchor), " ", x, perl = TRUE)
   }
+  if (grepl(.fg_number_cues, cued, perl = TRUE)) return(NA_real_)
   fraction <- paste0(start, "(-?", num, ")\\s*(?:/|out\\s+of)\\s*(", num, ")", end)
   found <- regmatches(x, gregexpr(fraction, x, perl = TRUE))[[1]]
   if (length(found)) {
