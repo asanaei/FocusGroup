@@ -151,7 +151,8 @@
 * The reply cleaner no longer deletes a participant's words: it removes only
   a short opening self-introduction ("As a retired nurse,"), marks it with
   `metadata$preamble_removed`, and keeps longer clauses ("As a teacher I
-  grade papers at night, ...") as written.
+  grade papers at night, ...") and discourse openings ("As an illustration,",
+  "As an alternative,", "As a side note,") as written.
 
 * A custom flow that chooses no participant or the moderator records no
   routing row.

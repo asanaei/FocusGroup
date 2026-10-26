@@ -1142,7 +1142,9 @@ parse_score_0_10 <- function(text) {
 # discourse ("As a result, ...", "As the saying goes, ...") and states a
 # time of life or a group ("As a child, ...", "As a family, ..."), and those
 # openings are content, so a clause whose head is such a word, or one that
-# reports what someone said, is kept.
+# reports what someone said, is kept. Some such words also head a role ("As
+# an alternative medicine practitioner, ..."), and they count as discourse
+# only when the comma follows them ("As an alternative, ...").
 .fg_discourse_as <- paste0(
   "^As\\s+(",
   "(a|an)\\s+(result|consequence|rule|whole|aside|example|reminder|",
@@ -1152,6 +1154,8 @@ parse_score_0_10 <- function(text) {
   "point\\s+of|society|group|community|country|nation|team|precaution|",
   "family|household|couple|kid|child|teen|teenager|youngster|",
   "compromise|baseline|case\\s+in\\s+point)\\b",
+  "|(a|an)\\s+(illustration|alternative|side\\s+effect|comparison|start|test|",
+  "thought\\s+experiment|policy)\\s*,",
   "|the\\s+(saying|old\\s+saying|proverb|expression|phrase|name|title|",
   "moderator|question|discussion|conversation|group|others?|previous|last|",
   "earlier|data|evidence|research|record|numbers|article)\\b",

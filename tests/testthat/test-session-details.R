@@ -222,3 +222,29 @@ test_that("default moderator templates do not assert what happened earlier", {
     }
   }
 })
+
+test_that("discourse openings that could head a role are kept when the comma follows", {
+  kept <- c(
+    "As an illustration, prices rose and the library cut its weekday hours.",
+    "As an example, the county library stays open until nine on weekdays.",
+    "As a reminder, the branch closes at five on Fridays and all of Sunday.",
+    "As a side note, parking near the branch is free after six in the evening.",
+    "As a rule, I go on Saturday mornings with my two kids and their friends.",
+    "As an alternative, open later on two weekdays and close earlier on others.",
+    "As a consequence, the evening crowd moved to the mornings this spring.",
+    "As a matter of fact, the doors were already shut when I came at seven.",
+    "As a side effect, the evening crowd moved to the mornings this spring.",
+    "As a comparison, the county library stays open until nine every weekday.")
+  for (text in kept) {
+    expect_identical(.detail_utterance(.detail_agent(text)), text)
+  }
+  # Hard negatives: the same words heading a role, with no comma after them,
+  # are an introduction and are removed.
+  stripped <- c(
+    "As an alternative medicine practitioner, I work late on most weekdays.",
+    "As a test engineer, I need evenings for the quiet study rooms upstairs.")
+  expected <- c("I work late on most weekdays.", "I need evenings for the quiet study rooms upstairs.")
+  for (i in seq_along(stripped)) {
+    expect_identical(.detail_utterance(.detail_agent(stripped[[i]])), expected[[i]])
+  }
+})

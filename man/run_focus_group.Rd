@@ -305,7 +305,8 @@ a speaker writes for itself at the start of its reply (\verb{**MOD:**},
 ("As a teacher, ", "As a retired nurse, ") is removed too, and the
 message carries \code{metadata$preamble_removed = TRUE}; a longer opening
 clause, or one that belongs to the statement ("As a teacher I grade
-papers at night, ...", "As a result, ..."), is kept. In both cases the
+papers at night, ...", "As a result, ...", "As an alternative, ..."), is
+kept. In both cases the
 reply as returned stays in \code{calls}.
 
 The estimate counts one output for each moderator turn the model writes,
