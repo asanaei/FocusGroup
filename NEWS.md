@@ -54,7 +54,9 @@
 
 * `format()` of a `focus_group_result` returns the lines of a session file,
   `writeLines(format(result), "session.fg.jsonl")`: one JSON object per line,
-  one row of the record each, with no configuration, key, or runner.
+  one row of the record each, with no configuration, key, or runner; key-like
+  values in the messages of failed calls, in the forms of the common
+  providers' keys, headers, and JSON fields, are written as `<redacted>`.
   `focus_group_from_transcript()` reads such a file, a vector of its lines, a
   result, or a FocusGroup back into a new session, reports every problem it
   finds at once in an error of class `focusgroup_format_error`, and gains

@@ -574,3 +574,45 @@ test_that("format() of a FocusGroup gives its session file, and of arms an error
   expect_identical(printed[1:2], c("<focus_group_arms>", "Topic: library hours"))
   expect_no_error(capture.output(str(arms, max.level = 1)))
 })
+
+test_that("every common form of a key is redacted, and ordinary words are not", {
+  # Fixture strings in the forms of provider keys; none is a real key.
+  forms <- c(
+    groq = "Invalid API Key: gsk_FIXTUREabcdefghijklmnopqrstuvwxyz0123456789",
+    openai = "Incorrect API key provided: sk-proj-FIXTUREabcdefghijklmnop",
+    anthropic = "x-api-key: sk-ant-api03-FIXTUREabcdefghijklmnop",
+    header = "header x-api-key: FIXTURE0123456789abcdefghijklmn",
+    azure = "api-key: FIXTURE0123456789abcdef0123456789",
+    header_json = '{"x-api-key": "FIXTURE0123456789"}',
+    google = "https://generativelanguage.googleapis.com/v1/models?key=AIzaFIXTUREabcdefghijklmnop012",
+    google_bare = "key AIzaFIXTUREabcdefghijklmnop012 rejected",
+    json = '{"api_key": "FIXTURE0123456789abcdefghijklmnop"}',
+    json_camel = '{"apiKey":"FIXTURE-0123456789"}',
+    json_token = '{"token": "FIXTURE.abc.def"}',
+    json_secret = '{"secret" : "FIXTURE secret value"}',
+    xai = "bad key xai-FIXTUREabcdefghijklmnopqrstuvwxyz0123",
+    bearer = "Authorization: Bearer FIXTURE0123456789abcdef0123456789",
+    hf = "token hf_FIXTUREabcdefghijklmnopqrstuvwxyz",
+    query = "GET /v1?api_key=FIXTURE123&x=1")
+  out <- FocusGroup:::.fg_redact_secrets(forms)
+  expect_identical(names(out)[grepl("FIXTURE", out, fixed = TRUE)], character())
+  expect_true(all(grepl("<redacted>", out, fixed = TRUE)))
+  expect_identical(out[["json"]], '{"api_key": "<redacted>"}')
+  expect_identical(out[["azure"]], "api-key: <redacted>")
+  expect_identical(out[["query"]], "GET /v1?api_key=<redacted>&x=1")
+
+  # Hard negatives: words and fields that only look like keys are kept.
+  plain <- c("The keyboard and the skill test were task-based and risk-averse.",
+             "A desk-bound clerk asked for the api-key header, which was missing.",
+             '{"max_tokens": "400", "token": 5, "secret": ""}',
+             "The token of thanks was a secret to the hf group and to xai fans.",
+             "Bearer of bad news")
+  expect_identical(FocusGroup:::.fg_redact_secrets(plain), plain)
+
+  # The writer applies it to failed calls and to the failure message.
+  result <- .sf_result(flow = "round_robin")
+  result$calls$error[[2]] <- forms[["groq"]]
+  result$metadata$failure <- list(phase = "closing", message = forms[["json"]])
+  text <- paste(format(result), collapse = "\n")
+  expect_false(grepl("FIXTURE", text, fixed = TRUE))
+})

@@ -46,8 +46,11 @@
 #' endpoint from a configuration: `metadata` holds none, and the recorded
 #' call settings are the allowlisted model parameters. The message of a
 #' failed call is written as recorded, except that key-like values in it
-#' (the values of query parameters such as `key=`, bearer tokens, and
-#' strings of the form of an API key) are replaced by `<redacted>`. [saveRDS()] of the result, by contrast,
+#' (the values of query parameters such as `key=`, bearer tokens, the
+#' values of `x-api-key:` and `api-key:` headers and of JSON fields such as
+#' `"api_key"`, `"apiKey"`, `"token"`, and `"secret"`, and strings of the
+#' forms of OpenAI, Groq, xAI, Hugging Face, and Google API keys) are
+#' replaced by `<redacted>`. [saveRDS()] of the result, by contrast,
 #' saves `focus_group`, which holds the configuration (and so any literal
 #' key or private endpoint in it) and the runner; set `result$focus_group <-
 #' NULL` first to save the record alone. [analyze_focus_group()] and the
@@ -172,13 +175,22 @@ format.focus_group_arms <- function(x, ...) {
 }
 
 # Text with key-like values replaced by "<redacted>": the values of query
-# parameters such as `key=` and `api_key=`, bearer tokens, and strings of the
-# forms of OpenAI and Google API keys.
+# parameters such as `key=` and `api_key=`, bearer tokens, the values of
+# `x-api-key:` and `api-key:` headers, the string values of JSON fields such
+# as "api_key", "apiKey", "token", and "secret", and strings of the forms of
+# OpenAI ("sk-"), Groq ("gsk_"), xAI ("xai-"), Hugging Face ("hf_"), and
+# Google ("AIza") API keys.
 .fg_redact_secrets <- function(x) {
   x <- gsub(paste0("(?i)([?&](?:api[_-]?key|key|token|access[_-]?token|auth|",
                    "signature|sig)=)[^&\\s\"'#]+"), "\\1<redacted>", x, perl = TRUE)
   x <- gsub("(?i)(bearer\\s+)[A-Za-z0-9._~+/=-]{8,}", "\\1<redacted>", x, perl = TRUE)
-  x <- gsub("\\bsk-[A-Za-z0-9_-]{8,}", "<redacted>", x, perl = TRUE)
+  x <- gsub("(?i)(\\b(?:x-)?api-key\"?\\s*:\\s*\"?)[^\\s\"',;}]+", "\\1<redacted>", x,
+            perl = TRUE)
+  x <- gsub(paste0("(?i)(\"(?:api[_-]?key|token|access[_-]?token|refresh[_-]?token|",
+                   "secret|client[_-]?secret|password)\"\\s*:\\s*\")[^\"]+(\")"),
+            "\\1<redacted>\\2", x, perl = TRUE)
+  x <- gsub("\\b(?:sk-|xai-)[A-Za-z0-9_-]{8,}", "<redacted>", x, perl = TRUE)
+  x <- gsub("\\b(?:gsk|hf)_[A-Za-z0-9]{8,}", "<redacted>", x, perl = TRUE)
   gsub("\\bAIza[0-9A-Za-z_-]{20,}", "<redacted>", x, perl = TRUE)
 }
 

@@ -65,8 +65,11 @@ The file holds no model configuration and no runner, and so no key or
 endpoint from a configuration: \code{metadata} holds none, and the recorded
 call settings are the allowlisted model parameters. The message of a
 failed call is written as recorded, except that key-like values in it
-(the values of query parameters such as \verb{key=}, bearer tokens, and
-strings of the form of an API key) are replaced by \verb{<redacted>}. \code{\link[=saveRDS]{saveRDS()}} of the result, by contrast,
+(the values of query parameters such as \verb{key=}, bearer tokens, the
+values of \verb{x-api-key:} and \verb{api-key:} headers and of JSON fields such as
+\code{"api_key"}, \code{"apiKey"}, \code{"token"}, and \code{"secret"}, and strings of the
+forms of OpenAI, Groq, xAI, Hugging Face, and Google API keys) are
+replaced by \verb{<redacted>}. \code{\link[=saveRDS]{saveRDS()}} of the result, by contrast,
 saves \code{focus_group}, which holds the configuration (and so any literal
 key or private endpoint in it) and the runner; set \code{result$focus_group <- NULL} first to save the record alone. \code{\link[=analyze_focus_group]{analyze_focus_group()}} and the
 Studio rebuild the session object of such a result from its tables.
