@@ -132,8 +132,8 @@ Only \code{message} lines with \code{speaker_id} and \code{text} are required. E
 problem in a file (a line that is not JSON or not an object, an unknown
 line type or field, a value of the wrong type, a missing \code{text}, message
 ids that do not increase, two moderators, a speaker not declared when
-participants are, an item outside the guide, a guide item whose phase has
-no moderator template, a negative token count, a file of one JSON value
+participants are, an item outside the guide, a negative token count, a
+file of one JSON value
 written over several lines) is reported at once, by an error of class
 \code{focusgroup_format_error} whose \code{problems} field is a data frame of
 \code{row} (the line), \code{field}, and \code{problem}. A field whose name starts with

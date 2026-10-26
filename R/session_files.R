@@ -212,6 +212,15 @@ format.focus_group_arms <- function(x, ...) {
 .fg_table_lines <- function(type, table, empty) {
   if (!is.data.frame(table) || !nrow(table)) return(character())
   columns <- names(empty)
+  # Columns a user added to a result table, such as a coder's note, are not
+  # part of the record; say so rather than drop them unannounced.
+  # (The messages of each call are left out on purpose; see the help.)
+  added <- setdiff(names(table), c(columns, if (identical(type, "call")) "messages"))
+  if (length(added)) {
+    warning(sprintf(paste("Column(s) %s of the %s lines are not part of the session",
+                          "record and are not written."),
+                    paste(added, collapse = ", "), type), call. = FALSE)
+  }
   vapply(seq_len(nrow(table)), function(i) {
     fields <- list(type = type)
     for (column in columns) {
@@ -872,14 +881,21 @@ format.focus_group_arms <- function(x, ...) {
   phases <- union(.fg_guide_phases,
                   sub("^moderator_", "", grep("^moderator_", templates %||% character(),
                                               value = TRUE)))
+  # A phase without a moderator template is read as FocusGroup$new() takes
+  # it: the moderator uses its generic template for that item, with a warning.
+  unknown_phases <- character()
   for (r in out$item) {
     p <- r$phase
     if (is.character(p) && length(p) == 1L && !is.na(p) && nzchar(p) && !p %in% phases) {
-      problems$add(r$.row, "phase", paste0(
-        "'", p, "' is not a phase of a guide item; the phases are ",
-        paste(.fg_guide_phases, collapse = ", "),
-        ", and any phase given a moderator_<phase> template in `prompt_templates`."))
+      unknown_phases <- c(unknown_phases, p)
     }
+  }
+  if (length(unknown_phases)) {
+    warning(sprintf(paste("Guide item phase(s) %s have no moderator template; the moderator",
+                          "will use its generic template for them. The phases with",
+                          "templates are %s."),
+                    paste0("'", unique(unknown_phases), "'", collapse = ", "),
+                    paste(.fg_guide_phases, collapse = ", ")), call. = FALSE)
   }
   for (r in out$message) {
     if (isTRUE(r$message_id < 1L)) problems$add(r$.row, "message_id", "must be 1 or more.")

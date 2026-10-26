@@ -617,12 +617,15 @@ test_that("every common form of a key is redacted, and ordinary words are not", 
   expect_false(grepl("FIXTURE", text, fixed = TRUE))
 })
 
-test_that("the reader refuses unknown item phases and negative usage and warns of unused templates", {
+test_that("the reader warns of unknown item phases and unused templates and refuses negative usage", {
   base <- c('{"type":"message","speaker_id":"Moderator","text":"Which hours?"}',
             '{"type":"message","speaker_id":"Ana","text":"Evenings."}')
-  p <- .sf_problems(c('{"type":"item","item":1,"phase":"chitchat","text":"Hi"}', base))
-  expect_identical(p$field, "phase")
-  expect_match(p$problem, "'chitchat' is not a phase of a guide item")
+  # As FocusGroup$new() does, an item phase without a moderator template is
+  # kept, with a warning: the moderator uses its generic template for it.
+  expect_warning(fg <- focus_group_from_transcript(c(
+    '{"type":"item","item":1,"phase":"chitchat","text":"Hi"}', base)),
+    "'chitchat' have no moderator template")
+  expect_identical(fg$question_script[[1]]$phase, "chitchat")
   p <- .sf_problems(c('{"type":"session","topic":"hours","usage":{"sent":-1,"rec":2}}', base))
   expect_identical(p$field, "usage")
   p <- .sf_problems(c(base, '{"type":"call","call_id":1,"call_type":"participant","sent_tokens":-5}'))
@@ -642,4 +645,12 @@ test_that("the reader refuses unknown item phases and negative usage and warns o
     base)))
   result <- .sf_result(flow = "round_robin")
   expect_no_warning(focus_group_from_transcript(format(result)))
+})
+
+test_that("columns a user added to a result table are announced, not dropped in silence", {
+  result <- .sf_result(flow = "round_robin")
+  result$transcript$coder_note <- "checked"
+  expect_warning(lines <- format(result), "coder_note of the message lines")
+  expect_false(any(grepl("coder_note", lines, fixed = TRUE)))
+  expect_no_warning(format(.sf_result(flow = "round_robin")))
 })
