@@ -580,3 +580,31 @@ test_that("the identifiers of common panels are recognized, and pid is rendered"
                     "identifier column"))
   expect_identical(report$status[report$variable == "pid"], c("rendered", "rendered"))
 })
+
+test_that("a participant whose ID is the moderator's handle is refused", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  mk <- function(id, mod = FALSE) {
+    FGAgent$new(id, list(direct_persona_description = paste("Persona", id)), cfg,
+                is_moderator = mod)
+  }
+  agents <- list(Moderator = mk("Moderator"), Ana = mk("Ana"), MOD = mk("MOD", TRUE))
+  build <- function(agents, ...) {
+    suppressMessages(FocusGroup$new(
+      topic = "library hours", purpose = "Test.", agents = agents, moderator_id = "MOD",
+      turn_taking_flow = create_conversation_flow("round_robin", agents, "MOD"), ...))
+  }
+  expect_error(build(agents), "Participant ID 'Moderator' is the moderator's handle")
+  lower <- list(moderator = mk("moderator"), Ana = mk("Ana"), MOD = mk("MOD", TRUE))
+  expect_error(build(lower), "Participant ID 'moderator'")
+  # Hard negatives: another handle for the moderator, or another ID for the
+  # participant, and the moderator's own ID "Moderator".
+  fg <- build(agents, handles = c(MOD = "Host"))
+  expect_identical(unname(fg$handles[c("Moderator", "MOD")]), c("P1", "Host"))
+  renamed <- list(Moderator2 = mk("Moderator2"), Ana = mk("Ana"), MOD = mk("MOD", TRUE))
+  expect_s3_class(build(renamed), "FocusGroup")
+  own <- list(Ana = mk("Ana"), Ben = mk("Ben"), Moderator = mk("Moderator", TRUE))
+  expect_s3_class(suppressMessages(FocusGroup$new(
+    topic = "library hours", purpose = "Test.", agents = own, moderator_id = "Moderator",
+    turn_taking_flow = create_conversation_flow("round_robin", own, "Moderator"))),
+    "FocusGroup")
+})

@@ -269,7 +269,9 @@ handles of your own, such as invented first names, and the agents it
 does not name keep their neutral handles. A handle must be non-empty
 and distinct, cannot be \code{"System"} or the name of an injected voice,
 and cannot contain a standalone number from 0 to 10, which a desire
-score could be mistaken for.}
+score could be mistaken for. No participant's ID may be the
+moderator's handle (in any case), which would make the two
+indistinguishable.}
 
 \item{\code{call_on_silent}}{Where the moderator calls on the participants
 who have not spoken since the previous such point: any of

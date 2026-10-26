@@ -132,7 +132,9 @@
   speaker (check `named_speakers`), so a claim that says "Ben said ..." while
   citing Ana's message is sent back.
 
-* Neutral handles never take another agent's ID, the moderator's included.
+* Neutral handles never take another agent's ID, the moderator's included,
+  and `FocusGroup$new()` refuses a participant whose ID is the moderator's
+  handle ("Moderator").
 
 * `analyze_themes()` calls the provider unless given `.runner`, as
   `summarize()` does; it no longer falls back to the session's runner.

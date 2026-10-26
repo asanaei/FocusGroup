@@ -210,7 +210,9 @@ FocusGroup <- R6::R6Class("FocusGroup",
     #'   does not name keep their neutral handles. A handle must be non-empty
     #'   and distinct, cannot be `"System"` or the name of an injected voice,
     #'   and cannot contain a standalone number from 0 to 10, which a desire
-    #'   score could be mistaken for.
+    #'   score could be mistaken for. No participant's ID may be the
+    #'   moderator's handle (in any case), which would make the two
+    #'   indistinguishable.
     #' @param call_on_silent Where the moderator calls on the participants
     #'   who have not spoken since the previous such point: any of
     #'   `"opening"` (the first discussion item), `"midpoint"` (discussion
@@ -290,6 +292,17 @@ FocusGroup <- R6::R6Class("FocusGroup",
                 "version of FocusGroup and recognize their own turns by ID, so the ",
                 "other agents see them under their IDs. Build them anew to use ",
                 "handles.", call. = FALSE)
+      }
+      # A participant whose ID is the moderator's handle could not be told
+      # from the moderator in an injection's `from` or in the records.
+      moderator_handle <- unname(self$handles[[moderator_id]])
+      clash <- setdiff(agent_ids, moderator_id)[
+        tolower(setdiff(agent_ids, moderator_id)) == tolower(moderator_handle)]
+      if (length(clash)) {
+        stop("Participant ID '", clash[[1]], "' is the moderator's handle ('",
+             moderator_handle, "'), so the participant could not be told from the ",
+             "moderator. Give the participant another ID, or the moderator another ",
+             "handle, as in `handles = c(", moderator_id, " = \"Host\")`.", call. = FALSE)
       }
       private$claim_handles()
       self$turn_taking_flow <- turn_taking_flow
