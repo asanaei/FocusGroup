@@ -2,12 +2,18 @@
 % Please edit documentation in R/session_files.R
 \name{format.focus_group_result}
 \alias{format.focus_group_result}
+\alias{format.FocusGroup}
+\alias{format.focus_group_arms}
 \title{Write a Session as JSON Lines}
 \usage{
 \method{format}{focus_group_result}(x, ...)
+
+\method{format}{FocusGroup}(x, ...)
+
+\method{format}{focus_group_arms}(x, ...)
 }
 \arguments{
-\item{x}{A \code{focus_group_result}.}
+\item{x}{A \code{focus_group_result}, or a \link{FocusGroup}.}
 
 \item{...}{Unused.}
 }
@@ -70,6 +76,12 @@ parameters, and the communication styles, which it lacks, are read from
 the fields of its \code{focus_group}, when it has one; without one,
 \code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}} rebuilds them from the record as its
 help page describes.
+
+\code{format()} of a \link{FocusGroup}, such as one read by
+\code{\link[=focus_group_from_transcript]{focus_group_from_transcript()}}, gives the lines of its session file in
+the same way, from its log and records. A \code{focus_group_arms} object holds
+several sessions and has no one file: format an arm,
+\code{format(x$arms[["name"]])}, or the shared prefix, \code{format(x$prefix)}.
 }
 \examples{
 cfg <- LLMR::llm_config("groq", "openai/gpt-oss-20b",

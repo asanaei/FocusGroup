@@ -540,3 +540,37 @@ test_that("fields the format does not define are written with x_ and read back u
   expect_identical(fg$topic, "hours")
   expect_identical(.fg_object_result(fg)$metadata$x_topic, "other")
 })
+
+test_that("format() of a FocusGroup gives its session file, and of arms an error", {
+  transcript <- data.frame(speaker = c("Moderator", "Ana", "Ben"),
+                           text = c("What do you make of the hours?", "Evenings.", "Mornings."))
+  fg <- focus_group_from_transcript(transcript, topic = "library hours")
+  lines <- format(fg)
+  expect_identical(lines, format(FocusGroup:::.fg_object_result(fg)))
+  expect_identical(jsonlite::parse_json(lines[[1]])$type, "session")
+  path <- tempfile(fileext = ".fg.jsonl")
+  writeLines(lines, path)
+  back <- focus_group_from_transcript(path)
+  expect_identical(vapply(back$conversation_log, `[[`, character(1), "text"),
+                   transcript$text)
+  # A FocusGroup made by a run writes the file of its result.
+  result <- .sf_result(flow = "round_robin")
+  expect_identical(format(result$focus_group)[-1], format(result)[-1])
+  # Printing is unchanged.
+  expect_identical(capture.output(print(fg)), c(
+    "<FocusGroup>", "  Topic: library hours", "  Participants: 2",
+    "  Messages: 3 in 1 round(s)"))
+
+  arms <- run_focus_group_arms(
+    "library hours", LLMR::llm_config("openai", "example-model"), n_participants = 2,
+    flow = "round_robin", verbose = FALSE, .runner = .sf_runner,
+    guide = list(Engagement = c("Which hours?", "Who is left out?"), Closing = "Bye."),
+    arms = list(a = NULL, b = fg_injection("Budgets are fixed.", fg_after_item(2),
+                                           from = "Board member")))
+  expect_error(format(arms), "Format one arm, as in format(x$arms[[\"a\"]]), or the shared prefix",
+               fixed = TRUE)
+  expect_identical(format(arms$arms$b)[-1], format(arms$arms[["b"]])[-1])
+  printed <- capture.output(print(arms))
+  expect_identical(printed[1:2], c("<focus_group_arms>", "Topic: library hours"))
+  expect_no_error(capture.output(str(arms, max.level = 1)))
+})

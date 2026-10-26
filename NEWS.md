@@ -60,6 +60,9 @@
   finds at once in an error of class `focusgroup_format_error`, and gains
   `personas`. `inst/fg-session-spec.md` describes the format for converting a
   raw transcript with a language model. Data-frame input works as before.
+  `format()` of a FocusGroup, such as one read from a CSV transcript, gives
+  its session file in the same way; `format()` of a `focus_group_arms`
+  object stops and says to format one arm or the prefix.
   Fields of the metadata and of guide items that the format does not define,
   such as `metadata$condition` or an item's `label`, are written with the
   prefix `x_` and read back under their names.

@@ -59,7 +59,13 @@
 #' [focus_group_from_transcript()] rebuilds them from the record as its
 #' help page describes.
 #'
-#' @param x A `focus_group_result`.
+#' `format()` of a [FocusGroup], such as one read by
+#' [focus_group_from_transcript()], gives the lines of its session file in
+#' the same way, from its log and records. A `focus_group_arms` object holds
+#' several sessions and has no one file: format an arm,
+#' `format(x$arms[["name"]])`, or the shared prefix, `format(x$prefix)`.
+#'
+#' @param x A `focus_group_result`, or a [FocusGroup].
 #' @param ... Unused.
 #' @return A character vector of JSON lines, one per row, in the order
 #'   session, participants, items, messages, routing, probes, injections,
@@ -147,6 +153,22 @@ format.focus_group_result <- function(x, ...) {
   extra <- !names(fields) %in% names(.fg_line_kinds(type))
   names(fields)[extra] <- paste0("x_", names(fields)[extra])
   fields
+}
+
+#' @rdname format.focus_group_result
+#' @export
+format.FocusGroup <- function(x, ...) {
+  format(.fg_object_result(x))
+}
+
+#' @rdname format.focus_group_result
+#' @export
+format.focus_group_arms <- function(x, ...) {
+  arm <- names(x$arms)[1] %||% "name"
+  stop(sprintf(paste0(
+    "A focus_group_arms object holds several sessions, and a session file holds ",
+    "one. Format one arm, as in format(x$arms[[\"%s\"]]), or the shared prefix, ",
+    "format(x$prefix)."), arm), call. = FALSE)
 }
 
 # Text with key-like values replaced by "<redacted>": the values of query
