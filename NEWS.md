@@ -33,10 +33,18 @@
   frames it is given the same way and gains `na_strings`; it no longer fails
   on factor columns.
 
-* A value without a numeric code counts as a missing-data label only when it
-  says nothing but wording `na_strings` matches ("Refused to answer", "I
-  don't know"); answers that use such words ("I keep missing the bus") are
-  kept.
+* One rule now decides whether a value label or a text value is a
+  missing-data label: it matches `na_strings` and either carries a negative
+  code or one of 90 and above, as the labeled code or a leading code in the
+  forms "-9. ", "-9 ", "[-9] ", "(-9) ", "-9: ", and "99 - ", or says
+  nothing but the matched wording once interviewer markers such as "{VOL}"
+  and "(VOL)", asides in parentheses or brackets, and filler words are set
+  aside. So "[-9] Refused" from `haven::as_factor(levels = "both")`, "-9
+  Refused", "Don't know/Refused (VOL.)", and "Not asked in survey" are left
+  out, where 0.5.5 showed them as answers, while "2. Refused to take sides",
+  "5. Missing the old system", and "I keep missing the bus" are kept. A value
+  label of a code from 0 to 89 that uses such words in an answer is now
+  shown; it used to be left out.
 
 * Identifier columns are recognized in any case and in common variants (ID,
   CaseID, case_id, respondent_id, respid, resp_id, persona_id, uid,

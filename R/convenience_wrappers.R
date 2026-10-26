@@ -1160,12 +1160,14 @@ print.focus_group_result <- function(x, ...) {
 #' @param na_strings Character vector of regular expressions, matched ignoring
 #'   case, that mark a text or factor value of `demographics` or
 #'   `survey_responses` as a missing-data label, which the persona leaves
-#'   out, as [create_agents_from_data()] does: a value that starts with a
-#'   numeric code and matches ("-9. Refused"), or one that says nothing but
-#'   the matched wording ("Refused to answer", "Don't know"). Answers that use
-#'   such words ("I keep missing the bus") are kept, and numbers are never
-#'   read this way. Each value left out is recorded in the rendering report,
-#'   with a message naming the fields. The default is
+#'   out, by the rule described under Rendering answers in
+#'   [create_agents_from_survey()]: a value that matches and starts with a
+#'   negative code or one of 90 and above ("-9. Refused", "\[-8\] Don't know",
+#'   "97. Refused"), or one that says nothing but the matched wording
+#'   ("Refused to answer", "Don't know (VOL)"). Answers that use such words
+#'   ("I keep missing the bus", "2. Refused to take sides") are kept, and
+#'   numbers are never read this way. Each value left out is recorded in the
+#'   rendering report, with a message naming the fields. The default is
 #'   [fg_default_na_strings()]; `character()` turns the screening off.
 #' @param .runner Optional function used instead of live model calls and stored
 #'   on every agent.
@@ -1371,7 +1373,7 @@ create_agents <- function(n_participants, config, demographics = NULL,
 }
 
 # The fields of a record without the values that are missing-data labels:
-# text and factor values of a supplied frame that `.fg_is_missing_value()`
+# text and factor values of a supplied frame that `.fg_missing_text()`
 # reads as missing under `na_strings`. Numbers, and records that are not
 # rows of a frame, are kept as they are.
 .fg_without_missing <- function(fields, frame, na_strings) {
@@ -1381,7 +1383,7 @@ create_agents <- function(n_participants, config, demographics = NULL,
   check <- intersect(names(fields), text)
   if (!length(check)) return(fields)
   values <- vapply(fields[check], function(v) as.character(v)[1], character(1))
-  drop <- check[.fg_is_missing_value(values, na_strings)]
+  drop <- check[.fg_missing_text(values, na_strings)]
   fields[setdiff(names(fields), drop)]
 }
 
@@ -1398,7 +1400,7 @@ create_agents <- function(n_participants, config, demographics = NULL,
                     report$variable %in% text & !is.na(report$code) &
                     report$reason %in% "no value")
     if (!length(rows)) next
-    missing <- rows[.fg_is_missing_value(report$code[rows], na_strings)]
+    missing <- rows[.fg_missing_text(report$code[rows], na_strings)]
     report$reason[missing] <- paste("missing value:", report$code[missing])
     report$issue[missing] <- "missing"
   }
@@ -1923,8 +1925,8 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #'   must be nonnegative and finite, with at least one positive; numeric
 #'   values carrying haven value labels are accepted.
 #' @param na_strings Character vector of value-label substrings, matched as
-#'   regular expressions and ignoring case, that mark an answer as missing.
-#'   The default covers common terms ("inapplicable", "missing", "refused",
+#'   regular expressions and ignoring case, that mark an answer as missing
+#'   by the rule described under Rendering answers. The default covers common terms ("inapplicable", "missing", "refused",
 #'   "don't know", "not asked", "legitimate skip", "no answer", "not
 #'   applicable", "not available") and the labels the ANES 2024 release gives
 #'   its negative missing-data codes, such as "-3. RESTRICTED", "-6. No post
@@ -1991,8 +1993,9 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #' rendering report described under Value.
 #'
 #' * A code with a value label is shown as its label, without a leading code
-#'   of zero or above such as "1. ". A label that matches `na_strings` marks
-#'   a missing value, and the answer is left out. Two kinds of label from the
+#'   of zero or above such as "1. ". A missing-data label, as described
+#'   below, marks a missing value, and the answer is left out. Two kinds of
+#'   label from the
 #'   file are shown but flagged, with a warning naming the variable and code:
 #'   a label exactly 80 characters long, since some releases, the ANES 2024
 #'   Stata file among them, cut longer labels at that length; and the label
@@ -2011,7 +2014,7 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #'   1 to 7 scale is therefore not an endpoint, while a labeled midpoint, as
 #'   in a 0 to 10 scale labeled at 0, 5, and 10, rules out the scale form.
 #'   Negative codes below a scale that starts at zero or above are taken for
-#'   missing-data codes. Labels matching `na_strings` are never endpoints, a
+#'   missing-data codes. Missing-data labels are never endpoints, a
 #'   scale with a negative endpoint must be centered on zero, and top or
 #'   bottom codes such as "89 or older" do not make a scale.
 #' * A negative number without a label that is not a point on a scale is
@@ -2028,10 +2031,23 @@ fg_default_na_strings <- function() .fg_default_na_strings
 #'
 #' A variable without value labels is shown as stored, with numbers written
 #' out in full ("100000"). An empty value is left out, and so is a value that
-#' is a missing-data label: one that starts with a numeric code and matches
-#' `na_strings` ("-9. Refused"), or one that says nothing but wording matched
-#' by `na_strings` ("Refused to answer", "I don't know"). An answer that uses
-#' such words ("I keep missing the bus") is kept.
+#' is a missing-data label.
+#'
+#' One rule decides whether a value label, or a text value of a variable
+#' without value labels, is a missing-data label. It is one when it matches
+#' `na_strings` and either carries a missing-data code or says nothing but
+#' the matched wording. A missing-data code is a negative code or one of 90
+#' and above: the labeled code of a value label, or else a code that leads
+#' the text, as in "-9. Refused", "-9 Refused", "\[-8\] Don't know",
+#' "(-8) Don't know", "97: Refused", and "98 - Don't know". A text says
+#' nothing but the matched wording when no word remains once its leading
+#' code, interviewer markers ("\{VOL\}", "(VOL)"), parenthetical and bracketed
+#' asides, the matched wording, and filler words such as "I", "to",
+#' "answer", and "in survey" are taken out: "Refused to answer", "I don't
+#' know", "Don't know/Refused (VOL.)", "Not asked in survey", and "9.
+#' Missing" are missing-data labels. Answers that use such words are kept,
+#' with a substantive code or without one: "2. Refused to take sides",
+#' "Missing the old system", "My landlord refused to fix the heat".
 #'
 #' Answers left out as missing values are announced in a message. Requested
 #' variables that are not in the file are left out of every persona, and a
@@ -2418,18 +2434,22 @@ create_agents_from_survey <- function(n_participants,
 #'   the rules described under Rendering answers in
 #'   [create_agents_from_survey()]: a code is shown as its label; a number
 #'   between the labeled endpoints of a scale is shown in the sentence of
-#'   `scale_template`; a label matching `na_strings` and a negative code
-#'   without a label are left out; and a field that holds numbers is shown
+#'   `scale_template`; a missing-data label and a negative code without a
+#'   label are left out; and a field that holds numbers is shown
 #'   as numbers. The same warnings are given, and the answers read as they
 #'   do when the same data are read from a file by
 #'   [create_agents_from_survey()]. SPSS user-defined missing values, which
 #'   [haven::read_sav()] keeps with `user_na = TRUE`, are left out.
-#' * Text and factor values are shown as given, except missing-data labels.
-#'   A value is one when it starts with a numeric code and matches
-#'   `na_strings` ("-9. Refused", "-3. RESTRICTED"), or when it says nothing
-#'   but wording matched by `na_strings` ("Refused to answer", "I don't
-#'   know"). Answers that use such words ("I keep missing the bus", "My
-#'   landlord refused to fix the heat") are kept.
+#' * Text and factor values are shown as given, except missing-data labels,
+#'   decided by the rule that decides value labels (see Rendering answers in
+#'   [create_agents_from_survey()]). A value is one when it matches
+#'   `na_strings` and starts with a negative code or one of 90 and above
+#'   ("-9. Refused", "\[-9\] Refused" as [haven::as_factor()] writes it with
+#'   `levels = "both"`, "97. Refused"), or when it says nothing but the
+#'   matched wording ("Refused to answer", "I don't know", "Don't know
+#'   (VOL)"). Answers that use such words ("I keep missing the bus", "My
+#'   landlord refused to fix the heat", "2. Refused to take sides") are
+#'   kept.
 #' * Numbers are shown in full ("100000"); `na_strings` does not apply to them.
 #'
 #' Every value left out is recorded in the rendering report with its reason,

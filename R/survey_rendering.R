@@ -136,29 +136,62 @@
   grepl(paste(na_strings, collapse = "|"), x, ignore.case = TRUE)
 }
 
-# Whether values that carry no value label, such as the text of a decoded
-# frame, are missing-data labels. A value that starts with a numeric code
-# ("-9. Refused", "97. Don't know") is a label and counts when it matches
-# `na_strings`. A value without a code counts only when it says nothing but
-# the missing-data wording: once the matched wording and a few filler words
-# ("I", "to", "answer", "skipped") are taken out, no other word may remain.
-# So "Refused to answer" and "I don't know" are missing, while answers that
-# use such words ("I keep missing the bus", "My landlord refused") are kept.
+# Whether texts are missing-data labels: the one rule for value labels and
+# for plain values, such as the text of a frame decoded by haven::as_factor().
+# A text is missing when it matches `na_strings` and either
+# * carries a missing-data code: a negative code, or a code of 90 or above
+#   ("-9. Refused", "97. Refused", "998. Don't know (where to rate)"), or
+# * says nothing but the matched wording: once the code, interviewer markers
+#   such as "{VOL}" and "(VOL)", parenthetical and bracketed asides, the
+#   matched wording, and a few filler words ("I", "to", "answer", "in",
+#   "survey", "other") are taken out, no other word remains ("Refused to
+#   answer", "I don't know", "Not asked in survey", "Other missing",
+#   "9. Missing").
+# So "2. Refused to take sides", "Missing the old system", and "My landlord
+# refused to fix the heat" are kept. The code of a value label is the
+# labeled code, given in `code`; where it is not known (NA, or `code` NULL),
+# it is read from a leading prefix of the text in any of the forms "-9. ",
+# "-9 ", "[-9] ", "(-9) ", "-9: ", or "99 - ".
 .fg_missing_filler <- c("i", "to", "answer", "answers", "the", "a", "an", "of",
-                        "this", "that", "question", "item", "r", "respondent",
-                        "or", "and", "skipped", "skip", "by", "for", "na", "n/a")
+                        "this", "that", "question", "questions", "item", "r",
+                        "respondent", "or", "and", "skipped", "skip", "by", "for",
+                        "na", "n/a", "in", "on", "survey", "interview", "wave",
+                        "data", "here", "it", "me", "vol", "volunteered", "dk",
+                        "rf", "also", "other")
 
-.fg_is_missing_value <- function(x, na_strings) {
-  x <- as.character(x)
-  matched <- .fg_is_missing_label(x, na_strings)
-  if (!any(matched, na.rm = TRUE)) return(matched & FALSE)
-  coded <- grepl("^\\s*-?[0-9]+\\.\\s", x)
-  rest <- gsub(paste(na_strings, collapse = "|"), " ", x, ignore.case = TRUE)
-  words <- strsplit(tolower(rest), "[^a-z0-9/']+")
+# POSIX bracket expressions: "]" comes first inside brackets, and a backslash
+# there is a literal character.
+.fg_code_prefix <- "^\\s*[[(]?(-?[0-9]+)[])]?\\s*[.:)-]?\\s+"
+
+.fg_missing_text <- function(text, na_strings, code = NULL) {
+  text <- as.character(text)
+  n <- length(text)
+  if (!n || !length(na_strings)) return(rep(FALSE, n))
+  matched <- .fg_is_missing_label(text, na_strings) & !is.na(text)
+  if (!any(matched)) return(matched)
+  known <- if (is.null(code)) rep(NA_real_, n) else {
+    if (length(code) != n) {
+      stop("`code` must give one code per text.", call. = FALSE)
+    }
+    suppressWarnings(as.numeric(code))
+  }
+  prefix <- regmatches(text, regexec(.fg_code_prefix, text))
+  parsed <- vapply(prefix, function(m) {
+    if (length(m) >= 2L) as.numeric(m[[2L]]) else NA_real_
+  }, numeric(1))
+  code <- ifelse(is.na(known), parsed, known)
+  core <- sub(.fg_code_prefix, "", text)
+  core <- gsub("\\{[^{}]*\\}", " ", core)
+  core <- gsub("\\([^()]*\\)", " ", core)
+  core <- gsub("\\[[^]]*\\]", " ", core)
+  rest <- gsub(paste(na_strings, collapse = "|"), " ", core, ignore.case = TRUE)
+  rest <- gsub("\\bn/a\\b", " na ", tolower(rest))
+  words <- strsplit(rest, "[^[:alnum:]']+")
   bare <- vapply(words, function(w) {
-    w <- w[nzchar(w)]
-    !length(setdiff(w, .fg_missing_filler))
+    w <- gsub("^'+|'+$", "", w)
+    all(w[nzchar(w)] %in% .fg_missing_filler)
   }, logical(1))
+  coded <- !is.na(code) & (code < 0 | code >= 90)
   matched & (coded | bare)
 }
 
@@ -373,7 +406,7 @@
 
   numeric_codes <- is.numeric(tab$code)
   values <- as.vector(unclass(col))
-  missing_label <- .fg_is_missing_label(tab$label, na_strings)
+  missing_label <- .fg_missing_text(tab$label, na_strings, code = tab$code)
   substantive <- tab[!missing_label, , drop = FALSE]
   tagged <- attr(tab, "tagged")
 
@@ -478,7 +511,7 @@
                     template = rep(NA_character_, n), issue = rep(NA_character_, n),
                     flag = values, stringsAsFactors = FALSE)
   none <- .fg_no_value(values)
-  flagged <- !none & .fg_is_missing_value(values, na_strings)
+  flagged <- !none & .fg_missing_text(values, na_strings)
   out$text[none | flagged] <- NA_character_
   out$rendered_as[none | flagged] <- NA_character_
   out$status[none | flagged] <- "dropped"
@@ -748,9 +781,9 @@
 #' negative codes for missing data; or a field of a supplied record that
 #' holds several values, of which the persona shows the first. It is
 #' "dropped" when the persona leaves it out, which happens when there is no
-#' answer to show: no value, a value whose label matches `na_strings` or
-#' is empty, a value without a label that matches `na_strings` and reads as
-#' a label (see [create_agents_from_data()]), a negative code without a
+#' answer to show: no value, a value whose label is a missing-data label or
+#' is empty, a text value that is a missing-data label (see Rendering
+#' answers in [create_agents_from_survey()]), a negative code without a
 #' label, an SPSS user-defined missing value, a record field that does not
 #' hold a single value, or a variable that is not in the file. An identifier
 #' is dropped too, with the reason "identifier column": a column whose name

@@ -165,6 +165,11 @@ test_that("the missing-data labels of ANES negative codes are left out by defaul
             "-2. Not reported", "-1. Inapplicable", "-1. No answer", "-3. Not applicable",
             "-5. Missing; Not available")
   expect_true(all(.fg_is_missing_label(anes, na)))
+  # Each is missing by the one rule, as a plain value and as the label of its
+  # negative code.
+  expect_true(all(.fg_missing_text(anes, na)))
+  codes <- as.numeric(sub("^(-[0-9]+)\\..*$", "\\1", anes))
+  expect_true(all(.fg_missing_text(anes, na, code = codes)))
   # Answers that merely mention such words are kept.
   kept <- c("2. There is an error", "1. Abortion should be permitted with restrictions",
             "3. Terrorism", "1. Restrict immigration", "4. Postpone the vote",
@@ -714,9 +719,80 @@ test_that("text without a code is missing only when it says nothing but missing-
                "Missing person case", "There is an error", "Terrorism", "Not sure",
                "Don't know enough to say", "I refused the offer", "Evening hours",
                "The kids are missing out")
-  expect_true(all(.fg_is_missing_value(missing, na)))
-  expect_false(any(.fg_is_missing_value(answers, na)))
-  expect_false(any(.fg_is_missing_value(answers, character())))
+  expect_true(all(.fg_missing_text(missing, na)))
+  expect_false(any(.fg_missing_text(answers, na)))
+  expect_false(any(.fg_missing_text(answers, character())))
+})
+
+# The cases the one missing-data rule decides, with the code each shows (NA
+# when the text shows none). The rule must give the same answer for a plain
+# value and for the value label of that code in a labelled column.
+.missing_cases <- data.frame(text = c(
+  "-9. Refused", "-9 Refused", "[-8] Don't know", "(-8) Don't know",
+  "{VOL} Don't know", "Don't know (VOL)", "Don't know/Refused (VOL.)",
+  "Refused (VOL)", "Refused / don't know", "Not asked in survey", "97. Refused",
+  "998. Don't know (where to rate)", "999. Don't recognize (don't know who this is)",
+  "9. Missing", "-7. Insufficient partial, interview deleted",
+  "-2. DK/RF in V241288 or V241289", "-5. Sufficient partial, breakoff",
+  "Inapplicable, legitimate skip", "Refused to answer", "I don't know", "No answer",
+  "Missing; Not available", "Error", "2. Error",
+  as.character(haven::as_factor(haven::labelled(-9, c(Refused = -9)), levels = "both")),
+  "5. Missing the old system", "2. Refused to take sides", "Missing the old system",
+  "I keep missing the bus", "My landlord refused to fix the heat",
+  "Missing person case", "There is an error", "Terrorism", "-3. Strongly disagree",
+  "70 on a 0-100 feeling thermometer", "5 on a scale from 1 (A) to 7 (B)", "Not sure"),
+  code = c(-9, -9, -8, -8, NA, NA, NA, NA, NA, NA, 97, 998, 999, 9, -7, -2, -5,
+           NA, NA, NA, NA, NA, NA, 2, -9, 5, 2, NA, NA, NA, NA, NA, NA, -3, 70, 5, NA),
+  missing = rep(c(TRUE, FALSE), c(25, 12)), stringsAsFactors = FALSE)
+
+test_that("one rule decides whether plain values and value labels are missing", {
+  na <- fg_default_na_strings()
+  cases <- .missing_cases
+  expect_identical(cases$text[[25]], "[-9] Refused")
+  decided <- .fg_missing_text(cases$text, na)
+  expect_identical(cases$text[decided & !cases$missing], character())
+  expect_identical(cases$text[!decided & cases$missing], character())
+
+  # As value labels of the codes they show, in labelled columns.
+  coded <- cases[!is.na(cases$code), ]
+  status <- vapply(seq_len(nrow(coded)), function(i) {
+    col <- haven::labelled(coded$code[[i]], stats::setNames(coded$code[[i]], coded$text[[i]]))
+    .fg_render_column(col, "v", na)$status
+  }, character(1))
+  expect_identical(coded$text[(status == "dropped") != coded$missing], character())
+  expect_identical(.fg_missing_text(coded$text, na, code = coded$code), coded$missing)
+
+  # A known code decides over the text: a label without a code prefix is
+  # missing under a negative code or one of 90 and above, and an answer that
+  # uses missing-data words under a substantive code is kept.
+  labels <- c("Refused to take sides", "Don't know enough to say", "Refused")
+  expect_identical(.fg_missing_text(labels, na, code = c(-9, 98, 3)), c(TRUE, TRUE, TRUE))
+  expect_identical(.fg_missing_text(labels, na, code = c(2, 3, NA)), c(FALSE, FALSE, TRUE))
+  expect_error(.fg_missing_text(labels, na, code = 1:2), "one code per text")
+  # A decimal is not a code prefix, and nothing matched means nothing missing.
+  expect_false(.fg_missing_text("1.5 refused rides", na))
+  expect_identical(.fg_missing_text(c(NA, ""), na), c(FALSE, FALSE))
+  expect_identical(.fg_missing_text(cases$text, character()), rep(FALSE, nrow(cases)))
+})
+
+test_that("a frame decoded with as_factor() and the labelled frame give the same personas", {
+  cfg <- LLMR::llm_config("openai", "example-model")
+  party <- haven::labelled(c(1, 2, -9, -8, 98, 3),
+                           c(Democrat = 1, Republican = 2, Refused = -9, "Don't know" = -8,
+                             "Don't know/Refused (VOL.)" = 98, "Refused to take sides" = 3))
+  d <- data.frame(age = c("30-44", "45-64", "65+", "18-29", "30-44", "45-64"))
+  d$both <- haven::as_factor(party, levels = "both")
+  d$labels <- haven::as_factor(party, levels = "labels")
+  d$coded <- party
+  a <- suppressWarnings(suppressMessages(
+    create_agents_from_data(d, 6, cfg, demographic_cols = "age", rows = 1:6)))
+  r <- persona_rendering_report(a)
+  for (v in c("both", "labels", "coded")) {
+    expect_identical(r$status[r$variable == v] == "dropped",
+                     c(FALSE, FALSE, TRUE, TRUE, TRUE, FALSE), info = v)
+  }
+  expect_false(grepl("[-9] Refused", a$P3$persona_description, fixed = TRUE))
+  expect_true(grepl("Refused to take sides", a$P6$persona_description, fixed = TRUE))
 })
 
 test_that("create_agents() leaves out missing-data labels of the frames it is given", {

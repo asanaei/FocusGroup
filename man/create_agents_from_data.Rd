@@ -76,18 +76,22 @@ Values are rendered according to their column:
 the rules described under Rendering answers in
 \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}: a code is shown as its label; a number
 between the labeled endpoints of a scale is shown in the sentence of
-\code{scale_template}; a label matching \code{na_strings} and a negative code
-without a label are left out; and a field that holds numbers is shown
+\code{scale_template}; a missing-data label and a negative code without a
+label are left out; and a field that holds numbers is shown
 as numbers. The same warnings are given, and the answers read as they
 do when the same data are read from a file by
 \code{\link[=create_agents_from_survey]{create_agents_from_survey()}}. SPSS user-defined missing values, which
 \code{\link[haven:read_spss]{haven::read_sav()}} keeps with \code{user_na = TRUE}, are left out.
-\item Text and factor values are shown as given, except missing-data labels.
-A value is one when it starts with a numeric code and matches
-\code{na_strings} ("-9. Refused", "-3. RESTRICTED"), or when it says nothing
-but wording matched by \code{na_strings} ("Refused to answer", "I don't
-know"). Answers that use such words ("I keep missing the bus", "My
-landlord refused to fix the heat") are kept.
+\item Text and factor values are shown as given, except missing-data labels,
+decided by the rule that decides value labels (see Rendering answers in
+\code{\link[=create_agents_from_survey]{create_agents_from_survey()}}). A value is one when it matches
+\code{na_strings} and starts with a negative code or one of 90 and above
+("-9. Refused", "[-9] Refused" as \code{\link[haven:as_factor]{haven::as_factor()}} writes it with
+\code{levels = "both"}, "97. Refused"), or when it says nothing but the
+matched wording ("Refused to answer", "I don't know", "Don't know
+(VOL)"). Answers that use such words ("I keep missing the bus", "My
+landlord refused to fix the heat", "2. Refused to take sides") are
+kept.
 \item Numbers are shown in full ("100000"); \code{na_strings} does not apply to them.
 }
 

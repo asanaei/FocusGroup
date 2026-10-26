@@ -65,8 +65,8 @@ must be nonnegative and finite, with at least one positive; numeric
 values carrying haven value labels are accepted.}
 
 \item{na_strings}{Character vector of value-label substrings, matched as
-regular expressions and ignoring case, that mark an answer as missing.
-The default covers common terms ("inapplicable", "missing", "refused",
+regular expressions and ignoring case, that mark an answer as missing
+by the rule described under Rendering answers. The default covers common terms ("inapplicable", "missing", "refused",
 "don't know", "not asked", "legitimate skip", "no answer", "not
 applicable", "not available") and the labels the ANES 2024 release gives
 its negative missing-data codes, such as "-3. RESTRICTED", "-6. No post
@@ -164,8 +164,9 @@ following rules that applies, and the rule used is recorded in the
 rendering report described under Value.
 \itemize{
 \item A code with a value label is shown as its label, without a leading code
-of zero or above such as "1. ". A label that matches \code{na_strings} marks
-a missing value, and the answer is left out. Two kinds of label from the
+of zero or above such as "1. ". A missing-data label, as described
+below, marks a missing value, and the answer is left out. Two kinds of
+label from the
 file are shown but flagged, with a warning naming the variable and code:
 a label exactly 80 characters long, since some releases, the ANES 2024
 Stata file among them, cut longer labels at that length; and the label
@@ -184,7 +185,7 @@ An off-scale code such as "99. Haven't thought much about this" after a
 1 to 7 scale is therefore not an endpoint, while a labeled midpoint, as
 in a 0 to 10 scale labeled at 0, 5, and 10, rules out the scale form.
 Negative codes below a scale that starts at zero or above are taken for
-missing-data codes. Labels matching \code{na_strings} are never endpoints, a
+missing-data codes. Missing-data labels are never endpoints, a
 scale with a negative endpoint must be centered on zero, and top or
 bottom codes such as "89 or older" do not make a scale.
 \item A negative number without a label that is not a point on a scale is
@@ -202,10 +203,23 @@ naming the variable and code. Supply its label in \code{value_labels}.
 
 A variable without value labels is shown as stored, with numbers written
 out in full ("100000"). An empty value is left out, and so is a value that
-is a missing-data label: one that starts with a numeric code and matches
-\code{na_strings} ("-9. Refused"), or one that says nothing but wording matched
-by \code{na_strings} ("Refused to answer", "I don't know"). An answer that uses
-such words ("I keep missing the bus") is kept.
+is a missing-data label.
+
+One rule decides whether a value label, or a text value of a variable
+without value labels, is a missing-data label. It is one when it matches
+\code{na_strings} and either carries a missing-data code or says nothing but
+the matched wording. A missing-data code is a negative code or one of 90
+and above: the labeled code of a value label, or else a code that leads
+the text, as in "-9. Refused", "-9 Refused", "[-8] Don't know",
+"(-8) Don't know", "97: Refused", and "98 - Don't know". A text says
+nothing but the matched wording when no word remains once its leading
+code, interviewer markers ("\{VOL\}", "(VOL)"), parenthetical and bracketed
+asides, the matched wording, and filler words such as "I", "to",
+"answer", and "in survey" are taken out: "Refused to answer", "I don't
+know", "Don't know/Refused (VOL.)", "Not asked in survey", and "9.
+Missing" are missing-data labels. Answers that use such words are kept,
+with a substantive code or without one: "2. Refused to take sides",
+"Missing the old system", "My landlord refused to fix the heat".
 
 Answers left out as missing values are announced in a message. Requested
 variables that are not in the file are left out of every persona, and a
