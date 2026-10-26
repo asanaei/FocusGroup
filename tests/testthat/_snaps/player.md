@@ -3,7 +3,7 @@
     [
       "{",
       " \"title\": \"Library opening hours\",",
-      " \"subtitle\": \"Desire-based selection, two responses per question; example-model; October 21, 2026; FocusGroup 0.5.5\",",
+      " \"subtitle\": \"Desire-based selection, two responses per question; example-model; October 26, 2026; FocusGroup 0.5.6\",",
       " \"mode\": \"step\",",
       " \"moderator\": {",
       "  \"id\": \"MOD\",",
@@ -64,7 +64,7 @@
       "    \"The moderator called by name on P2 and P4 at guide item 2.\",",
       "    \"When the moderator's question names one participant, that participant answers next.\",",
       "    \"Two responses per question, plus the call-ons.\",",
-      "    \"Model example-model (openai), run on October 21, 2026 (UTC), with FocusGroup 0.5.5 and LLMR 0.9.0.\",",
+      "    \"Model example-model (openai), run on October 26, 2026 (UTC), with FocusGroup 0.5.6 and LLMR 0.9.0.\",",
       "    \"Replayed from the saved record; no model is called.\"",
       "   ]",
       "  },",
