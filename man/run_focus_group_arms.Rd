@@ -235,7 +235,11 @@ record's. The arguments that the record fixes (\code{n_participants}, \code{guid
 \code{demographics}, \code{survey_responses}, \code{flow}, \code{message_mode},
 \code{max_participant_responses}, \code{on_desire_failure}, \code{moderator_verbatim},
 \code{call_on_silent}, \code{call_on_text}, and \code{handles}) must be left out. A probe
-or an injection at a point the record has already passed is an error, as
+at the branch point itself is asked once, on the rebuilt session, before
+the arms, so that every arm shares its answers, as a probe there is asked
+in the prefix of a new session. A probe or an injection at a point the
+record has already passed is an error, and so is a transcript without
+moderator lines, which has no guide item to continue, as
 are a custom turn-taking flow, whose state cannot be rebuilt, a record
 without a topic, and a participant who has only the placeholder persona of
 an imported transcript; give personas with \code{focus_group_from_transcript(x, personas = ...)}. Everything is checked before any call. Under round robin

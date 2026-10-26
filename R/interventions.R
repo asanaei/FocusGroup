@@ -513,7 +513,11 @@ print.fg_probe <- function(x, ...) {
 #' `demographics`, `survey_responses`, `flow`, `message_mode`,
 #' `max_participant_responses`, `on_desire_failure`, `moderator_verbatim`,
 #' `call_on_silent`, `call_on_text`, and `handles`) must be left out. A probe
-#' or an injection at a point the record has already passed is an error, as
+#' at the branch point itself is asked once, on the rebuilt session, before
+#' the arms, so that every arm shares its answers, as a probe there is asked
+#' in the prefix of a new session. A probe or an injection at a point the
+#' record has already passed is an error, and so is a transcript without
+#' moderator lines, which has no guide item to continue, as
 #' are a custom turn-taking flow, whose state cannot be rebuilt, a record
 #' without a topic, and a participant who has only the placeholder persona of
 #' an imported transcript; give personas with `focus_group_from_transcript(x,
@@ -865,7 +869,7 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
   }
   plan <- priv$prepare_plan(list(), probes)
   for (probe in plan$probes) {
-    early <- intersect(probe$events, priv$fired)
+    early <- intersect(probe$events, setdiff(priv$fired, branch_event))
     if (length(early)) {
       stop("Probe '", probe$label, "' is asked at ", .fg_event_label(early[[1]]),
            ", which a continued session has already passed; ask it at a later point.",
@@ -911,6 +915,14 @@ run_focus_group_arms <- function(topic, config, arms, n_participants = 6,
                                 on_desire_failure = .fg_flow_params(
                                   fg$turn_taking_flow)$on_desire_failure))
   .fg_execute_arms(setup, arms, verbose, run = function() {
+    # A probe at the branch point is asked once, on the rebuilt state, so
+    # that every arm shares its answers, as run_focus_group_arms() asks it
+    # in the prefix of a new session.
+    at_branch <- Filter(function(probe) branch_event %in% probe$events, plan$probes)
+    if (length(at_branch)) {
+      priv$with_records(for (probe in at_branch) priv$run_probe(probe, branch_event, verbose))
+      fg$records$info$branch$prefix_calls <- length(fg$records$calls)
+    }
     priv$branch_out(arms, probes, branch_event, verbose)
   })
 }

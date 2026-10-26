@@ -80,7 +80,8 @@
   argument is a FocusGroup or a result: each arm starts from the record's
   state just before `fg_before_turn(t)`, rebuilt from the record (messages,
   guide item, turns taken, the turn-taking rule's state, the interim summary
-  in force). Settings the record fixes cannot be passed again. A transcript
+  in force). Settings the record fixes cannot be passed again. A probe at
+  the branch point is asked once before the arms, which share it. A transcript
   without moderator lines, which has no guide items to continue, stops with
   an error that says so and how to name or add the moderator.
 

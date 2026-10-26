@@ -665,3 +665,46 @@ test_that("a transcript without moderator lines is not continued, and the error 
     arms = list(same = NULL, alt = fg_injection("Mornings.", fg_before_turn(2), from = "Ben")))
   expect_s3_class(out, "focus_group_arms")
 })
+
+test_that("a probe at the branch point is asked once, before the arms, and shared", {
+  record <- .cont_record()
+  arms <- list(same = NULL, changed = fg_injection("Text.", fg_before_turn(3), from = "P2"))
+  probe <- fg_probe("From 1 to 7, how strongly do you favor longer hours?",
+                    at = fg_before_turn(3), label = "mid", scale = c(1, 7))
+  out <- run_focus_group_arms(record, config = .cont_config(), arms = arms, probes = probe,
+                              verbose = FALSE, seed = 110, .runner = .cont_runner)
+  expect_identical(nrow(out$probes), 3L)
+  expect_true(all(is.na(out$probes$arm)))
+  expect_identical(out$probes$probe, rep("mid", 3L))
+  expect_identical(out$probes$point, rep("fg_before_turn(3)", 3L))
+  for (arm in out$arms) {
+    expect_identical(arm$probes$agent_id, c("P1", "P2", "P3"))
+    expect_identical(sum(arm$calls$call_type == "probe"), 3L)
+  }
+  expect_identical(out$prefix$probes$agent_id, c("P1", "P2", "P3"))
+  expect_identical(out$metadata$prefix_messages, out$arms$same$metadata$branch$prefix_messages)
+  # As in a new session branched at the same point, which asks it in the
+  # prefix.
+  fresh <- run_focus_group_arms(
+    "library hours", config = .cont_config(), n_participants = 3,
+    guide = list(Opening = "Welcome, everyone.",
+                 Engagement = c("Which library hours matter most to you?",
+                                "Who is left out by the current hours?"),
+                 Exploration = "What would you change first?",
+                 Closing = "Thank you all; this closes the session."),
+    flow = "round_robin", max_participant_responses = 2, moderator_verbatim = c(1, 5),
+    arms = arms, probes = probe, seed = 110, verbose = FALSE, .runner = .cont_runner)
+  expect_identical(fresh$probes$arm, out$probes$arm)
+  expect_identical(fresh$probes$agent_id, out$probes$agent_id)
+
+  # Hard negatives: a point already passed is still refused, and a later
+  # point is asked in each arm.
+  expect_error(run_focus_group_arms(record, config = .cont_config(), arms = arms,
+                                    probes = fg_probe("Q?", at = fg_before_turn(2)),
+                                    verbose = FALSE, .runner = .cont_runner),
+               "already passed")
+  late <- run_focus_group_arms(record, config = .cont_config(), arms = arms,
+                               probes = fg_probe("Q?", at = "end", label = "end"),
+                               verbose = FALSE, seed = 110, .runner = .cont_runner)
+  expect_identical(sort(unique(late$probes$arm)), c("changed", "same"))
+})
