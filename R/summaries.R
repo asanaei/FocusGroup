@@ -119,7 +119,13 @@
 #' A claim of change must cite two messages of one speaker, earlier first.
 #' Every handle of the form `P` and a number in a claim must be on the
 #' roster; a participant the text names must be among the claim's speakers
-#' or the speaker of a message it cites as context; a claim that is not
+#' or the speaker of a message it cites as context; any speaker the text
+#' names, by the label shown to the model or, for an imported transcript, by
+#' the speaker's name (matched in its case, as a whole word), must be among
+#' the claim's speakers or the speakers of the messages it cites, unless the
+#' name with a word beside it repeats a cited message ("open in May" from a
+#' message asking about May), so that "Ben said ..." citing only Ana's
+#' message fails; a claim that is not
 #' `"not_stated"` may not name a participant with no message in the unit; a
 #' claim that a participant said nothing fails when that participant spoke;
 #' and a user ID or name the model was not shown, as a speaker's label or in
@@ -778,6 +784,43 @@ fg_turns <- function(x) {
   map[!duplicated(names(map))]
 }
 
+# The names by which a claim can name a speaker, each mapped to the label the
+# speaker is shown under: every label shown to the model, and each handle
+# that is the speaker's own ID, as the names of an imported transcript are,
+# where the speaker is shown under another label.
+.fg_speaker_names <- function(handles, labels) {
+  labels <- setdiff(labels[!is.na(labels) & nzchar(labels)], "System")
+  own <- !is.na(handles$handle) & handles$handle == handles$speaker_id &
+    handles$handle != handles$label & nzchar(handles$handle) & handles$handle != "System"
+  map <- c(stats::setNames(labels, labels),
+           stats::setNames(handles$label[own], handles$handle[own]))
+  map[!duplicated(names(map))]
+}
+
+# Whether every occurrence of `name` in `text` repeats the words of one of
+# `texts`: the name with the word before or after it occurs in that text, as
+# "open in May" repeats a message that asks about May.
+.fg_name_repeated <- function(name, text, texts) {
+  texts <- texts[!is.na(texts) & nzchar(texts)]
+  if (!length(texts)) return(FALSE)
+  words <- .fg_words(gsub("'s\\b", "", text, perl = TRUE))
+  target <- .fg_words(name)
+  n <- length(target)
+  if (!n || length(words) < n) return(FALSE)
+  at <- which(vapply(seq_len(length(words) - n + 1L), function(i) {
+    identical(words[i:(i + n - 1L)], target)
+  }, logical(1)))
+  if (!length(at)) return(FALSE)
+  said <- vapply(texts, function(t) paste0(" ", paste(.fg_words(t), collapse = " "), " "),
+                 character(1))
+  all(vapply(at, function(i) {
+    pairs <- c(if (i > 1L) paste(c(words[i - 1L], target), collapse = " "),
+               if (i + n <= length(words)) paste(c(target, words[i + n]), collapse = " "))
+    any(vapply(pairs, function(p) any(grepl(paste0(" ", p, " "), said, fixed = TRUE)),
+               logical(1)))
+  }, logical(1)))
+}
+
 # Whether `name` occurs as a whole word, in any case, in one of `texts`.
 .fg_name_in_texts <- function(name, texts) {
   texts <- texts[!is.na(texts) & nzchar(texts)]
@@ -882,6 +925,7 @@ fg_turns <- function(x) {
     speaker_labels = unique(c(segment$roster$label, msgs$label)),
     label_to_id = stats::setNames(segment$handles$speaker_id, segment$handles$label),
     hidden_names = hidden,
+    speaker_names = .fg_speaker_names(segment$handles, unique(c(segment$roster$label, msgs$label))),
     probes = probes,
     include_probes = include_probes,
     transcript_ngrams = unique(c(source$transcript_ngrams,
@@ -2013,6 +2057,35 @@ fg_turns <- function(x) {
     check("labels", !length(hidden), sprintf(
       "%s uses the name %s; refer to that speaker as %s.", label, paste(hidden, collapse = ", "),
       paste(unname(ctx$hidden_names[hidden]), collapse = ", ")))
+  }
+
+  # A speaker named in the text, by label or by an imported name (matched in
+  # its case, as a whole word), is among the claim's speakers or the speakers
+  # of the messages it cites, so that no statement is credited to the wrong
+  # person by name. A name that repeats the words of a cited message ("open
+  # in May") is not a reference to its speaker.
+  names_map <- ctx$speaker_names
+  names_map <- names_map[!names(names_map) %in% names(ctx$hidden_names) &
+                           !names_map %in% loose]
+  if (length(names_map)) {
+    cited <- valid(c(claim$evidence, claim$context))
+    cited_by <- unique(c(claim$speakers, unname(ctx$label_of[as.character(cited)]), probe_by))
+    cited_text <- c(unname(ctx$text_of[as.character(cited)]),
+                    if (length(probe_by)) as.character(ctx$probes$answer[
+                      ctx$probes$key %in% claim$probe_evidence]))
+    named_here <- names(names_map)[vapply(names(names_map), function(n) {
+      grepl(.fg_label_pattern(n), claim$text, perl = TRUE)
+    }, logical(1))]
+    uncited <- named_here[!names_map[named_here] %in% cited_by]
+    uncited <- uncited[!vapply(uncited, .fg_name_repeated, logical(1),
+                               text = claim$text, texts = cited_text)]
+    check("named_speakers", !length(uncited), paste(vapply(uncited, function(n) {
+      shown <- names_map[[n]]
+      sprintf(paste0("%s names %s in its text but cites no message by %s; cite the ",
+                     "message by %s it reports as evidence or context, or do not name %s."),
+              label, if (identical(n, shown)) n else sprintf("%s (shown as %s)", n, shown),
+              shown, shown, n)
+    }, character(1)), collapse = " "))
   }
 
   # A claim for the whole group cites every participant who spoke on each

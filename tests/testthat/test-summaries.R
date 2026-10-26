@@ -694,6 +694,53 @@ test_that("names inside messages reach the model as written; quotes are cut from
                fixed = TRUE)
 })
 
+test_that("a claim cannot credit a statement to someone it does not cite, by name", {
+  transcript <- data.frame(
+    speaker = c("Moderator", "Ana", "Ben", "Moderator", "Ben"),
+    text = c("Welcome, everyone. What do you make of the new library hours?",
+             "They help working parents like me; evenings matter most.",
+             "I see it differently. Mornings are now far too crowded.",
+             "Ben, say more about what changed in the mornings.",
+             "Staff are stretched thin before noon, so lines are longer."))
+  fg <- focus_group_from_transcript(transcript, topic = "library hours")
+  claim <- function(text, evidence = list(2), context = list()) {
+    list(id = 1, unit = "session", kind = "position", status = "stated", text = text,
+         speakers = list("P1"), evidence = evidence, context = context,
+         quotes = list(list(message_id = 2, speaker = "P1", text = "evenings matter most")))
+  }
+  run <- function(claim) {
+    tryCatch(summarize_focus_group(fg, .sum_config(), by = "session",
+                                   .runner = .sum_runner(.sum_one_claim(claim))$runner),
+             focusgroup_summary_check_failure = function(e) e)
+  }
+  # Ana's statement credited to Ben, who appears only by his imported name.
+  err <- run(claim("Ben said that evenings matter most for working parents."))
+  expect_s3_class(err, "focusgroup_summary_check_failure")
+  expect_true("named_speakers" %in% err$checks$check[!err$checks$passed])
+  expect_match(conditionMessage(err), paste(
+    "names Ben (shown as P2) in its text but cites no message by P2"), fixed = TRUE)
+  # Naming another participant requires citing that participant's message.
+  err <- run(claim("P1 agreed with Ben that evenings matter most."))
+  expect_s3_class(err, "focusgroup_summary_check_failure")
+  expect_match(conditionMessage(err), "cites no message by P2", fixed = TRUE)
+  out <- run(claim("P1 disagreed with Ben, who found the mornings too crowded.",
+                   context = list(3)))
+  expect_s3_class(out, "focus_group_summary")
+  expect_s3_class(run(claim("P1 said evenings matter most.")), "focus_group_summary")
+  # "Ana" occurs in no message, so the name is refused as before.
+  expect_match(conditionMessage(run(claim("Ana said evenings matter most."))),
+               "uses the name Ana; refer to that speaker as P1", fixed = TRUE)
+  # The moderator is a label too: naming it needs a moderator line cited.
+  err <- run(claim("Moderator asked and P1 said evenings matter most."))
+  expect_match(conditionMessage(err), "names Moderator in its text", fixed = TRUE)
+  expect_s3_class(run(claim("Moderator asked and P1 said evenings matter most.",
+                            context = list(1))), "focus_group_summary")
+  # Names are matched in their case and as whole words: "ben" and "Benefits"
+  # are not Ben.
+  expect_s3_class(run(claim("Benefits for working parents: evenings matter most to P1.")),
+                  "focus_group_summary")
+})
+
 test_that("with permuted handles, a handle in a message names the speaker it named", {
   result <- .sum_session(handles = c(P1 = "P2", P2 = "P3", P3 = "P1"), engine_fields = TRUE)
   tr <- result$transcript
@@ -794,6 +841,13 @@ test_that("imported speakers named Will and May leave the words will and may int
   expect_identical(out$quotes$verbatim, "Will the library stay open in May")
   expect_identical(c(out$quotes$start, out$quotes$end), c(1L, 33L))
   expect_identical(out$claims$speaker_ids[[1]], "Will")
+
+  # Hard negative: May the speaker, credited with P1's question, fails.
+  claim$text <- "May asked whether the library will stay open."
+  err <- tryCatch(summarize_focus_group(fg, .sum_config(), by = "session",
+                                        .runner = .sum_runner(.sum_one_claim(claim))$runner),
+                  focusgroup_summary_check_failure = function(e) e)
+  expect_match(conditionMessage(err), "names May (shown as P2) in its text", fixed = TRUE)
 })
 
 test_that("a voice whose name is a free label keeps it, and participants take others", {

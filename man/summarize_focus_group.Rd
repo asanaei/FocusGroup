@@ -190,7 +190,13 @@ cites as evidence.
 A claim of change must cite two messages of one speaker, earlier first.
 Every handle of the form \code{P} and a number in a claim must be on the
 roster; a participant the text names must be among the claim's speakers
-or the speaker of a message it cites as context; a claim that is not
+or the speaker of a message it cites as context; any speaker the text
+names, by the label shown to the model or, for an imported transcript, by
+the speaker's name (matched in its case, as a whole word), must be among
+the claim's speakers or the speakers of the messages it cites, unless the
+name with a word beside it repeats a cited message ("open in May" from a
+message asking about May), so that "Ben said ..." citing only Ana's
+message fails; a claim that is not
 \code{"not_stated"} may not name a participant with no message in the unit; a
 claim that a participant said nothing fails when that participant spoke;
 and a user ID or name the model was not shown, as a speaker's label or in

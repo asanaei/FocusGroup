@@ -96,7 +96,10 @@
 * `summarize_focus_group()` sends messages to the model as recorded. It used
   to replace names inside the text, which credited statements to the wrong
   participant under permuted handles and corrupted IDs and names that are
-  ordinary words ("teacher", "May").
+  ordinary words ("teacher", "May"). A claim whose text names a speaker, by
+  label or by an imported speaker's name, must cite a message by that
+  speaker (check `named_speakers`), so a claim that says "Ben said ..." while
+  citing Ana's message is sent back.
 
 * Neutral handles never take another agent's ID, the moderator's included.
 
