@@ -1,52 +1,59 @@
 ## Update of FocusGroup 0.5.2
 
-This is an update of FocusGroup 0.5.2, which is on CRAN. Version 0.5.3
-corrects results that were wrong without any warning:
+This is an update of FocusGroup 0.5.2, which is on CRAN. Versions 0.5.3 to
+0.5.5 were development versions and never submitted; NEWS.md lists their
+changes under their own headings. Among them are corrections of results that
+were wrong without any warning:
 
+- Survey answers without a value label were dropped from personas, missing-
+  data labels such as "-9. Refused" were shown as answers, labels cut at
+  Stata's 80 characters went unnoticed, and numbers were written as "1e+05".
 - `create_agents_from_survey()` applied its `rows` selector after dropping
-  respondents without demographic values, so it could return other
-  respondents than the ones selected.
-- A sampling-weight column was rendered into the personas as if it were one
-  of the respondent's answers.
-- Invalid sampling weights and row selectors were repaired silently, which
-  changed the sample; they are now refused with an error that names the
-  input.
-- The documented default of two participant responses per question did not
-  apply, so an untouched `run_focus_group()` call exceeded its own
-  `max_calls` limit.
-- A session that failed partway lost the turns it had completed; they are
-  now returned with the error.
-- Token usage that a provider did not report was recorded as zero; it is now
-  unknown (`NA`), and results count the calls whose usage is unknown.
-- Imported transcripts kept only speaker and text, and the optional Studio
-  read uploaded CSV files with type inference, which merged speaker ids such
-  as `001` and `01`.
+  respondents, and a sampling-weight column was rendered as an answer.
+- Under desire-based turn-taking, the participant who closed one question
+  could not open the next, and the participant a moderator addressed by name
+  did not get the turn.
+- The agents saw the identifiers a user gave them; they now see neutral
+  labels.
+- `summarize()` reused a session's scripted runner, and a provider's retries
+  changed later random draws.
 
-NEWS.md lists each change in behavior and names each new error.
+New in these versions: the moderator calls on participants who have not
+spoken, `fg_player()` writes a session to a self-contained HTML file,
+`summarize_focus_group()` checks every quoted claim against the transcript in
+code, `format()` writes a session as a JSON Lines file that
+`focus_group_from_transcript()` reads back, and `run_focus_group_arms()`
+continues a recorded session under alternative versions of a turn.
+
+## Data
+
+The package ships `anes_2024_personas` (a 25 KB `.rda`): 100 respondents of
+the ANES 2024 Time Series Study, public release, with the source and
+citation given in its help page. The same data were bundled with LLMR under
+the same name; they now live with the two packages that use them
+(FocusGroup and LLMRpanel), rebuilt from the May 19, 2026 release, and LLMR
+will drop its copy in its next release. The build script is in the package
+sources (`data-raw/`, excluded from the build).
 
 ## Dependencies
 
-FocusGroup Imports LLMR (>= 0.8.8) for all model calls. It Suggests
-LLMR.shiny (>= 0.1.3) for the optional Studio, and so requires LLMR.shiny
-0.1.3, which is submitted to CRAN ahead of this package. The Studio now uses
-that version's usage counters and its options for reading a CSV file without
-type inference. It checks the installed LLMR.shiny version and refuses to
-start with an older one. Every use of LLMR.shiny and of the other suggested
-packages is guarded with `requireNamespace()`.
+FocusGroup Imports LLMR (>= 0.8.8) and, new in this release, jsonlite. It
+Suggests LLMR.shiny (>= 0.1.3) for the optional Studio; LLMR.shiny 0.1.3 is
+submitted to CRAN ahead of this package. Every use of LLMR.shiny and of the
+other suggested packages is guarded with `requireNamespace()`.
 
 ## Examples and tests
 
 The examples run offline, through the package's `.runner` argument or the
-bundled ANES records. The `\donttest{}` block of 0.5.2, a live session behind
-a check for `GROQ_API_KEY`, has been removed, so no example makes a network
-call in any environment. The test suite mocks every model call.
+bundled data; `fg_player()` writes to `tempfile()` and does not open a
+browser outside interactive use. No example or test makes a network call,
+and the test suite mocks every model call.
 
 ## Test environments
 
-- local macOS 26.7.1 (aarch64-apple-darwin20), R 4.4.3:
-  `R CMD check --as-cran` on the built tarball, once against LLMR 0.8.11
-  (the CRAN version) and once against LLMR 0.8.14, which is submitted ahead
-  of this package, both with LLMR.shiny 0.1.3.
+- local macOS 26.7.1 (aarch64-apple-darwin20), R 4.4.3: `R CMD check
+  --as-cran` on the built tarball, against LLMR 0.9.0 (the CRAN version) and
+  LLMR.shiny 0.1.3.
 
 ## R CMD check results
 
