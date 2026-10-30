@@ -24,9 +24,7 @@ readability, recurring themes, or participation patterns differ? FocusGroup
 addresses these questions for simulated sessions and imported transcripts.
 
 Descriptive analysis runs offline. Thematic analysis and model summaries are
-separate, opt-in model tasks. A live session or requested model analysis uses
-LLMR, requires a provider key in its usual environment variable, and receives
-an explicit model configuration.
+separate, opt-in model tasks. A live session or requested model analysis uses LLMR, requires a provider key in its usual environment variable, and receives an explicit model configuration. To set up a key, follow [Set up a model](https://asanaei.github.io/LLMR/articles/setup.html).
 
 ## Run a focus group
 

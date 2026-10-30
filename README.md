@@ -29,14 +29,11 @@ without a provider key. See "Use Focus Studio" below.
 ## Install and configure a model
 
 ```r
-install.packages("LLMR")
-remotes::install_github("asanaei/FocusGroup")
+install.packages("FocusGroup")
+# remotes::install_github("asanaei/FocusGroup")
 ```
 
-API operations that generate model output require an explicit `config`. Under
-the hood, FocusGroup calls language models through the LLMR package, which reads
-your API key from an environment variable such as `OPENAI_API_KEY`. Set it once
-in your `~/.Renviron` file, a plain text file in your home directory.
+FocusGroup calls models through LLMR, which reads your key from its default variable, such as `OPENAI_API_KEY`, in `~/.Renviron`. Operations that generate model output need an explicit `config`. If you have never used an API, follow [Set up a model](https://asanaei.github.io/LLMR/articles/setup.html).
 
 ```r
 library(FocusGroup)
